@@ -8,6 +8,10 @@ const cors = require('cors');
 const Joi = require('joi');
 const rateLimit = require('express-rate-limit');
 const winston = require('winston');
+require('dotenv').config();
+
+// Import routes
+const authRoutes = require('./routes/auth');
 
 const app = express();
 const server = http.createServer(app);
@@ -49,6 +53,9 @@ const apiLimiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api/', apiLimiter);
+
+// Mount authentication routes
+app.use('/auth', authRoutes);
 
 // Device validation schema
 const deviceValidationSchema = Joi.object({

@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: zeptac-backend
+    env: node
+    plan: free
+    region: oregon
+    repo: https://github.com/Haru65/ZEPTAC-DEMO-BACKEND.git
+    branch: main
+    root: BACKEND
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: "3001"
+      - key: MONGODB_URI
+        value: ""
+      - key: FRONTEND_URLS
+        value: "https://zeptac-iot-platform-vp3h-kljhebkdt-haru65s-projects.vercel.app,http://localhost:5173"

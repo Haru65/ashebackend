@@ -14,7 +14,7 @@ const server = http.createServer(app);
 
 const io = socketIo(server, {
   cors: {
-    origin: ["https://zeptac-iot-platform-vp3h-kljhebkdt-haru65s-projects.vercel.app", "http://localhost:5175"],
+    origin: ["https://zeptac-iot-platform-vp3h-kljhebkdt-haru65s-projects.vercel.app", "http://localhost:5175","https://zeptac-iot-platform-vp3h.vercel.app"],
     methods: ["GET", "POST"],
     credentials: true
   }

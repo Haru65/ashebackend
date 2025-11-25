@@ -13,9 +13,9 @@ class MQTTService {
     this.lastDeviceTimestamp = 0;
     this.connectionStatus = { device: false };
     
-    // Device activity tracking - keep connected for 60 seconds after last message
+    // Device activity tracking - keep connected for 120 seconds after last message
     this.deviceLastActivity = new Map(); // deviceId -> timestamp
-    this.DEVICE_TIMEOUT = 60000; // 60 seconds (increased from 30 for more stability)
+    this.DEVICE_TIMEOUT = 120000; // 120 seconds (2 minutes - plenty of buffer for 10 sec intervals)
     
     // Memory-based acknowledgment tracking
     this.pendingCommands = new Map(); // commandId -> command details

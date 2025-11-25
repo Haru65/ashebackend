@@ -13,9 +13,10 @@ class MQTTService {
     this.lastDeviceTimestamp = 0;
     this.connectionStatus = { device: false };
     
-    // Device activity tracking - keep connected for 120 seconds after last message
+    // Device activity tracking - keep connected for 15 seconds after last message
+    // Device sends every 5 seconds, so 15 seconds = 3x the interval (allows 2 missed messages)
     this.deviceLastActivity = new Map(); // deviceId -> timestamp
-    this.DEVICE_TIMEOUT = 120000; // 120 seconds (2 minutes - plenty of buffer for 10 sec intervals)
+    this.DEVICE_TIMEOUT = 15000; // 15 seconds
     
     // Memory-based acknowledgment tracking
     this.pendingCommands = new Map(); // commandId -> command details
@@ -135,22 +136,39 @@ class MQTTService {
       }
     });
 
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_LOGS = 3; // Only log first 3 reconnect attempts
+
     this.client.on('close', () => {
-      this.connectionStatus.device = false;
-      console.log('❌ MQTT broker disconnected');
+      // Don't set connectionStatus to false - rely on device activity timeout instead
+      if (reconnectAttempts < MAX_RECONNECT_LOGS) {
+        console.log('⚠️ MQTT broker connection closed, will auto-reconnect...');
+      }
     });
 
     this.client.on('error', err => {
-      this.connectionStatus.device = false;
-      console.error('❌ MQTT client error:', err);
+      // Don't set connectionStatus to false - rely on device activity timeout instead
+      if (reconnectAttempts < MAX_RECONNECT_LOGS) {
+        console.error('❌ MQTT client error:', err.message || err);
+      }
     });
 
     this.client.on('offline', () => {
-      console.log('📱 MQTT client is offline');
+      if (reconnectAttempts < MAX_RECONNECT_LOGS) {
+        console.log('📱 MQTT client is offline, reconnecting...');
+      }
     });
 
     this.client.on('reconnect', () => {
-      console.log('🔄 Device 123 client reconnecting...');
+      reconnectAttempts++;
+      if (reconnectAttempts <= MAX_RECONNECT_LOGS) {
+        console.log(`🔄 MQTT reconnection attempt ${reconnectAttempts}...`);
+      }
+    });
+    
+    this.client.on('connect', () => {
+      // Reset reconnect counter on successful connection
+      reconnectAttempts = 0;
     });
   }
 

@@ -12,30 +12,25 @@ const deviceBroker = {
   dataTopic: defaultDataTopic,
   commandTopic: defaultCommandTopic,
   options: {
-    clientId: process.env.MQTT_CLIENT_ID || deviceId,
+    clientId: process.env.MQTT_CLIENT_ID || 'backend_server_123',
     username: process.env.MQTT_USERNAME || process.env.MQTT_USER || 'zeptac_iot',
     password: process.env.MQTT_PASSWORD || process.env.MQTT_PASS || 'ZepIOT@123',
-    keepalive: parseInt(process.env.MQTT_KEEPALIVE || '60', 10),
-    reconnectPeriod: parseInt(process.env.MQTT_RECONNECT_PERIOD || '5000', 10),
-    connectTimeout: parseInt(process.env.MQTT_CONNECT_TIMEOUT || '30000', 10),
-    clean: process.env.MQTT_CLEAN ? process.env.MQTT_CLEAN === 'true' : true,
-    rejectUnauthorized: process.env.MQTT_REJECT_UNAUTHORIZED ? process.env.MQTT_REJECT_UNAUTHORIZED === 'true' : false,
-    protocolVersion: parseInt(process.env.MQTT_PROTOCOL_VERSION || '4', 10),
-    queueQoSZero: process.env.MQTT_QUEUE_QOS_ZERO ? process.env.MQTT_QUEUE_QOS_ZERO === 'true' : false,
+    keepalive: 60,
+    reconnectPeriod: 5000,
+    connectTimeout: 30000,
+    clean: true,
+    rejectUnauthorized: false,
+    protocolVersion: 4,
+    queueQoSZero: true,
     will: {
-      topic: process.env.MQTT_WILL_TOPIC || `devices/${deviceId}/status`,
+      topic: `devices/${deviceId}/status`,
       payload: JSON.stringify({
         status: 'offline',
         timestamp: new Date().toISOString(),
-        clientId: process.env.MQTT_CLIENT_ID || deviceId
+        clientId: 'backend_server_123'
       }),
-      qos: parseInt(process.env.MQTT_WILL_QOS || '1', 10),
-      retain: process.env.MQTT_WILL_RETAIN ? process.env.MQTT_WILL_RETAIN === 'true' : true
-    },
-    properties: {
-      sessionExpiryInterval: parseInt(process.env.MQTT_SESSION_EXPIRY || '300', 10),
-      receiveMaximum: parseInt(process.env.MQTT_RECEIVE_MAX || '100', 10),
-      maximumPacketSize: parseInt(process.env.MQTT_MAX_PACKET || '100000', 10)
+      qos: 1,
+      retain: true
     }
   }
 };

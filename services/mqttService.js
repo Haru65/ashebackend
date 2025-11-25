@@ -36,13 +36,13 @@ class MQTTService {
     this.client = mqtt.connect(deviceBroker.url, deviceBroker.options);
     this.setupEventHandlers(io);
     
-    // Start periodic connection status broadcaster (every 2 seconds)
+    // Start periodic connection status broadcaster (every 5 seconds to match device data rate)
     setInterval(() => {
       if (this.socketIO) {
         const connectionStatus = this.getConnectionStatus();
         this.socketIO.emit('connectionStatus', connectionStatus);
       }
-    }, 2000);
+    }, 5000); // Changed from 2000ms to 5000ms
     
     // Initialize device management service
     try {
@@ -980,12 +980,12 @@ class MQTTService {
   }
 
   getConnectionStatus() {
-    // Check if MQTT broker is connected AND if we have recent device activity
-    const brokerConnected = this.connectionStatus.device;
+    // Only check if we have recent device activity
+    // Don't rely on MQTT broker status as it can be unreliable
     const deviceActive = this.isAnyDeviceActive();
     
     return {
-      device: brokerConnected && deviceActive
+      device: deviceActive
     };
   }
 

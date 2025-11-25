@@ -13,6 +13,10 @@ class MQTTService {
     this.lastDeviceTimestamp = 0;
     this.connectionStatus = { device: false };
     
+    // Device activity tracking - keep connected for 30 seconds after last message
+    this.deviceLastActivity = new Map(); // deviceId -> timestamp
+    this.DEVICE_TIMEOUT = 30000; // 30 seconds
+    
     // Memory-based acknowledgment tracking
     this.pendingCommands = new Map(); // commandId -> command details
     this.acknowledgmentTimeouts = new Map(); // commandId -> timeout handler
@@ -90,6 +94,11 @@ class MQTTService {
         // Handle different topic types
         if (topicType === 'data') {
           console.log(`📈 Data message received from device ${deviceId} - processing telemetry`);
+          
+          // Track device activity - mark as active
+          this.deviceLastActivity.set(deviceId, Date.now());
+          this.connectionStatus.device = true; // Mark MQTT broker connection as active
+          
           const deviceInfo = transformDeviceData(payload, topic);
           console.log('🔄 Transformed Device Info:', JSON.stringify(deviceInfo, null, 2));
           
@@ -103,6 +112,10 @@ class MQTTService {
           console.log('💾 Updated device data and notified frontend');
         } else if (topicType === 'commands') {
           console.log(`📋 Commands message received from device ${deviceId} - checking for acknowledgments`);
+          
+          // Track device activity for command acknowledgments too
+          this.deviceLastActivity.set(deviceId, Date.now());
+          
           this.handleCommandMessage(payload);
         }
         
@@ -959,15 +972,42 @@ class MQTTService {
   }
 
   getConnectionStatus() {
-    return this.connectionStatus;
+    // Check if MQTT broker is connected AND if we have recent device activity
+    const brokerConnected = this.connectionStatus.device;
+    const deviceActive = this.isAnyDeviceActive();
+    
+    return {
+      device: brokerConnected && deviceActive
+    };
   }
 
   getLastTimestamp() {
     return this.lastDeviceTimestamp;
   }
 
-  isDeviceConnected() {
-    return this.connectionStatus.device;
+  isDeviceConnected(deviceId = null) {
+    // If checking MQTT broker connection
+    if (!deviceId) {
+      return this.connectionStatus.device;
+    }
+    
+    // If checking specific device activity
+    const lastActivity = this.deviceLastActivity.get(deviceId);
+    if (!lastActivity) return false;
+    
+    const timeSinceActivity = Date.now() - lastActivity;
+    return timeSinceActivity < this.DEVICE_TIMEOUT;
+  }
+  
+  // Check if any device is active
+  isAnyDeviceActive() {
+    const now = Date.now();
+    for (const [deviceId, lastActivity] of this.deviceLastActivity.entries()) {
+      if (now - lastActivity < this.DEVICE_TIMEOUT) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // Update device status in MongoDB when data is received

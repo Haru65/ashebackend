@@ -12,43 +12,101 @@ function transformDeviceData(payload, topic) {
   // Use device ID from topic, not from payload
   const deviceId = deviceIdFromTopic;
   
+  // Extract parameters from payload (could be in 'Parameters' key or at root level)
+  const params = payload.Parameters || payload;
+  
+  // Build metrics array with individual values
+  const metrics = [];
+  
+  // Add LOG number if present
+  if (params.LOG !== undefined) {
+    metrics.push({
+      type: 'LOG',
+      value: params.LOG,
+      icon: 'bi-journal-text'
+    });
+  }
+  
+  // Add EVENT status
+  if (params.EVENT !== undefined) {
+    metrics.push({
+      type: 'EVENT',
+      value: params.EVENT,
+      icon: 'bi-exclamation-circle'
+    });
+  }
+  
+  // Add Reference voltages (REF1, REF2, REF3)
+  if (params.REF1 !== undefined) {
+    metrics.push({
+      type: 'REF1',
+      value: params.REF1,
+      icon: 'bi-graph-up'
+    });
+  }
+  if (params.REF2 !== undefined) {
+    metrics.push({
+      type: 'REF2',
+      value: params.REF2,
+      icon: 'bi-graph-up'
+    });
+  }
+  if (params.REF3 !== undefined) {
+    metrics.push({
+      type: 'REF3',
+      value: params.REF3,
+      icon: 'bi-graph-up'
+    });
+  }
+  
+  // Add DC Voltage
+  if (params.DCV !== undefined) {
+    metrics.push({
+      type: 'DCV',
+      value: params.DCV,
+      icon: 'bi-battery-charging'
+    });
+  }
+  
+  // Add DC Current
+  if (params.DCI !== undefined) {
+    metrics.push({
+      type: 'DCI',
+      value: params.DCI,
+      icon: 'bi-lightning-charge'
+    });
+  }
+  
+  // Add AC Voltage
+  if (params.ACV !== undefined) {
+    metrics.push({
+      type: 'ACV',
+      value: params.ACV,
+      icon: 'bi-battery'
+    });
+  }
+  
+  // Add AC Current
+  if (params.ACI !== undefined) {
+    metrics.push({
+      type: 'ACI',
+      value: params.ACI,
+      icon: 'bi-lightning'
+    });
+  }
+  
   return {
     id: deviceId,
     name: payload.API ?? `Device-${deviceId}`,
     icon: 'bi-device',
     type: 'IoT Sensor',
-    location: payload.LATITUDE && payload.LONGITUDE && (payload.LATITUDE !== '00°00\'' && payload.LONGITUDE !== '000°00\'')
-      ? `${payload.LATITUDE}, ${payload.LONGITUDE}` : "Mumbai, India",
-    status: payload.EVENT ?? "NORMAL",
-    lastSeen: payload.TimeStamp ?? new Date().toISOString(),
+    location: params.LATITUDE && params.LONGITUDE && (params.LATITUDE !== '00°00\'' && params.LONGITUDE !== '000°00\'')
+      ? `${params.LATITUDE}, ${params.LONGITUDE}` : "Mumbai, India",
+    status: params.EVENT ?? "NORMAL",
+    lastSeen: params.TimeStamp ?? new Date().toISOString(),
     timestamp: Date.now(),
     source: `device-${deviceId}`,
-    metrics: [
-      // Add Device ID as first metric
-      {
-        type: 'Device ID',
-        value: deviceId,
-        icon: 'bi-hash'
-      },
-      // Add Message Type
-      {
-        type: 'Message Type',
-        value: payload['Message Type'] || 'LOG DATA',
-        icon: 'bi-envelope'
-      },
-      // Add Sender
-      {
-        type: 'Sender',
-        value: payload.Sender || 'Device',
-        icon: 'bi-send'
-      },
-      // Add Parameters as JSON
-      {
-        type: 'Parameters',
-        value: JSON.stringify(payload.Parameters || payload, null, 2),
-        icon: 'bi-code-square'
-      }
-    ]
+    metrics: metrics
   };
 }
 

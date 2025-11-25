@@ -724,6 +724,74 @@ class MQTTService {
   }
 
   // Send complete settings payload - this is the main method used by all configuration changes
+  // Value mappings - Convert display values to integer codes for device compatibility
+  mapValueToCode(fieldName, value) {
+    // Skip if value is already a number
+    if (typeof value === 'number') return value;
+    
+    const mappings = {
+      'Electrode': {
+        'Cu/cuso4': 0,
+        'CuCuSO4': 0,
+        'Zinc': 1,
+        'Ag/AgCl': 2,
+        'AgAgSO4': 2,
+        'Custom': 3
+      },
+      'Event': {
+        'Normal': 0,
+        'Interrupt': 1,
+        'Manual': 2,
+        'DEPOL': 3,
+        'DPOL': 3,
+        'Instant': 4,
+        'INST': 4
+      },
+      'Manual Mode Action': {
+        'off': 0,
+        'stop': 0,
+        'On': 1,
+        'start': 1
+      },
+      'Instant Mode': {
+        'Daily': 0,
+        'daily': 0,
+        'Weekly': 1,
+        'weekly': 1,
+        0: 0,
+        1: 1
+      }
+    };
+
+    if (mappings[fieldName] && mappings[fieldName][value] !== undefined) {
+      console.log(`🔄 Mapped ${fieldName}: "${value}" → ${mappings[fieldName][value]}`);
+      return mappings[fieldName][value];
+    }
+    
+    return value; // Return original if no mapping exists
+  }
+
+  // Apply value mappings to entire payload Parameters object
+  applyValueMappings(parameters) {
+    const mapped = { ...parameters };
+    
+    // Apply mappings to specific fields
+    if (mapped['Electrode'] !== undefined) {
+      mapped['Electrode'] = this.mapValueToCode('Electrode', mapped['Electrode']);
+    }
+    if (mapped['Event'] !== undefined) {
+      mapped['Event'] = this.mapValueToCode('Event', mapped['Event']);
+    }
+    if (mapped['Manual Mode Action'] !== undefined) {
+      mapped['Manual Mode Action'] = this.mapValueToCode('Manual Mode Action', mapped['Manual Mode Action']);
+    }
+    if (mapped['Instant Mode'] !== undefined) {
+      mapped['Instant Mode'] = this.mapValueToCode('Instant Mode', mapped['Instant Mode']);
+    }
+    
+    return mapped;
+  }
+
   async sendCompleteSettingsPayload(deviceId, commandId = null, timeout = 30000) {
     try {
       // CRITICAL FIX: deviceId parameter is MongoDB _id, need to get actual device.deviceId for MQTT topic
@@ -764,6 +832,12 @@ class MQTTService {
       // Update payload to use actual deviceId
       if (payload && payload["Device ID"]) {
         payload["Device ID"] = actualDeviceId;
+      }
+
+      // 🔄 CRITICAL: Apply value mappings to convert display values to integer codes
+      if (payload && payload.Parameters) {
+        payload.Parameters = this.applyValueMappings(payload.Parameters);
+        console.log(`✅ Value mappings applied to payload Parameters`);
       }
 
       console.log(`📦 Complete settings payload:`, JSON.stringify(payload, null, 2));

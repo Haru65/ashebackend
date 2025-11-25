@@ -154,16 +154,24 @@ class SocketService {
         return;
       }
 
+      // ⚠️ IMPORTANT: Use complete settings frame format for ALL commands
+      // Get current settings and update based on command type
+      const commandId = `cmd_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // For legacy socket-based commands, we should redirect to proper API endpoints
+      // But for backward compatibility, send in complete settings format
       const commandPayload = {
-        command: commandType,
-        deviceId: deviceId,
-        parameters: parameters,
-        timestamp: timestamp || new Date().toISOString(),
-        sender: 'frontend'
+        "Device ID": deviceId,
+        "Message Type": "settings",  // Always use "settings" type
+        "sender": "Server",
+        "CommandId": commandId,
+        "Parameters": parameters  // This should be complete settings, not just changed values
       };
 
-      console.log('📡 Publishing command to device...');
+      console.log('📡 Publishing command in COMPLETE SETTINGS FORMAT:');
       console.log('   Payload:', JSON.stringify(commandPayload, null, 2));
+      console.warn('⚠️  WARNING: Legacy socket command detected!');
+      console.warn('⚠️  This should be complete settings. Use API endpoints instead for proper settings management.');
 
       mqttService.publishMessage(commandPayload, (err) => {
         if (err) {
@@ -176,8 +184,9 @@ class SocketService {
           console.log('✅ Command published successfully');
           const response = { 
             success: true, 
-            commandId: `cmd_${Date.now()}`,
-            details: `Command ${commandType} sent to device ${deviceId}`
+            commandId: commandId,
+            details: `Command sent to device ${deviceId}`,
+            warning: 'Legacy socket command - recommend using API endpoints for settings'
           };
           console.log('✅ Command sending successful:', response);
           callback(response);

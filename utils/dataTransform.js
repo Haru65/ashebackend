@@ -25,11 +25,17 @@ function transformDeviceData(payload, topic) {
 const UPDATE_THROTTLE = 1000; // ms
 let lastUpdateTime = 0;
 
-function createThrottledEmit(io) {
+function createThrottledEmit(io, mqttService) {
   return function throttledEmit(data) {
     const now = Date.now();
     if (now - lastUpdateTime >= UPDATE_THROTTLE) {
-      io.emit('deviceUpdate', { type: 'device', data });
+      // Include connection status with device updates
+      const connectionStatus = mqttService ? mqttService.getConnectionStatus() : { device: false };
+      io.emit('deviceUpdate', { 
+        type: 'device', 
+        data,
+        connectionStatus 
+      });
       lastUpdateTime = now;
     }
   };

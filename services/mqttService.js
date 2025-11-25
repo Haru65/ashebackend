@@ -2,6 +2,7 @@ const mqtt = require('mqtt');
 const { deviceBroker } = require('../config/mqtt');
 const { transformDeviceData, createThrottledEmit } = require('../utils/dataTransform');
 const { v4: uuidv4 } = require('uuid');
+const Device = require('../models/Device');
 
 class MQTTService {
   constructor() {
@@ -26,7 +27,7 @@ class MQTTService {
   }
 
   initialize(io) {
-    this.throttledEmit = createThrottledEmit(io);
+    this.throttledEmit = createThrottledEmit(io, this);
     this.socketIO = io;
     this.client = mqtt.connect(deviceBroker.url, deviceBroker.options);
     this.setupEventHandlers(io);
@@ -686,6 +687,22 @@ class MQTTService {
   // Send complete settings payload - this is the main method used by all configuration changes
   async sendCompleteSettingsPayload(deviceId, commandId = null, timeout = 30000) {
     try {
+      // CRITICAL FIX: deviceId parameter is MongoDB _id, need to get actual device.deviceId for MQTT topic
+      let actualDeviceId = deviceId;
+      let device = null;
+      
+      try {
+        device = await Device.findById(deviceId);
+        if (device && device.deviceId) {
+          actualDeviceId = device.deviceId;
+          console.log(`🔍 Resolved MongoDB _id "${deviceId}" to actual deviceId "${actualDeviceId}" for MQTT topic`);
+        } else {
+          console.warn(`⚠️ Device with _id "${deviceId}" not found or missing deviceId field, using _id as fallback`);
+        }
+      } catch (error) {
+        console.warn(`⚠️ Could not fetch device for _id "${deviceId}": ${error.message}, using _id as fallback`);
+      }
+      
       // Use device management service to get complete settings if available
       let payload;
       
@@ -694,7 +711,7 @@ class MQTTService {
           // Get complete settings from database via device management service WITH CommandId
           payload = await this.deviceManagementService.getDeviceSettingsWithCommandId(deviceId, commandId);
           
-          console.log(`📤 Sending COMPLETE settings payload from database to device ${deviceId}`);
+          console.log(`📤 Sending COMPLETE settings payload from database to device ${actualDeviceId}`);
         } catch (error) {
           console.warn(`⚠️ Could not get settings from device management service: ${error.message}`);
           // Fallback to memory-based settings
@@ -705,12 +722,18 @@ class MQTTService {
         payload = this.createSettingsPayloadFromMemory(deviceId, commandId);
       }
 
-      console.log(`� Complete settings payload:`, JSON.stringify(payload, null, 2));
+      // Update payload to use actual deviceId
+      if (payload && payload["Device ID"]) {
+        payload["Device ID"] = actualDeviceId;
+      }
+
+      console.log(`📦 Complete settings payload:`, JSON.stringify(payload, null, 2));
 
       // Store command in memory for acknowledgment tracking
       const commandRecord = {
         commandId,
         deviceId,
+        actualDeviceId, // Store both for tracking
         originalCommand: 'settings',
         commandPayload: payload,
         status: 'PENDING',
@@ -751,9 +774,9 @@ class MQTTService {
 
       this.acknowledgmentTimeouts.set(commandId, timeoutHandler);
 
-      // Publish the complete settings payload
+      // Publish the complete settings payload using ACTUAL deviceId for MQTT topic
       return new Promise((resolve, reject) => {
-  const topic = `devices/${deviceId}/commands`;
+        const topic = `devices/${actualDeviceId}/commands`;
         this.client.publish(topic, JSON.stringify(payload), { qos: 1 }, async (error) => {
           if (error) {
             console.error('❌ Failed to send complete settings command:', error);

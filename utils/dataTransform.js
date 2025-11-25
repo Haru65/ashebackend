@@ -53,21 +53,39 @@ function transformDeviceData(payload, topic) {
 }
 
 // Throttle function for updates
-const UPDATE_THROTTLE = 1000; // ms
+const UPDATE_THROTTLE = 500; // Reduced to 500ms for more responsive updates
 let lastUpdateTime = 0;
+let lastConnectionStatusUpdate = 0;
 
 function createThrottledEmit(io, mqttService) {
   return function throttledEmit(data) {
     const now = Date.now();
-    if (now - lastUpdateTime >= UPDATE_THROTTLE) {
-      // Include connection status with device updates
-      const connectionStatus = mqttService ? mqttService.getConnectionStatus() : { device: false };
+    
+    // Always get current connection status
+    const connectionStatus = mqttService ? mqttService.getConnectionStatus() : { device: false };
+    
+    // Throttle device data updates
+    const shouldUpdateData = now - lastUpdateTime >= UPDATE_THROTTLE;
+    
+    // Send connection status update more frequently (every 200ms) or when it changes
+    const shouldUpdateStatus = now - lastConnectionStatusUpdate >= 200;
+    
+    if (shouldUpdateData) {
+      // Send full update with data and connection status
       io.emit('deviceUpdate', { 
         type: 'device', 
         data,
         connectionStatus 
       });
       lastUpdateTime = now;
+      lastConnectionStatusUpdate = now;
+    } else if (shouldUpdateStatus) {
+      // Send connection status update only
+      io.emit('deviceUpdate', { 
+        type: 'status', 
+        connectionStatus 
+      });
+      lastConnectionStatusUpdate = now;
     }
   };
 }

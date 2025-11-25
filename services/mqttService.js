@@ -13,9 +13,9 @@ class MQTTService {
     this.lastDeviceTimestamp = 0;
     this.connectionStatus = { device: false };
     
-    // Device activity tracking - keep connected for 30 seconds after last message
+    // Device activity tracking - keep connected for 60 seconds after last message
     this.deviceLastActivity = new Map(); // deviceId -> timestamp
-    this.DEVICE_TIMEOUT = 30000; // 30 seconds
+    this.DEVICE_TIMEOUT = 60000; // 60 seconds (increased from 30 for more stability)
     
     // Memory-based acknowledgment tracking
     this.pendingCommands = new Map(); // commandId -> command details
@@ -35,6 +35,14 @@ class MQTTService {
     this.socketIO = io;
     this.client = mqtt.connect(deviceBroker.url, deviceBroker.options);
     this.setupEventHandlers(io);
+    
+    // Start periodic connection status broadcaster (every 2 seconds)
+    setInterval(() => {
+      if (this.socketIO) {
+        const connectionStatus = this.getConnectionStatus();
+        this.socketIO.emit('connectionStatus', connectionStatus);
+      }
+    }, 2000);
     
     // Initialize device management service
     try {

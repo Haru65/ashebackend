@@ -622,25 +622,46 @@ class MQTTService {
 
   async setInstMode(deviceId, config) {
     console.log('🔧 Setting INST mode configuration - will send complete settings...');
+    console.log('📥 Received config:', JSON.stringify(config, null, 2));
     
     // Get current settings and update instant mode fields
     const currentSettings = this.ensureDeviceSettings(deviceId);
+    
+    // Map frequency (daily/weekly) to Instant Mode value (0=daily, 1=weekly)
+    const instantModeValue = config.frequency === 'weekly' ? 1 : 0;
+    console.log(`🔄 Mapping frequency "${config.frequency}" to Instant Mode value: ${instantModeValue}`);
+    
     const updatedSettings = {
       ...currentSettings,
       "Event": 4, // Instant mode
-      "Instant Mode": 1,
-      "Instant Start TimeStamp": `${config.startTime}`,
-      "Instant End TimeStamp": config.duration || "00:00:00"
+      "Instant Mode": instantModeValue,
+      "Instant Start TimeStamp": config.startTime || "00:00:00",
+      "Instant End TimeStamp": config.endTime || "00:00:00"
     };
     
-    // Store updated settings
+    // Store updated settings in memory
     this.deviceSettings.set(deviceId, updatedSettings);
+
+    // Update in database via device management service
+    if (this.deviceManagementService) {
+      try {
+        await this.deviceManagementService.updateDeviceParameters(deviceId, {
+          "Instant Mode": instantModeValue,
+          "Event": 4,
+          "Instant Start TimeStamp": config.startTime || "00:00:00",
+          "Instant End TimeStamp": config.endTime || "00:00:00"
+        });
+        console.log('✅ Updated Instant Mode in database:', instantModeValue);
+      } catch (error) {
+        console.warn('⚠️ Could not update database:', error.message);
+      }
+    }
 
     // Create commandId and track then send complete payload
     const commandId = uuidv4();
     const changedInst = {
       "Event": 4,
-      "Instant Mode": 1,
+      "Instant Mode": instantModeValue,
       "Instant Start TimeStamp": updatedSettings["Instant Start TimeStamp"],
       "Instant End TimeStamp": updatedSettings["Instant End TimeStamp"]
     };

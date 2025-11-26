@@ -509,6 +509,7 @@ class MQTTService {
     const currentSettings = this.ensureDeviceSettings(deviceId);
     const updatedSettings = {
       ...currentSettings,
+      "Event": 1, // Interrupt mode
       "Interrupt Start TimeStamp": `${config.startDate} ${config.startTime}`,
       "Interrupt Stop TimeStamp": `${config.stopDate} ${config.stopTime}`,
       "Interrupt ON Time": parseInt(config.onTime),
@@ -521,6 +522,7 @@ class MQTTService {
     // Create commandId and track then send complete payload
     const commandId = uuidv4();
     const changed = {
+      "Event": 1,
       "Interrupt Start TimeStamp": updatedSettings["Interrupt Start TimeStamp"],
       "Interrupt Stop TimeStamp": updatedSettings["Interrupt Stop TimeStamp"],
       "Interrupt ON Time": updatedSettings["Interrupt ON Time"],
@@ -539,8 +541,9 @@ class MQTTService {
     const currentSettings = this.ensureDeviceSettings(deviceId);
     const updatedSettings = {
       ...currentSettings,
-      "Manual Mode Action": action, // Add this field to track manual mode
-      "Instant Mode": action === 'start' ? 1 : 0 // Update instant mode based on action
+      "Event": 2, // Manual mode
+      "Manual Mode Action": action,
+      "Instant Mode": action === 'start' ? 1 : 0
     };
     
     // Store updated settings
@@ -549,6 +552,7 @@ class MQTTService {
     // Create commandId and track then send complete payload
     const commandId = uuidv4();
     const changedManual = {
+      "Event": 2,
       "Manual Mode Action": action,
       "Instant Mode": updatedSettings["Instant Mode"]
     };
@@ -565,8 +569,9 @@ class MQTTService {
     const currentSettings = this.ensureDeviceSettings(deviceId);
     const updatedSettings = {
       ...currentSettings,
-      ...config, // Merge any normal mode specific config
-      "Instant Mode": 0 // Normal mode means instant mode is off
+      "Event": 0, // Normal mode
+      ...config,
+      "Instant Mode": 0
     };
     
     // Store updated settings
@@ -575,6 +580,7 @@ class MQTTService {
     // Create commandId and track then send complete payload
     const commandId = uuidv4();
     const changedNormal = {
+      "Event": 0,
       "Instant Mode": 0,
       ...config
     };
@@ -591,6 +597,7 @@ class MQTTService {
     const currentSettings = this.ensureDeviceSettings(deviceId);
     const updatedSettings = {
       ...currentSettings,
+      "Event": 3, // DPOL mode
       "Depolarization Start TimeStamp": `${config.startDate} ${config.startTime}`,
       "Depolarization Stop TimeStamp": `${config.endDate} ${config.endTime}`,
       "DPOL Interval": config.interval || "00:00:00"
@@ -602,6 +609,7 @@ class MQTTService {
     // Create commandId and track then send complete payload
     const commandId = uuidv4();
     const changedDpol = {
+      "Event": 3,
       "Depolarization Start TimeStamp": updatedSettings["Depolarization Start TimeStamp"],
       "Depolarization Stop TimeStamp": updatedSettings["Depolarization Stop TimeStamp"],
       "DPOL Interval": updatedSettings["DPOL Interval"]
@@ -619,6 +627,7 @@ class MQTTService {
     const currentSettings = this.ensureDeviceSettings(deviceId);
     const updatedSettings = {
       ...currentSettings,
+      "Event": 4, // Instant mode
       "Instant Mode": 1,
       "Instant Start TimeStamp": `${config.startTime}`,
       "Instant End TimeStamp": config.duration || "00:00:00"
@@ -630,6 +639,7 @@ class MQTTService {
     // Create commandId and track then send complete payload
     const commandId = uuidv4();
     const changedInst = {
+      "Event": 4,
       "Instant Mode": 1,
       "Instant Start TimeStamp": updatedSettings["Instant Start TimeStamp"],
       "Instant End TimeStamp": updatedSettings["Instant End TimeStamp"]

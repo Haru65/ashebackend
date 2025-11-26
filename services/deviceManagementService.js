@@ -189,6 +189,8 @@ class DeviceManagementService {
         "CommandId": commandId,
         "Parameters": {
           "Electrode": settings.electrode || 0,
+          "Event": settings.event || 0,
+          "Manual Mode Action": settings.manualModeAction || 0,
           "Shunt Voltage": settings.shuntVoltage || 25,
           "Shunt Current": settings.shuntCurrent || 999,
           "Reference Fail": settings.referenceFail || 30,
@@ -382,6 +384,8 @@ class DeviceManagementService {
   getDefaultDeviceSettings() {
     return {
       electrode: 0,
+      event: 0,
+      manualModeAction: 0,
       shuntVoltage: 25,
       shuntCurrent: 999,
       referenceFail: 30,
@@ -396,8 +400,7 @@ class DeviceManagementService {
       depolarizationStopTimeStamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
       instantMode: 0,
       instantStartTimeStamp: "19:04:00",
-      instantEndTimeStamp: "00:00:00",
-      manualModeAction: "stop"
+      instantEndTimeStamp: "00:00:00"
     };
   }
 
@@ -409,6 +412,8 @@ class DeviceManagementService {
   mapParametersToInternalFields(parameters) {
     const mapping = {
       "Electrode": "electrode",
+      "Event": "event",
+      "Manual Mode Action": "manualModeAction",
       "Shunt Voltage": "shuntVoltage",
       "Shunt Current": "shuntCurrent",
       "Reference Fail": "referenceFail",
@@ -423,8 +428,7 @@ class DeviceManagementService {
       "Depolarization Stop TimeStamp": "depolarizationStopTimeStamp",
       "Instant Mode": "instantMode",
       "Instant Start TimeStamp": "instantStartTimeStamp",
-      "Instant End TimeStamp": "instantEndTimeStamp",
-      "Manual Mode Action": "manualModeAction"
+      "Instant End TimeStamp": "instantEndTimeStamp"
     };
 
     const mapped = {};

@@ -935,6 +935,11 @@ class MQTTService {
           } else {
             console.log(`✅ Complete settings command sent successfully to topic: ${topic}`);
 
+            // Save settings to database
+            if (payload && payload.Parameters) {
+              await this.saveDeviceSettings(actualDeviceId, payload.Parameters, 'user');
+            }
+
             // Track command in device management service if available
             if (this.deviceManagementService) {
               try {
@@ -1199,8 +1204,69 @@ class MQTTService {
       await telemetryRecord.save();
       console.log(`✅ Saved telemetry data for device ${deviceId}`);
       
+      // Check if payload contains device settings and save them
+      await this.saveDeviceSettings(deviceId, payload, 'system');
+      
     } catch (error) {
       console.error(`❌ Error saving telemetry data for device ${deviceId}:`, error.message);
+    }
+  }
+
+  // Save device settings to database
+  async saveDeviceSettings(deviceId, payload, updatedBy = 'system') {
+    try {
+      // Check if payload contains any settings fields
+      const hasSettings = payload.Electrode !== undefined ||
+                         payload.Event !== undefined ||
+                         payload['Manual Mode Action'] !== undefined ||
+                         payload['Shunt Voltage'] !== undefined ||
+                         payload['Instant Mode'] !== undefined;
+      
+      if (!hasSettings) {
+        return; // No settings in this payload
+      }
+
+      const device = await Device.findOne({ deviceId });
+      if (!device) {
+        console.log(`⚠️ Device ${deviceId} not found, cannot save settings`);
+        return;
+      }
+
+      // Extract settings from payload (preserve existing if not in payload)
+      const currentSettings = device.configuration?.deviceSettings || {};
+      const settings = {
+        electrode: payload.Electrode !== undefined ? payload.Electrode : currentSettings.electrode || 0,
+        event: payload.Event !== undefined ? payload.Event : currentSettings.event || 0,
+        manualModeAction: payload['Manual Mode Action'] !== undefined ? payload['Manual Mode Action'] : currentSettings.manualModeAction || 0,
+        shuntVoltage: payload['Shunt Voltage'] !== undefined ? payload['Shunt Voltage'] : currentSettings.shuntVoltage || 0,
+        shuntCurrent: payload['Shunt Current'] !== undefined ? payload['Shunt Current'] : currentSettings.shuntCurrent || 0,
+        referenceFail: payload['Reference Fail'] !== undefined ? payload['Reference Fail'] : currentSettings.referenceFail || 0,
+        referenceUP: payload['Reference UP'] !== undefined ? payload['Reference UP'] : currentSettings.referenceUP || 0,
+        referenceOV: payload['Reference OV'] !== undefined ? payload['Reference OV'] : currentSettings.referenceOV || 0,
+        interruptOnTime: payload['Interrupt ON Time'] !== undefined ? payload['Interrupt ON Time'] : currentSettings.interruptOnTime || 0,
+        interruptOffTime: payload['Interrupt OFF Time'] !== undefined ? payload['Interrupt OFF Time'] : currentSettings.interruptOffTime || 0,
+        interruptStartTimestamp: payload['Interrupt Start TimeStamp'] !== undefined ? payload['Interrupt Start TimeStamp'] : currentSettings.interruptStartTimestamp || '',
+        interruptStopTimestamp: payload['Interrupt Stop TimeStamp'] !== undefined ? payload['Interrupt Stop TimeStamp'] : currentSettings.interruptStopTimestamp || '',
+        dpolInterval: payload['DPOL Interval'] !== undefined ? payload['DPOL Interval'] : currentSettings.dpolInterval || '00:00:00',
+        depolarizationStartTimestamp: payload['Depolarization Start TimeStamp'] !== undefined ? payload['Depolarization Start TimeStamp'] : currentSettings.depolarizationStartTimestamp || '',
+        depolarizationStopTimestamp: payload['Depolarization Stop TimeStamp'] !== undefined ? payload['Depolarization Stop TimeStamp'] : currentSettings.depolarizationStopTimestamp || '',
+        instantMode: payload['Instant Mode'] !== undefined ? payload['Instant Mode'] : currentSettings.instantMode || 0,
+        instantStartTimestamp: payload['Instant Start TimeStamp'] !== undefined ? payload['Instant Start TimeStamp'] : currentSettings.instantStartTimestamp || '',
+        instantEndTimestamp: payload['Instant End TimeStamp'] !== undefined ? payload['Instant End TimeStamp'] : currentSettings.instantEndTimestamp || ''
+      };
+
+      // Update device configuration
+      device.configuration = {
+        deviceSettings: settings,
+        lastUpdated: new Date(),
+        updatedBy: updatedBy
+      };
+
+      await device.save();
+      console.log(`💾 Saved device settings for device ${deviceId} (updated by: ${updatedBy})`);
+      console.log(`📋 Settings:`, JSON.stringify(settings, null, 2));
+    } catch (error) {
+      console.error(`❌ Error saving device settings for device ${deviceId}:`, error.message);
     }
   }
 

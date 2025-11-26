@@ -50,6 +50,31 @@ const DeviceSchema = new Schema({
     color: { type: String, default: null },
     description: { type: String, default: null }
   },
+  // Device configuration/settings (18 parameters)
+  configuration: {
+    deviceSettings: {
+      electrode: { type: Number, default: 0 },
+      event: { type: Number, default: 0 },
+      manualModeAction: { type: Number, default: 0 },
+      shuntVoltage: { type: Number, default: 0 },
+      shuntCurrent: { type: Number, default: 0 },
+      referenceFail: { type: Number, default: 0 },
+      referenceUP: { type: Number, default: 0 },
+      referenceOV: { type: Number, default: 0 },
+      interruptOnTime: { type: Number, default: 0 },
+      interruptOffTime: { type: Number, default: 0 },
+      interruptStartTimestamp: { type: String, default: '' },
+      interruptStopTimestamp: { type: String, default: '' },
+      dpolInterval: { type: String, default: '00:00:00' },
+      depolarizationStartTimestamp: { type: String, default: '' },
+      depolarizationStopTimestamp: { type: String, default: '' },
+      instantMode: { type: Number, default: 0 },
+      instantStartTimestamp: { type: String, default: '' },
+      instantEndTimestamp: { type: String, default: '' }
+    },
+    lastUpdated: { type: Date, default: null },
+    updatedBy: { type: String, default: 'system' } // 'system' or 'user'
+  },
   // optional name of the collection where historical telemetry for this device is stored
   historicalCollection: { type: String, required: false, default: null }
 }, {

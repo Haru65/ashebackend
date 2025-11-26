@@ -173,7 +173,7 @@ class DeviceController {
   static async getAllDevices(req, res) {
     try {
       const devices = await Device.find({})
-        .select('deviceId deviceName location status sensors metadata mqtt')
+        .select('deviceId deviceName location status sensors metadata mqtt configuration')
         .lean();
 
       // Transform the data to match the expected frontend format
@@ -187,7 +187,8 @@ class DeviceController {
         mqttTopic: device.mqtt?.topics?.data || `devices/${device.deviceId}/data`,
         icon: device.metadata?.icon || null,
         color: device.metadata?.color || null,
-        description: device.metadata?.description || null
+        description: device.metadata?.description || null,
+        configuration: device.configuration || null
       }));
 
       res.json({
@@ -653,6 +654,43 @@ class DeviceController {
       res.status(500).json({
         status: 'error',
         error: 'Internal server error'
+      });
+    }
+  }
+
+  // Get device settings/configuration
+  static async getDeviceSettings(req, res) {
+    try {
+      const { deviceId } = req.params;
+
+      const device = await Device.findOne({ deviceId })
+        .select('deviceId deviceName configuration')
+        .lean();
+
+      if (!device) {
+        return res.status(404).json({
+          success: false,
+          error: 'Device not found',
+          message: `Device with ID ${deviceId} does not exist`
+        });
+      }
+
+      res.json({
+        success: true,
+        deviceId: device.deviceId,
+        deviceName: device.deviceName,
+        configuration: device.configuration || {
+          deviceSettings: {},
+          lastUpdated: null,
+          updatedBy: null
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching device settings:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: error.message
       });
     }
   }

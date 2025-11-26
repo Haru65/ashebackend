@@ -9,6 +9,7 @@ router.get('/devices', DeviceController.getAllDevices); // Public endpoint - no 
 router.post('/devices', DeviceController.createDevice); // Public endpoint for adding new devices
 router.get('/devices/mqtt', authenticateToken, requirePermission('read_devices'), DeviceController.getDevices);
 router.get('/devices/:deviceId', DeviceController.getDeviceById); // Public endpoint - no auth required
+router.get('/devices/:deviceId/settings', DeviceController.getDeviceSettings); // Get device configuration/settings
 router.post('/devices/:deviceId/data', authenticateToken, requirePermission('write_devices'), DeviceController.postDeviceData);
 router.post('/send-message', authenticateToken, requirePermission('send_commands'), DeviceController.sendMessage);
 

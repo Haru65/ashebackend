@@ -32,7 +32,7 @@ class ExcelExportService {
         query.deviceId = deviceId;
       }
 
-      console.log('📊 Exporting telemetry data with query:', query);
+      console.log('📊 Exporting telemetry data with query:', JSON.stringify(query, null, 2));
 
       // Fetch telemetry data
       const telemetryData = await Telemetry.find(query)
@@ -40,6 +40,16 @@ class ExcelExportService {
         .lean();
 
       console.log(`📈 Found ${telemetryData.length} telemetry records`);
+      console.log('📋 Date range:', {
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        range: Math.round((endDate - startDate) / (1000 * 60 * 60 * 24)) + ' days'
+      });
+
+      // Log first few records for debugging
+      if (telemetryData.length > 0) {
+        console.log('📝 First record sample:', JSON.stringify(telemetryData[0], null, 2));
+      }
 
       if (telemetryData.length === 0) {
         throw new Error('No telemetry data found for the specified criteria');
@@ -52,10 +62,14 @@ class ExcelExportService {
       workbook.created = new Date();
       workbook.modified = new Date();
 
+      console.log('✅ Workbook created successfully');
+
       // Create main telemetry worksheet
       const worksheet = workbook.addWorksheet('Telemetry Data', {
         pageSetup: { paperSize: 9, orientation: 'landscape' }
       });
+
+      console.log('✅ Worksheet added to workbook');
 
       // Get all unique data keys for dynamic columns
       const allDataKeys = new Set();
@@ -91,6 +105,8 @@ class ExcelExportService {
 
       worksheet.columns = [...baseColumns, ...dataColumns];
 
+      console.log(`📋 Columns configured: ${baseColumns.length + dataColumns.length} total (${baseColumns.length} base + ${dataColumns.length} data)`);
+
       // Style the header row
       worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFF' } };
       worksheet.getRow(1).fill = {
@@ -100,35 +116,46 @@ class ExcelExportService {
       };
 
       // Add data rows
-      telemetryData.forEach((record, index) => {
-        const row = {
-          deviceId: record.deviceId,
-          timestamp: record.timestamp,
-          event: record.event || 'NORMAL'
-        };
-
-        // Extract data fields
-        if (record.data) {
-          const dataObj = record.data instanceof Map ? 
-            Object.fromEntries(record.data) : record.data;
-          
-          Object.keys(dataObj).forEach(key => {
-            row[`data_${key}`] = dataObj[key];
-          });
-        }
-
-        worksheet.addRow(row);
-
-        // Add conditional formatting for alternate rows
-        if (index % 2 === 1) {
-          const rowNum = index + 2; // +2 because Excel is 1-indexed and we have header
-          worksheet.getRow(rowNum).fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'F8F9FA' }
+      try {
+        telemetryData.forEach((record, index) => {
+          const row = {
+            deviceId: record.deviceId,
+            timestamp: record.timestamp,
+            event: record.event || 'NORMAL'
           };
-        }
-      });
+
+          // Extract data fields
+          if (record.data) {
+            const dataObj = record.data instanceof Map ? 
+              Object.fromEntries(record.data) : record.data;
+            
+            Object.keys(dataObj).forEach(key => {
+              row[`data_${key}`] = dataObj[key];
+            });
+          }
+
+          worksheet.addRow(row);
+
+          // Add conditional formatting for alternate rows
+          if (index % 2 === 1) {
+            const rowNum = index + 2; // +2 because Excel is 1-indexed and we have header
+            worksheet.getRow(rowNum).fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'F8F9FA' }
+            };
+          }
+
+          // Log progress every 500 rows
+          if ((index + 1) % 500 === 0) {
+            console.log(`   Added ${index + 1} rows to worksheet...`);
+          }
+        });
+        console.log(`✅ All ${telemetryData.length} data rows added successfully`);
+      } catch (rowError) {
+        console.error('❌ Error adding rows to worksheet:', rowError.message);
+        throw rowError;
+      }
 
       // Auto-fit columns
       worksheet.columns.forEach(column => {
@@ -211,10 +238,25 @@ class ExcelExportService {
    */
   static async getExcelBuffer(workbook) {
     try {
+      console.log('📝 Starting Excel buffer generation...');
+      console.log('📊 Workbook info:', {
+        worksheetCount: workbook.worksheets.length,
+        worksheets: workbook.worksheets.map(ws => ({
+          name: ws.name,
+          rowCount: ws.actualRowCount,
+          columnCount: ws.actualColumnCount
+        }))
+      });
+
       const buffer = await workbook.xlsx.writeBuffer();
+      
+      console.log(`✅ Excel buffer generated: ${buffer.length} bytes`);
       return buffer;
     } catch (error) {
-      console.error('❌ Error generating Excel buffer:', error);
+      console.error('❌ Error generating Excel buffer:', error.message);
+      console.error('❌ Buffer error name:', error.name);
+      console.error('❌ Buffer error code:', error.code);
+      console.error('❌ Buffer error stack:', error.stack);
       throw error;
     }
   }

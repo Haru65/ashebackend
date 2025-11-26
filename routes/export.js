@@ -25,4 +25,9 @@ router.get('/telemetry/preview',
   ExportController.previewExportData
 );
 
+// Diagnostic endpoint - check database telemetry
+router.get('/diagnostics', 
+  ExportController.getDatabaseDiagnostics
+);
+
 module.exports = router;

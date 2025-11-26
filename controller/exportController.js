@@ -16,7 +16,7 @@ class ExportController {
 
       // Validate date range
       const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const end = endDate ? new Date(endDate) : new Date();
+      let end = endDate ? new Date(endDate) : new Date();
 
       if (isNaN(start.getTime()) || isNaN(end.getTime())) {
         return res.status(400).json({
@@ -25,12 +25,24 @@ class ExportController {
         });
       }
 
+      // Set end date to end of day (23:59:59) if it's just a date without time
+      if (endDate && !endDate.includes('T') && !endDate.includes(':')) {
+        end.setHours(23, 59, 59, 999);
+      }
+
       if (start > end) {
         return res.status(400).json({
           success: false,
           error: 'Start date cannot be after end date.'
         });
       }
+
+      console.log('📅 Date range after processing:', {
+        originalStart: startDate,
+        originalEnd: endDate,
+        processedStart: start.toISOString(),
+        processedEnd: end.toISOString()
+      });
 
       // Generate Excel file
       const exportResult = await ExcelExportService.exportTelemetryToExcel({
@@ -58,20 +70,41 @@ class ExportController {
         });
       } else {
         // Send as download
-        const buffer = await ExcelExportService.getExcelBuffer(exportResult.workbook);
+        try {
+          const buffer = await ExcelExportService.getExcelBuffer(exportResult.workbook);
+          console.log(`📦 Excel buffer created: ${buffer.length} bytes`);
 
-        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', `attachment; filename="${exportResult.filename}"`);
-        res.setHeader('Content-Length', buffer.length);
+          res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+          res.setHeader('Content-Disposition', `attachment; filename="${exportResult.filename}"`);
+          res.setHeader('Content-Length', buffer.length);
 
-        res.send(buffer);
+          res.send(buffer);
+          console.log(`✅ Excel file sent successfully: ${exportResult.filename}`);
+        } catch (bufferError) {
+          console.error('❌ Error creating Excel buffer:', bufferError);
+          throw bufferError;
+        }
       }
 
     } catch (error) {
-      console.error('❌ Export error:', error);
+      console.error('❌ Export error:', error.message);
+      console.error('❌ Error name:', error.name);
+      console.error('❌ Error code:', error.code);
+      console.error('❌ Error stack:', error.stack);
+      console.error('❌ Full error object:', JSON.stringify({
+        message: error.message,
+        name: error.name,
+        code: error.code,
+        statusCode: error.statusCode,
+        toString: error.toString()
+      }, null, 2));
+      
       res.status(500).json({
         success: false,
-        error: error.message || 'Failed to export data'
+        error: error.message || 'Failed to export data',
+        errorName: error.name,
+        errorCode: error.code,
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
       });
     }
   }
@@ -204,6 +237,65 @@ class ExportController {
       res.status(500).json({
         success: false,
         error: 'Failed to preview export data'
+      });
+    }
+  }
+
+  // Diagnostic endpoint to check telemetry data in database
+  static async getDatabaseDiagnostics(req, res) {
+    try {
+      // Get total count
+      const totalCount = await Telemetry.countDocuments();
+
+      // Get unique device IDs
+      const uniqueDevices = await Telemetry.distinct('deviceId');
+
+      // Get date range
+      const dateRange = await Telemetry.aggregate([
+        {
+          $group: {
+            _id: null,
+            minDate: { $min: '$timestamp' },
+            maxDate: { $max: '$timestamp' }
+          }
+        }
+      ]);
+
+      // Get recent records (last 5)
+      const recentRecords = await Telemetry.find()
+        .sort({ timestamp: -1 })
+        .limit(5)
+        .lean();
+
+      // Get records per device
+      const recordsPerDevice = await Telemetry.aggregate([
+        {
+          $group: {
+            _id: '$deviceId',
+            count: { $sum: 1 },
+            lastRecord: { $max: '$timestamp' }
+          }
+        }
+      ]);
+
+      res.json({
+        success: true,
+        diagnostics: {
+          totalRecords: totalCount,
+          uniqueDevices: uniqueDevices,
+          dateRange: dateRange[0] || { minDate: null, maxDate: null },
+          recordsPerDevice: recordsPerDevice,
+          recentRecords: recentRecords.slice(0, 3),
+          timestamp: new Date().toISOString(),
+          nodeEnv: process.env.NODE_ENV
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Diagnostics error:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
       });
     }
   }

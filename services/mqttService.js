@@ -118,6 +118,9 @@ class MQTTService {
           // Update device status in MongoDB
           await this.updateDeviceStatus(deviceId, payload);
           
+          // Save telemetry data to database
+          await this.saveTelemetryData(deviceId, payload);
+          
           console.log('💾 Updated device data and notified frontend');
         } else if (topicType === 'commands') {
           console.log(`📋 Commands message received from device ${deviceId} - checking for acknowledgments`);
@@ -1169,6 +1172,35 @@ class MQTTService {
       }
     } catch (error) {
       console.error(`❌ Error updating device ${deviceId} status:`, error.message);
+    }
+  }
+
+  async saveTelemetryData(deviceId, payload) {
+    try {
+      const Telemetry = require('../models/telemetry');
+      
+      // Extract all data fields from payload
+      const dataFields = {};
+      Object.keys(payload).forEach(key => {
+        // Skip meta fields, keep actual telemetry data
+        if (!['Device ID', 'Message Type', 'sender', 'CommandId', 'Parameters'].includes(key)) {
+          dataFields[key] = payload[key];
+        }
+      });
+
+      // Create telemetry record
+      const telemetryRecord = new Telemetry({
+        deviceId: deviceId,
+        timestamp: new Date(),
+        event: payload.EVENT || payload.Event || 'NORMAL',
+        data: dataFields
+      });
+
+      await telemetryRecord.save();
+      console.log(`✅ Saved telemetry data for device ${deviceId}`);
+      
+    } catch (error) {
+      console.error(`❌ Error saving telemetry data for device ${deviceId}:`, error.message);
     }
   }
 

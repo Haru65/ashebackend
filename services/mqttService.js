@@ -634,6 +634,10 @@ class MQTTService {
     const instantModeValue = config.frequency === 'weekly' ? 1 : 0;
     console.log(`🔄 Mapping frequency "${config.frequency}" to Instant Mode value: ${instantModeValue}`);
     
+    // Validate and log the received times
+    console.log('📍 Instant Start TimeStamp received:', config.startTime);
+    console.log('📍 Instant End TimeStamp received:', config.endTime);
+    
     const updatedSettings = {
       ...currentSettings,
       "Event": 4, // Instant mode
@@ -642,19 +646,24 @@ class MQTTService {
       "Instant End TimeStamp": config.endTime || "00:00:00"
     };
     
+    console.log('💾 Storing in memory - Instant Start TimeStamp:', updatedSettings["Instant Start TimeStamp"]);
+    console.log('💾 Storing in memory - Instant End TimeStamp:', updatedSettings["Instant End TimeStamp"]);
+    
     // Store updated settings in memory
     this.deviceSettings.set(deviceId, updatedSettings);
 
     // Update in database via device management service
     if (this.deviceManagementService) {
       try {
-        await this.deviceManagementService.updateDeviceParameters(deviceId, {
+        const dbParams = {
           "Instant Mode": instantModeValue,
           "Event": 4,
           "Instant Start TimeStamp": config.startTime || "00:00:00",
           "Instant End TimeStamp": config.endTime || "00:00:00"
-        });
-        console.log('✅ Updated Instant Mode in database:', instantModeValue);
+        };
+        console.log('💿 Updating database with:', JSON.stringify(dbParams, null, 2));
+        await this.deviceManagementService.updateDeviceParameters(deviceId, dbParams);
+        console.log('✅ Updated Instant Mode in database');
       } catch (error) {
         console.warn('⚠️ Could not update database:', error.message);
       }
@@ -782,10 +791,10 @@ class MQTTService {
         'INST': 4
       },
       'Manual Mode Action': {
-        'off': 0,
-        'stop': 0,
-        'On': 1,
-        'start': 1
+        'off': 1,
+        'stop': 1,
+        'On': 0,
+        'start': 0
       },
       'Instant Mode': {
         'Daily': 0,
@@ -844,24 +853,10 @@ class MQTTService {
         console.warn(`⚠️ Could not fetch device for _id "${deviceId}": ${error.message}, using _id as fallback`);
       }
       
-      // Use device management service to get complete settings if available
-      let payload;
-      
-      if (this.deviceManagementService) {
-        try {
-          // Get complete settings from database via device management service WITH CommandId
-          payload = await this.deviceManagementService.getDeviceSettingsWithCommandId(deviceId, commandId);
-          
-          console.log(`📤 Sending COMPLETE settings payload from database to device ${actualDeviceId}`);
-        } catch (error) {
-          console.warn(`⚠️ Could not get settings from device management service: ${error.message}`);
-          // Fallback to memory-based settings
-          payload = this.createSettingsPayloadFromMemory(deviceId, commandId);
-        }
-      } else {
-        // Fallback to memory-based settings
-        payload = this.createSettingsPayloadFromMemory(deviceId, commandId);
-      }
+      // CRITICAL FIX: Always use memory-based settings to avoid stale database reads
+      // Memory is updated immediately before this function is called
+      let payload = this.createSettingsPayloadFromMemory(deviceId, commandId);
+      console.log(`📤 Using MEMORY-based settings (most up-to-date) for device ${actualDeviceId}`);
 
       // Update payload to use actual deviceId
       if (payload && payload["Device ID"]) {
@@ -1255,7 +1250,7 @@ class MQTTService {
         instantEndTimestamp: payload['Instant End TimeStamp'] !== undefined ? payload['Instant End TimeStamp'] : currentSettings.instantEndTimestamp || ''
       };
 
-      // Update device configuration
+      // Update device configuration in database
       device.configuration = {
         deviceSettings: settings,
         lastUpdated: new Date(),
@@ -1263,10 +1258,134 @@ class MQTTService {
       };
 
       await device.save();
-      console.log(`💾 Saved device settings for device ${deviceId} (updated by: ${updatedBy})`);
-      console.log(`📋 Settings:`, JSON.stringify(settings, null, 2));
+      console.log(`💾 Saved device settings for device ${deviceId} to DATABASE (updated by: ${updatedBy})`);
+      
+      // CRITICAL: Also update memory cache with device's current settings
+      // This ensures when we send commands, we use device's actual current state as baseline
+      const memorySettings = {
+        "Electrode": payload.Electrode !== undefined ? payload.Electrode : currentSettings.electrode || 0,
+        "Event": payload.Event !== undefined ? payload.Event : currentSettings.event || 0,
+        "Manual Mode Action": payload['Manual Mode Action'] !== undefined ? payload['Manual Mode Action'] : currentSettings.manualModeAction || 0,
+        "Shunt Voltage": payload['Shunt Voltage'] !== undefined ? payload['Shunt Voltage'] : currentSettings.shuntVoltage || 25,
+        "Shunt Current": payload['Shunt Current'] !== undefined ? payload['Shunt Current'] : currentSettings.shuntCurrent || 999,
+        "Reference Fail": payload['Reference Fail'] !== undefined ? payload['Reference Fail'] : currentSettings.referenceFail || 30,
+        "Reference UP": payload['Reference UP'] !== undefined ? payload['Reference UP'] : currentSettings.referenceUP || 300,
+        "Reference OV": payload['Reference OV'] !== undefined ? payload['Reference OV'] : currentSettings.referenceOV || 60,
+        "Interrupt ON Time": payload['Interrupt ON Time'] !== undefined ? payload['Interrupt ON Time'] : currentSettings.interruptOnTime || 100,
+        "Interrupt OFF Time": payload['Interrupt OFF Time'] !== undefined ? payload['Interrupt OFF Time'] : currentSettings.interruptOffTime || 100,
+        "Interrupt Start TimeStamp": payload['Interrupt Start TimeStamp'] !== undefined ? payload['Interrupt Start TimeStamp'] : currentSettings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+        "Interrupt Stop TimeStamp": payload['Interrupt Stop TimeStamp'] !== undefined ? payload['Interrupt Stop TimeStamp'] : currentSettings.interruptStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+        "DPOL Interval": payload['DPOL Interval'] !== undefined ? payload['DPOL Interval'] : currentSettings.dpolInterval || "00:00:00",
+        "Depolarization Start TimeStamp": payload['Depolarization Start TimeStamp'] !== undefined ? payload['Depolarization Start TimeStamp'] : currentSettings.depolarizationStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+        "Depolarization Stop TimeStamp": payload['Depolarization Stop TimeStamp'] !== undefined ? payload['Depolarization Stop TimeStamp'] : currentSettings.depolarizationStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+        "Instant Mode": payload['Instant Mode'] !== undefined ? payload['Instant Mode'] : currentSettings.instantMode || 0,
+        "Instant Start TimeStamp": payload['Instant Start TimeStamp'] !== undefined ? payload['Instant Start TimeStamp'] : currentSettings.instantStartTimestamp || "19:04:00",
+        "Instant End TimeStamp": payload['Instant End TimeStamp'] !== undefined ? payload['Instant End TimeStamp'] : currentSettings.instantEndTimestamp || "00:00:00"
+      };
+      
+      this.deviceSettings.set(deviceId, memorySettings);
+      console.log(`🧠 Updated MEMORY cache for device ${deviceId} with device's current settings`);
+      console.log(`📋 Memory Settings:`, JSON.stringify(memorySettings, null, 2));
     } catch (error) {
       console.error(`❌ Error saving device settings for device ${deviceId}:`, error.message);
+    }
+  }
+
+  /**
+   * Merge and save device settings from user/API updates
+   * This function:
+   * 1. Retrieves current settings from database
+   * 2. Merges new settings with existing ones (preserves unchanged fields)
+   * 3. Saves to database with tracking info
+   * 4. Returns complete merged settings
+   */
+  async mergeAndSaveDeviceSettings(deviceId, newSettings, updatedBy = 'user') {
+    try {
+      const Device = require('../models/Device');
+      
+      console.log(`🔄 Merging settings for device ${deviceId}`);
+      console.log(`📥 New settings from ${updatedBy}:`, JSON.stringify(newSettings, null, 2));
+
+      // Find or create device
+      let device = await Device.findOne({ deviceId });
+      
+      if (!device) {
+        console.log(`⚠️ Device ${deviceId} not found, creating new device with settings`);
+        device = new Device({
+          deviceId,
+          deviceName: `Device ${deviceId}`,
+          configuration: {
+            deviceSettings: {},
+            lastUpdated: new Date(),
+            updatedBy: updatedBy
+          }
+        });
+      }
+
+      // Get current settings
+      const currentSettings = device.configuration?.deviceSettings || {};
+      console.log(`📋 Current settings:`, JSON.stringify(currentSettings, null, 2));
+
+      // Merge: new settings override current, but preserve existing fields
+      const mergedSettings = {
+        // Preserve all existing settings
+        ...currentSettings,
+        // Override with new settings (only the fields provided)
+        ...newSettings
+      };
+
+      console.log(`✅ Merged settings:`, JSON.stringify(mergedSettings, null, 2));
+
+      // Update device
+      device.configuration = {
+        deviceSettings: mergedSettings,
+        lastUpdated: new Date(),
+        updatedBy: updatedBy
+      };
+
+      await device.save();
+      console.log(`💾 Saved merged settings for device ${deviceId} (updated by: ${updatedBy})`);
+      
+      return {
+        success: true,
+        deviceId,
+        mergedSettings,
+        lastUpdated: device.configuration.lastUpdated,
+        updatedBy: updatedBy,
+        message: `Settings merged and saved successfully for device ${deviceId}`
+      };
+
+    } catch (error) {
+      console.error(`❌ Error merging settings for device ${deviceId}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get current device settings from database
+   */
+  async getDeviceSettingsFromDB(deviceId) {
+    try {
+      const Device = require('../models/Device');
+      const device = await Device.findOne({ deviceId });
+      
+      if (!device) {
+        throw new Error(`Device ${deviceId} not found`);
+      }
+
+      const settings = device.configuration?.deviceSettings || {};
+      
+      return {
+        success: true,
+        deviceId,
+        settings,
+        lastUpdated: device.configuration?.lastUpdated,
+        updatedBy: device.configuration?.updatedBy
+      };
+
+    } catch (error) {
+      console.error(`❌ Error getting settings for device ${deviceId}:`, error.message);
+      throw error;
     }
   }
 

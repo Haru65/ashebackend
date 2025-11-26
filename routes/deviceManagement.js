@@ -14,6 +14,7 @@ router.post('/register', deviceManagementController.registerDevice);
 router.get('/:deviceId/settings', deviceManagementController.getDeviceSettings);
 router.put('/:deviceId/settings', deviceManagementController.updateDeviceSettings);
 router.post('/:deviceId/settings/store', deviceManagementController.storeDeviceSettings);
+router.post('/:deviceId/settings/merge', deviceManagementController.mergeDeviceSettings);
 
 // Device Management
 router.get('/devices', deviceManagementController.getAllDevices);

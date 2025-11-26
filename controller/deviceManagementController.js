@@ -135,6 +135,41 @@ class DeviceManagementController {
   }
 
   /**
+   * Merge and save device settings without sending to device
+   * POST /api/device-management/:deviceId/settings/merge
+   * This merges new settings with existing ones and saves to database
+   */
+  async mergeDeviceSettings(req, res) {
+    try {
+      const { deviceId } = req.params;
+      const { settings, updatedBy = 'user' } = req.body;
+
+      if (!settings || typeof settings !== 'object') {
+        return res.status(400).json({
+          success: false,
+          message: 'Settings object is required'
+        });
+      }
+
+      const mqttService = require('../services/mqttService');
+      const result = await mqttService.mergeAndSaveDeviceSettings(deviceId, settings, updatedBy);
+
+      res.json({
+        success: true,
+        message: 'Settings merged and saved successfully',
+        data: result
+      });
+
+    } catch (error) {
+      console.error('Error merging device settings:', error);
+      res.status(error.message.includes('not found') ? 404 : 500).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  /**
    * Store device settings (without sending to device)
    * POST /api/device-management/:deviceId/settings/store
    */

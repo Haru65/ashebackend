@@ -3,13 +3,14 @@ const socketIo = require('socket.io');
 const initializeSocket = (server) => {
   const io = socketIo(server, {
     cors: {
-      origin: [
-        "https://zeptac-iot-platform-vp3h-kljhebkdt-haru65s-projects.vercel.app", 
-        "http://localhost:5173"
-      ],
-      methods: ["GET", "POST"],
-      credentials: true
-    }
+      origin: true, // Allow all origins for development
+      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      credentials: true,
+      allowedHeaders: ["Content-Type", "Authorization"]
+    },
+    transports: ['websocket', 'polling'], // Support both transports
+    pingInterval: 25000,
+    pingTimeout: 20000
   });
 
   return io;

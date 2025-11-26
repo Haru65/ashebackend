@@ -154,15 +154,14 @@ class DeviceConfigController {
   async configureInstMode(req, res) {
     try {
       const { deviceId } = req.params;
-      const { startDate, startTime, duration, dateFormat } = req.body;
+      const { startTime, endTime, frequency } = req.body;
 
       console.log(`🔧 Configuring INST mode for device ${deviceId}:`, req.body);
 
       const config = {
-        startDate,
         startTime,
-        duration,
-        dateFormat: dateFormat || {}
+        endTime,
+        frequency
       };
 
       // Publish command and respond immediately (don't wait for device ack)

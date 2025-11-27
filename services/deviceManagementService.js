@@ -143,6 +143,8 @@ class DeviceManagementService {
         "sender": "Server",
         "Parameters": {
           "Electrode": settings.electrode || 0,
+          "Event": settings.event || 0,
+          "Manual Mode Action": settings.manualModeAction || 0,
           "Shunt Voltage": settings.shuntVoltage || 25,
           "Shunt Current": settings.shuntCurrent || 999,
           "Reference Fail": settings.referenceFail || 30,

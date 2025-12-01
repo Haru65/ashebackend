@@ -538,12 +538,31 @@ class MQTTService {
   }
 
   async setManualMode(deviceId, action) {
-    console.log(`🔧 Setting manual mode action: ${action} - will send complete settings...`);
+    console.log(`🔧 Setting manual mode action: ${action} - will send complete settings with latest timers...`);
     
     // Get current settings and update manual mode related fields
     const currentSettings = this.ensureDeviceSettings(deviceId);
+    
+    // Get the latest settings from database to include any timer updates
+    let latestTimers = {};
+    if (this.deviceManagementService) {
+      try {
+        const dbSettings = await this.deviceManagementService.getDeviceSettings(deviceId);
+        if (dbSettings && dbSettings.Parameters) {
+          latestTimers = {
+            "Interrupt ON Time": dbSettings.Parameters["Interrupt ON Time"] || currentSettings["Interrupt ON Time"] || 0,
+            "Interrupt OFF Time": dbSettings.Parameters["Interrupt OFF Time"] || currentSettings["Interrupt OFF Time"] || 0,
+          };
+          console.log('📊 Retrieved latest timer values from DB:', latestTimers);
+        }
+      } catch (e) {
+        console.warn('⚠️ Could not get latest timers from DB, using memory:', e.message);
+      }
+    }
+    
     const updatedSettings = {
       ...currentSettings,
+      ...latestTimers, // Include latest timer values
       "Event": 2, // Manual mode
       "Manual Mode Action": action,
       "Instant Mode": action === 'start' ? 1 : 0
@@ -557,7 +576,8 @@ class MQTTService {
     const changedManual = {
       "Event": 2,
       "Manual Mode Action": action,
-      "Instant Mode": updatedSettings["Instant Mode"]
+      "Instant Mode": updatedSettings["Instant Mode"],
+      ...latestTimers // Include timer changes in tracking
     };
     if (this.deviceManagementService) {
       try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedManual); } catch (e) { /* ignore */ }
@@ -1286,6 +1306,17 @@ class MQTTService {
       this.deviceSettings.set(deviceId, memorySettings);
       console.log(`🧠 Updated MEMORY cache for device ${deviceId} with device's current settings`);
       console.log(`📋 Memory Settings:`, JSON.stringify(memorySettings, null, 2));
+      
+      // Emit real-time settings update to frontend
+      if (this.socketIO) {
+        this.socketIO.to(deviceId).emit('deviceSettingsUpdate', {
+          deviceId,
+          settings: memorySettings,
+          timestamp: new Date().toISOString(),
+          updatedBy
+        });
+        console.log(`📡 Emitted deviceSettingsUpdate to room: ${deviceId}`);
+      }
     } catch (error) {
       console.error(`❌ Error saving device settings for device ${deviceId}:`, error.message);
     }

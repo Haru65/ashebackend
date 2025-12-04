@@ -1230,12 +1230,23 @@ class MQTTService {
   // Save device settings to database
   async saveDeviceSettings(deviceId, payload, updatedBy = 'system') {
     try {
+      // Handle both formats: flat settings or nested under "Parameters"
+      let settingsPayload = payload;
+      
+      // If the payload has "Parameters" object (real device format), use that
+      if (payload.Parameters && typeof payload.Parameters === 'object') {
+        settingsPayload = payload.Parameters;
+        console.log('📦 Using nested Parameters format (real device)');
+      } else {
+        console.log('📄 Using flat format (simulator)');
+      }
+      
       // Check if payload contains any settings fields
-      const hasSettings = payload.Electrode !== undefined ||
-                         payload.Event !== undefined ||
-                         payload['Manual Mode Action'] !== undefined ||
-                         payload['Shunt Voltage'] !== undefined ||
-                         payload['Instant Mode'] !== undefined;
+      const hasSettings = settingsPayload.Electrode !== undefined ||
+                         settingsPayload.Event !== undefined ||
+                         settingsPayload['Manual Mode Action'] !== undefined ||
+                         settingsPayload['Shunt Voltage'] !== undefined ||
+                         settingsPayload['Instant Mode'] !== undefined;
       
       if (!hasSettings) {
         return; // No settings in this payload
@@ -1250,24 +1261,24 @@ class MQTTService {
       // Extract settings from payload (preserve existing if not in payload)
       const currentSettings = device.configuration?.deviceSettings || {};
       const settings = {
-        electrode: payload.Electrode !== undefined ? payload.Electrode : currentSettings.electrode || 0,
-        event: payload.Event !== undefined ? payload.Event : currentSettings.event || 0,
-        manualModeAction: payload['Manual Mode Action'] !== undefined ? payload['Manual Mode Action'] : currentSettings.manualModeAction || 0,
-        shuntVoltage: payload['Shunt Voltage'] !== undefined ? payload['Shunt Voltage'] : currentSettings.shuntVoltage || 0,
-        shuntCurrent: payload['Shunt Current'] !== undefined ? payload['Shunt Current'] : currentSettings.shuntCurrent || 0,
-        referenceFail: payload['Reference Fail'] !== undefined ? payload['Reference Fail'] : currentSettings.referenceFail || 0,
-        referenceUP: payload['Reference UP'] !== undefined ? payload['Reference UP'] : currentSettings.referenceUP || 0,
-        referenceOV: payload['Reference OV'] !== undefined ? payload['Reference OV'] : currentSettings.referenceOV || 0,
-        interruptOnTime: payload['Interrupt ON Time'] !== undefined ? payload['Interrupt ON Time'] : currentSettings.interruptOnTime || 0,
-        interruptOffTime: payload['Interrupt OFF Time'] !== undefined ? payload['Interrupt OFF Time'] : currentSettings.interruptOffTime || 0,
-        interruptStartTimestamp: payload['Interrupt Start TimeStamp'] !== undefined ? payload['Interrupt Start TimeStamp'] : currentSettings.interruptStartTimestamp || '',
-        interruptStopTimestamp: payload['Interrupt Stop TimeStamp'] !== undefined ? payload['Interrupt Stop TimeStamp'] : currentSettings.interruptStopTimestamp || '',
-        dpolInterval: payload['DPOL Interval'] !== undefined ? payload['DPOL Interval'] : currentSettings.dpolInterval || '00:00:00',
-        depolarizationStartTimestamp: payload['Depolarization Start TimeStamp'] !== undefined ? payload['Depolarization Start TimeStamp'] : currentSettings.depolarizationStartTimestamp || '',
-        depolarizationStopTimestamp: payload['Depolarization Stop TimeStamp'] !== undefined ? payload['Depolarization Stop TimeStamp'] : currentSettings.depolarizationStopTimestamp || '',
-        instantMode: payload['Instant Mode'] !== undefined ? payload['Instant Mode'] : currentSettings.instantMode || 0,
-        instantStartTimestamp: payload['Instant Start TimeStamp'] !== undefined ? payload['Instant Start TimeStamp'] : currentSettings.instantStartTimestamp || '',
-        instantEndTimestamp: payload['Instant End TimeStamp'] !== undefined ? payload['Instant End TimeStamp'] : currentSettings.instantEndTimestamp || ''
+        electrode: settingsPayload.Electrode !== undefined ? settingsPayload.Electrode : currentSettings.electrode || 0,
+        event: settingsPayload.Event !== undefined ? settingsPayload.Event : currentSettings.event || 0,
+        manualModeAction: settingsPayload['Manual Mode Action'] !== undefined ? settingsPayload['Manual Mode Action'] : currentSettings.manualModeAction || 0,
+        shuntVoltage: settingsPayload['Shunt Voltage'] !== undefined ? settingsPayload['Shunt Voltage'] : currentSettings.shuntVoltage || 0,
+        shuntCurrent: settingsPayload['Shunt Current'] !== undefined ? settingsPayload['Shunt Current'] : currentSettings.shuntCurrent || 0,
+        referenceFail: settingsPayload['Reference Fail'] !== undefined ? settingsPayload['Reference Fail'] : currentSettings.referenceFail || 0,
+        referenceUP: settingsPayload['Reference UP'] !== undefined ? settingsPayload['Reference UP'] : currentSettings.referenceUP || 0,
+        referenceOV: settingsPayload['Reference OV'] !== undefined ? settingsPayload['Reference OV'] : currentSettings.referenceOV || 0,
+        interruptOnTime: settingsPayload['Interrupt ON Time'] !== undefined ? settingsPayload['Interrupt ON Time'] : currentSettings.interruptOnTime || 0,
+        interruptOffTime: settingsPayload['Interrupt OFF Time'] !== undefined ? settingsPayload['Interrupt OFF Time'] : currentSettings.interruptOffTime || 0,
+        interruptStartTimestamp: settingsPayload['Interrupt Start TimeStamp'] !== undefined ? settingsPayload['Interrupt Start TimeStamp'] : currentSettings.interruptStartTimestamp || '',
+        interruptStopTimestamp: settingsPayload['Interrupt Stop TimeStamp'] !== undefined ? settingsPayload['Interrupt Stop TimeStamp'] : currentSettings.interruptStopTimestamp || '',
+        dpolInterval: settingsPayload['DPOL Interval'] !== undefined ? settingsPayload['DPOL Interval'] : currentSettings.dpolInterval || '00:00:00',
+        depolarizationStartTimestamp: settingsPayload['Depolarization Start TimeStamp'] !== undefined ? settingsPayload['Depolarization Start TimeStamp'] : currentSettings.depolarizationStartTimestamp || '',
+        depolarizationStopTimestamp: settingsPayload['Depolarization Stop TimeStamp'] !== undefined ? settingsPayload['Depolarization Stop TimeStamp'] : currentSettings.depolarizationStopTimestamp || '',
+        instantMode: settingsPayload['Instant Mode'] !== undefined ? settingsPayload['Instant Mode'] : currentSettings.instantMode || 0,
+        instantStartTimestamp: settingsPayload['Instant Start TimeStamp'] !== undefined ? settingsPayload['Instant Start TimeStamp'] : currentSettings.instantStartTimestamp || '',
+        instantEndTimestamp: settingsPayload['Instant End TimeStamp'] !== undefined ? settingsPayload['Instant End TimeStamp'] : currentSettings.instantEndTimestamp || ''
       };
 
       // Update device configuration in database
@@ -1283,24 +1294,24 @@ class MQTTService {
       // CRITICAL: Also update memory cache with device's current settings
       // This ensures when we send commands, we use device's actual current state as baseline
       const memorySettings = {
-        "Electrode": payload.Electrode !== undefined ? payload.Electrode : currentSettings.electrode || 0,
-        "Event": payload.Event !== undefined ? payload.Event : currentSettings.event || 0,
-        "Manual Mode Action": payload['Manual Mode Action'] !== undefined ? payload['Manual Mode Action'] : currentSettings.manualModeAction || 0,
-        "Shunt Voltage": payload['Shunt Voltage'] !== undefined ? payload['Shunt Voltage'] : currentSettings.shuntVoltage || 25,
-        "Shunt Current": payload['Shunt Current'] !== undefined ? payload['Shunt Current'] : currentSettings.shuntCurrent || 999,
-        "Reference Fail": payload['Reference Fail'] !== undefined ? payload['Reference Fail'] : currentSettings.referenceFail || 30,
-        "Reference UP": payload['Reference UP'] !== undefined ? payload['Reference UP'] : currentSettings.referenceUP || 300,
-        "Reference OV": payload['Reference OV'] !== undefined ? payload['Reference OV'] : currentSettings.referenceOV || 60,
-        "Interrupt ON Time": payload['Interrupt ON Time'] !== undefined ? payload['Interrupt ON Time'] : currentSettings.interruptOnTime || 100,
-        "Interrupt OFF Time": payload['Interrupt OFF Time'] !== undefined ? payload['Interrupt OFF Time'] : currentSettings.interruptOffTime || 100,
-        "Interrupt Start TimeStamp": payload['Interrupt Start TimeStamp'] !== undefined ? payload['Interrupt Start TimeStamp'] : currentSettings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-        "Interrupt Stop TimeStamp": payload['Interrupt Stop TimeStamp'] !== undefined ? payload['Interrupt Stop TimeStamp'] : currentSettings.interruptStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-        "DPOL Interval": payload['DPOL Interval'] !== undefined ? payload['DPOL Interval'] : currentSettings.dpolInterval || "00:00:00",
-        "Depolarization Start TimeStamp": payload['Depolarization Start TimeStamp'] !== undefined ? payload['Depolarization Start TimeStamp'] : currentSettings.depolarizationStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-        "Depolarization Stop TimeStamp": payload['Depolarization Stop TimeStamp'] !== undefined ? payload['Depolarization Stop TimeStamp'] : currentSettings.depolarizationStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-        "Instant Mode": payload['Instant Mode'] !== undefined ? payload['Instant Mode'] : currentSettings.instantMode || 0,
-        "Instant Start TimeStamp": payload['Instant Start TimeStamp'] !== undefined ? payload['Instant Start TimeStamp'] : currentSettings.instantStartTimestamp || "19:04:00",
-        "Instant End TimeStamp": payload['Instant End TimeStamp'] !== undefined ? payload['Instant End TimeStamp'] : currentSettings.instantEndTimestamp || "00:00:00"
+        "Electrode": settingsPayload.Electrode !== undefined ? settingsPayload.Electrode : currentSettings.electrode || 0,
+        "Event": settingsPayload.Event !== undefined ? settingsPayload.Event : currentSettings.event || 0,
+        "Manual Mode Action": settingsPayload['Manual Mode Action'] !== undefined ? settingsPayload['Manual Mode Action'] : currentSettings.manualModeAction || 0,
+        "Shunt Voltage": settingsPayload['Shunt Voltage'] !== undefined ? settingsPayload['Shunt Voltage'] : currentSettings.shuntVoltage || 25,
+        "Shunt Current": settingsPayload['Shunt Current'] !== undefined ? settingsPayload['Shunt Current'] : currentSettings.shuntCurrent || 999,
+        "Reference Fail": settingsPayload['Reference Fail'] !== undefined ? settingsPayload['Reference Fail'] : currentSettings.referenceFail || 30,
+        "Reference UP": settingsPayload['Reference UP'] !== undefined ? settingsPayload['Reference UP'] : currentSettings.referenceUP || 300,
+        "Reference OV": settingsPayload['Reference OV'] !== undefined ? settingsPayload['Reference OV'] : currentSettings.referenceOV || 60,
+        "Interrupt ON Time": settingsPayload['Interrupt ON Time'] !== undefined ? settingsPayload['Interrupt ON Time'] : currentSettings.interruptOnTime || 100,
+        "Interrupt OFF Time": settingsPayload['Interrupt OFF Time'] !== undefined ? settingsPayload['Interrupt OFF Time'] : currentSettings.interruptOffTime || 100,
+        "Interrupt Start TimeStamp": settingsPayload['Interrupt Start TimeStamp'] !== undefined ? settingsPayload['Interrupt Start TimeStamp'] : currentSettings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+        "Interrupt Stop TimeStamp": settingsPayload['Interrupt Stop TimeStamp'] !== undefined ? settingsPayload['Interrupt Stop TimeStamp'] : currentSettings.interruptStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+        "DPOL Interval": settingsPayload['DPOL Interval'] !== undefined ? settingsPayload['DPOL Interval'] : currentSettings.dpolInterval || "00:00:00",
+        "Depolarization Start TimeStamp": settingsPayload['Depolarization Start TimeStamp'] !== undefined ? settingsPayload['Depolarization Start TimeStamp'] : currentSettings.depolarizationStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+        "Depolarization Stop TimeStamp": settingsPayload['Depolarization Stop TimeStamp'] !== undefined ? settingsPayload['Depolarization Stop TimeStamp'] : currentSettings.depolarizationStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+        "Instant Mode": settingsPayload['Instant Mode'] !== undefined ? settingsPayload['Instant Mode'] : currentSettings.instantMode || 0,
+        "Instant Start TimeStamp": settingsPayload['Instant Start TimeStamp'] !== undefined ? settingsPayload['Instant Start TimeStamp'] : currentSettings.instantStartTimestamp || "19:04:00",
+        "Instant End TimeStamp": settingsPayload['Instant End TimeStamp'] !== undefined ? settingsPayload['Instant End TimeStamp'] : currentSettings.instantEndTimestamp || "00:00:00"
       };
       
       this.deviceSettings.set(deviceId, memorySettings);

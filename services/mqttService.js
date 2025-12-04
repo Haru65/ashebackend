@@ -510,11 +510,20 @@ class MQTTService {
     
     // Get current settings and update interrupt-related fields
     const currentSettings = this.ensureDeviceSettings(deviceId);
+    
+    // Ensure timestamps include seconds (HH:MM:SS format)
+    const startTime = config.startTime.includes(':') && config.startTime.split(':').length === 2 
+      ? `${config.startTime}:00` 
+      : config.startTime;
+    const stopTime = config.stopTime.includes(':') && config.stopTime.split(':').length === 2 
+      ? `${config.stopTime}:00` 
+      : config.stopTime;
+    
     const updatedSettings = {
       ...currentSettings,
       "Event": 1, // Interrupt mode
-      "Interrupt Start TimeStamp": `${config.startDate} ${config.startTime}`,
-      "Interrupt Stop TimeStamp": `${config.stopDate} ${config.stopTime}`,
+      "Interrupt Start TimeStamp": `${config.startDate} ${startTime}`,
+      "Interrupt Stop TimeStamp": `${config.stopDate} ${stopTime}`,
       "Interrupt ON Time": parseInt(config.onTime),
       "Interrupt OFF Time": parseInt(config.offTime)
     };
@@ -618,11 +627,20 @@ class MQTTService {
     
     // Get current settings and update DPOL-related fields
     const currentSettings = this.ensureDeviceSettings(deviceId);
+    
+    // Ensure timestamps include seconds (HH:MM:SS format)
+    const startTime = config.startTime && config.startTime.includes(':') && config.startTime.split(':').length === 2 
+      ? `${config.startTime}:00` 
+      : config.startTime;
+    const endTime = config.endTime && config.endTime.includes(':') && config.endTime.split(':').length === 2 
+      ? `${config.endTime}:00` 
+      : config.endTime;
+    
     const updatedSettings = {
       ...currentSettings,
       "Event": 3, // DPOL mode
-      "Depolarization Start TimeStamp": `${config.startDate} ${config.startTime}`,
-      "Depolarization Stop TimeStamp": `${config.endDate} ${config.endTime}`,
+      "Depolarization Start TimeStamp": `${config.startDate} ${startTime}`,
+      "Depolarization Stop TimeStamp": `${config.endDate} ${endTime}`,
       "DPOL Interval": config.interval || "00:00:00"
     };
     

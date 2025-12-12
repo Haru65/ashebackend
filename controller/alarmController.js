@@ -4,27 +4,7 @@ class AlarmController {
   constructor() {
     this.notificationService = new NotificationService();
     // Simulated in-memory alarm storage (replace with real database)
-    this.alarms = [
-      {
-        id: 1,
-        name: "High Temp Alert",
-        device_name: "Sensor A",
-        unit_no: "U001",
-        location: "Room 101",
-        parameter: "Temperature",
-        alarm_type: "Critical Temperature",
-        status: "Active",
-        severity: "critical",
-        pv_values: { pv1: 85.2, pv2: 34.1, pv3: 12.5, pv4: 67.8, pv5: 23.4, pv6: 45.6 },
-        notification_config: { 
-          sms_numbers: ["+1234567890", "+0987654321"], 
-          email_ids: ["admin@company.com", "tech@company.com"] 
-        },
-        link: "/device-details/1",
-        created_at: "2025-06-20 10:00:00",
-        last_modified: "2025-06-20 10:00:00"
-      }
-    ];
+    this.alarms = [];
   }
 
   /**
@@ -321,6 +301,28 @@ class AlarmController {
     if (alarmCount === 2) return 'warning';
     if (alarmCount === 1) return 'info';
     return 'ok';
+  }
+
+  /**
+   * Clear all alarms
+   */
+  async clearAllAlarms(req, res) {
+    try {
+      const deletedCount = this.alarms.length;
+      this.alarms = [];
+
+      res.json({
+        success: true,
+        message: `All ${deletedCount} alarms cleared successfully`,
+        deletedCount: deletedCount
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: 'Error clearing alarms',
+        error: error.message
+      });
+    }
   }
 
   /**

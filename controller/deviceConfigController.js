@@ -436,6 +436,176 @@ class DeviceConfigController {
       });
     }
   }
+
+  // Configure SET mV (voltage setting in millivolts)
+  async configureSetVoltage(req, res) {
+    try {
+      const { deviceId } = req.params;
+      const { voltage } = req.body; // expects voltage in mV
+
+      console.log(`🔧 Configuring SET mV for device ${deviceId}: ${voltage}mV`);
+
+      if (voltage === undefined || voltage === null) {
+        return res.status(400).json({
+          success: false,
+          message: 'Voltage value in mV is required'
+        });
+      }
+
+      const config = { voltage: parseFloat(voltage) };
+
+      // Publish command and respond immediately
+      mqttService.setVoltageConfiguration(deviceId, config).catch(err => {
+        console.error('Background voltage configuration command failed:', err);
+      });
+      
+      res.json({
+        success: true,
+        message: `SET mV configuration sent to device: ${voltage}mV`
+      });
+
+    } catch (error) {
+      console.error('Error configuring SET mV:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to configure SET mV'
+      });
+    }
+  }
+
+  // Configure Set Shunt (current setting in Amperes)
+  async configureSetShunt(req, res) {
+    try {
+      const { deviceId } = req.params;
+      const { current } = req.body; // expects current in A (not mA)
+
+      console.log(`🔧 Configuring Set Shunt for device ${deviceId}: ${current}A`);
+
+      if (current === undefined || current === null) {
+        return res.status(400).json({
+          success: false,
+          message: 'Current value in A (Amperes) is required'
+        });
+      }
+
+      const config = { current: parseFloat(current) };
+
+      // Publish command and respond immediately
+      mqttService.setShuntConfiguration(deviceId, config).catch(err => {
+        console.error('Background shunt configuration command failed:', err);
+      });
+      
+      res.json({
+        success: true,
+        message: `Set Shunt configuration sent to device: ${current}A`
+      });
+
+    } catch (error) {
+      console.error('Error configuring Set Shunt:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to configure Set Shunt'
+      });
+    }
+  }
+
+  // Configure logging interval
+  async configureLoggingInterval(req, res) {
+    try {
+      const { deviceId } = req.params;
+      const { interval } = req.body; // expects format "HH:MM:SS"
+
+      console.log(`🔧 Configuring Logging Interval for device ${deviceId}: ${interval}`);
+
+      if (!interval || !interval.match(/^\d{2}:\d{2}:\d{2}$/)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Logging interval in HH:MM:SS format is required'
+        });
+      }
+
+      const config = { loggingInterval: interval };
+
+      // Publish command and respond immediately
+      mqttService.setLoggingConfiguration(deviceId, config).catch(err => {
+        console.error('Background logging configuration command failed:', err);
+      });
+      
+      res.json({
+        success: true,
+        message: `Logging interval configuration sent to device: ${interval}`
+      });
+
+    } catch (error) {
+      console.error('Error configuring logging interval:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to configure logging interval'
+      });
+    }
+  }
+
+  // Configure alarm/set values (REF UP, OP, FCAL)
+  async configureAlarm(req, res) {
+    try {
+      const { deviceId } = req.params;
+      const { setup, setop, reffcal } = req.body;
+
+      console.log(`🔧 Configuring alarm/set values for device ${deviceId}:`, req.body);
+
+      // Validate input ranges for UP and OP
+      if (setup && setup.enabled) {
+        if (setup.value < -4.00 || setup.value > 4.00) {
+          return res.status(400).json({
+            success: false,
+            message: 'SET UP value must be between -4.00 and 4.00V'
+          });
+        }
+      }
+
+      if (setop && setop.enabled) {
+        if (setop.value < -4.00 || setop.value > 4.00) {
+          return res.status(400).json({
+            success: false,
+            message: 'SET OP value must be between -4.00 and 4.00V'
+          });
+        }
+      }
+
+      const config = {
+        setup: setup && setup.enabled ? {
+          value: setup.value,
+          enabled: setup.enabled
+        } : null,
+        setop: setop && setop.enabled ? {
+          value: setop.value, 
+          enabled: setop.enabled
+        } : null,
+        reffcal: reffcal && reffcal.enabled ? {
+          value: reffcal.value,
+          calibration: reffcal.calibration || '',
+          enabled: reffcal.enabled
+        } : null
+      };
+
+      // Publish command and respond immediately
+      mqttService.setAlarmConfiguration(deviceId, config).catch(err => {
+        console.error('Background alarm configuration command failed:', err);
+      });
+      
+      res.json({
+        success: true,
+        message: 'Alarm/Set values configuration sent to device'
+      });
+
+    } catch (error) {
+      console.error('Error configuring alarm:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to configure alarm'
+      });
+    }
+  }
 }
 
 module.exports = new DeviceConfigController();

@@ -50,17 +50,25 @@ const DeviceSchema = new Schema({
     color: { type: String, default: null },
     description: { type: String, default: null }
   },
-  // Device configuration/settings (18 parameters)
+  // Device configuration/settings (expanded with missing parameters)
   configuration: {
     deviceSettings: {
       electrode: { type: Number, default: 0 },
       event: { type: Number, default: 0 },
       manualModeAction: { type: Number, default: 0 },
-      shuntVoltage: { type: Number, default: 0 },
-      shuntCurrent: { type: Number, default: 0 },
+      // Fixed units: mV instead of V, A instead of mA
+      shuntVoltage: { type: Number, default: 0 }, // in mV
+      shuntCurrent: { type: Number, default: 0 }, // in A (not mA)
+      // REF values that should reflect to webpage and save to server
       referenceFail: { type: Number, default: 0 },
       referenceUP: { type: Number, default: 0 },
       referenceOV: { type: Number, default: 0 },
+      // Digital inputs that were missing from frame
+      di1: { type: Number, default: 0 },
+      di2: { type: Number, default: 0 },
+      di3: { type: Number, default: 0 },
+      di4: { type: Number, default: 0 },
+      // Time-related settings
       interruptOnTime: { type: Number, default: 0 },
       interruptOffTime: { type: Number, default: 0 },
       interruptStartTimestamp: { type: String, default: '' },
@@ -70,7 +78,9 @@ const DeviceSchema = new Schema({
       depolarizationStopTimestamp: { type: String, default: '' },
       instantMode: { type: Number, default: 0 },
       instantStartTimestamp: { type: String, default: '' },
-      instantEndTimestamp: { type: String, default: '' }
+      instantEndTimestamp: { type: String, default: '' },
+      // Logging settings - new requirement
+      loggingInterval: { type: String, default: '00:00:10' } // default 10 seconds
     },
     lastUpdated: { type: Date, default: null },
     updatedBy: { type: String, default: 'system' } // 'system' or 'user'

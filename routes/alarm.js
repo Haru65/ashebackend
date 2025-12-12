@@ -8,6 +8,7 @@ router.get('/:id', alarmController.getAlarmById.bind(alarmController));
 router.post('/', alarmController.createAlarm.bind(alarmController));
 router.put('/:id', alarmController.updateAlarm.bind(alarmController));
 router.delete('/:id', alarmController.deleteAlarm.bind(alarmController));
+router.delete('/', alarmController.clearAllAlarms.bind(alarmController));
 
 // Notification routes
 router.post('/:id/send-sms', alarmController.sendSMSNotification.bind(alarmController));

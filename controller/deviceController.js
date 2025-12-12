@@ -694,6 +694,120 @@ class DeviceController {
       });
     }
   }
+
+  // Set logging interval for device
+  static async setLoggingInterval(req, res) {
+    try {
+      const { deviceId } = req.params;
+      const { commandType, parameters } = req.body;
+
+      // Validate input
+      if (!parameters || typeof parameters.interval !== 'number') {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad request',
+          message: 'Logging interval (in seconds) is required'
+        });
+      }
+
+      // Find device
+      const device = await Device.findOne({ deviceId });
+      if (!device) {
+        return res.status(404).json({
+          success: false,
+          error: 'Device not found',
+          message: `Device with ID ${deviceId} does not exist`
+        });
+      }
+
+      console.log(`📤 [MQTT] Setting logging interval via complete settings frame for device ${deviceId}`);
+      
+      // Use the proper MQTT service method to send complete settings frame
+      try {
+        // Convert interval to HH:MM:SS format for the logging configuration
+        const config = {
+          loggingInterval: {
+            value: parameters.intervalFormatted || "00:30:00",
+            enabled: true
+          }
+        };
+        
+        // This will send the complete 20-parameter settings frame
+        const result = await mqttService.setLoggingConfiguration(device._id, config);
+        console.log(`✅ [MQTT] Complete settings frame sent successfully to ${deviceId}`);
+        
+        // Update device configuration in database
+        const updateData = {
+          $set: {
+            'configuration.loggingInterval': {
+              interval: parameters.interval,
+              intervalFormatted: parameters.intervalFormatted,
+              description: parameters.description,
+              lastUpdated: new Date(),
+              updatedBy: req.user ? req.user.username : 'system'
+            },
+            'configuration.lastUpdated': new Date(),
+            'configuration.updatedBy': req.user ? req.user.username : 'system'
+          }
+        };
+
+        await Device.updateOne({ deviceId }, updateData);
+
+        res.json({
+          success: true,
+          message: 'Logging interval updated successfully - complete settings frame sent',
+          data: {
+            deviceId,
+            loggingInterval: parameters.interval,
+            intervalFormatted: parameters.intervalFormatted,
+            description: parameters.description,
+            storedInDatabase: true,
+            completeSettingsFrameSent: true,
+            timestamp: new Date().toISOString()
+          }
+        });
+
+      } catch (mqttError) {
+        console.error(`❌ [MQTT] Failed to send complete settings frame:`, mqttError);
+        
+        // Still try to update database even if MQTT fails
+        const updateData = {
+          $set: {
+            'configuration.loggingInterval': {
+              interval: parameters.interval,
+              intervalFormatted: parameters.intervalFormatted,
+              description: parameters.description,
+              lastUpdated: new Date(),
+              updatedBy: req.user ? req.user.username : 'system'
+            },
+            'configuration.lastUpdated': new Date(),
+            'configuration.updatedBy': req.user ? req.user.username : 'system'
+          }
+        };
+
+        await Device.updateOne({ deviceId }, updateData);
+
+        res.status(500).json({
+          success: false,
+          error: 'MQTT communication failed',
+          message: 'Settings saved to database but could not send to device',
+          data: {
+            deviceId,
+            storedInDatabase: true,
+            completeSettingsFrameSent: false
+          }
+        });
+      }
+
+    } catch (error) {
+      console.error('Error setting logging interval:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: error.message
+      });
+    }
+  }
 }
 
 module.exports = DeviceController;

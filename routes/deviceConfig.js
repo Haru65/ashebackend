@@ -20,4 +20,9 @@ router.get('/devices/:deviceId/settings', deviceConfigController.getDeviceSettin
 router.post('/devices/:deviceId/settings', deviceConfigController.updateDeviceSettings);
 router.post('/devices/:deviceId/settings/single', deviceConfigController.updateSingleSetting);
 
+// New configuration routes for missing features
+router.post('/devices/:deviceId/configure/voltage', deviceConfigController.configureSetVoltage);
+router.post('/devices/:deviceId/configure/shunt', deviceConfigController.configureSetShunt);
+router.post('/devices/:deviceId/configure/logging', deviceConfigController.configureLoggingInterval);
+
 module.exports = router;

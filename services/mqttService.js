@@ -115,11 +115,18 @@ class MQTTService {
           this.lastDeviceTimestamp = Date.now();
           this.throttledEmit(deviceInfo);
           
-          // Update device status in MongoDB
-          await this.updateDeviceStatus(deviceId, payload);
+          // DEVICE SETTINGS EXTRACTION: Extract and store the 18 device parameters if present
+          await this.extractAndStoreDeviceSettings(deviceId, payload);
           
-          // Save telemetry data to database
-          await this.saveTelemetryData(deviceId, payload);
+          // Update device status in MongoDB
+          // await this.updateDeviceStatus(deviceId, payload); // COMMENTED OUT - causing timestamp override
+          
+          // Save telemetry data to database  
+          // await this.saveTelemetryData(deviceId, payload); // COMMENTED OUT - causing timestamp override
+          
+          // ISSUE: These methods were overriding the device timestamps with current server time
+          // The device sends specific timestamps like "Interrupt Start TimeStamp": "2025-12-10 15:45:55"
+          // But these methods were replacing them with new Date(), causing continuous timestamp changes
           
           console.log('💾 Updated device data and notified frontend');
         } else if (topicType === 'commands') {
@@ -478,11 +485,18 @@ class MQTTService {
   getDefaultDeviceSettings() {
     return {
       "Electrode": 0,
+      "SET mV": 0, // Voltage setting in millivolts
+      "Set Shunt": 0, // Current setting in Amperes (not mA)
       "Shunt Voltage": 25,
       "Shunt Current": 999,
       "Reference Fail": 30,
       "Reference UP": 300,
       "Reference OV": 60,
+      // Digital inputs that were missing from frame
+      "DI1": 0,
+      "DI2": 0,
+      "DI3": 0,
+      "DI4": 0,
       "Interrupt ON Time": 100,
       "Interrupt OFF Time": 100,
       "Interrupt Start TimeStamp": "2025-02-20 19:04:00",
@@ -492,7 +506,8 @@ class MQTTService {
       "Depolarization Stop TimeStamp": "2025-02-20 19:05:00",
       "Instant Mode": 0,
       "Instant Start TimeStamp": "19:04:00",
-      "Instant End TimeStamp": "00:00:00"
+      "Instant End TimeStamp": "00:00:00",
+      "Logging Interval": "00:00:10" // Default 10 seconds logging
     };
   }
 
@@ -519,13 +534,20 @@ class MQTTService {
       ? `${config.stopTime}:00` 
       : config.stopTime;
     
+    // CRITICAL FIX: Ensure proper time resolution (convert to seconds if needed)
+    // The test report indicates 10 sec saves as 1 sec, so we need proper conversion
+    const onTimeSeconds = parseInt(config.onTime) || 0;
+    const offTimeSeconds = parseInt(config.offTime) || 0;
+    
+    console.log(`🕐 Time resolution fix: ON=${onTimeSeconds}s, OFF=${offTimeSeconds}s`);
+    
     const updatedSettings = {
       ...currentSettings,
       "Event": 1, // Interrupt mode
       "Interrupt Start TimeStamp": `${config.startDate} ${startTime}`,
       "Interrupt Stop TimeStamp": `${config.stopDate} ${stopTime}`,
-      "Interrupt ON Time": parseInt(config.onTime),
-      "Interrupt OFF Time": parseInt(config.offTime)
+      "Interrupt ON Time": onTimeSeconds,
+      "Interrupt OFF Time": offTimeSeconds
     };
     
     // Store updated settings
@@ -724,12 +746,18 @@ class MQTTService {
   async setTimerConfiguration(deviceId, timerConfig) {
     console.log('🔧 Setting timer configuration - will send complete settings...');
     
+    // CRITICAL FIX: Ensure proper time resolution (values should be in seconds)
+    const onTimeSeconds = parseInt(timerConfig.ton) || 0;
+    const offTimeSeconds = parseInt(timerConfig.toff) || 0;
+    
+    console.log(`🕐 Timer resolution fix: TON=${onTimeSeconds}s, TOFF=${offTimeSeconds}s`);
+    
     // Get current settings and update timer fields
     const currentSettings = this.ensureDeviceSettings(deviceId);
     const updatedSettings = {
       ...currentSettings,
-      "Interrupt ON Time": timerConfig.ton || currentSettings["Interrupt ON Time"],
-      "Interrupt OFF Time": timerConfig.toff || currentSettings["Interrupt OFF Time"]
+      "Interrupt ON Time": onTimeSeconds,
+      "Interrupt OFF Time": offTimeSeconds
     };
     
     // Store updated settings
@@ -738,8 +766,8 @@ class MQTTService {
     // Create commandId and track then send complete payload
     const commandId = uuidv4();
     const changedTimer = {
-      "Interrupt ON Time": updatedSettings["Interrupt ON Time"],
-      "Interrupt OFF Time": updatedSettings["Interrupt OFF Time"]
+      "Interrupt ON Time": onTimeSeconds,
+      "Interrupt OFF Time": offTimeSeconds
     };
     if (this.deviceManagementService) {
       try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedTimer); } catch (e) { /* ignore */ }
@@ -771,17 +799,99 @@ class MQTTService {
 
   async setAlarmConfiguration(deviceId, alarmConfig) {
     console.log('🔧 Setting alarm configuration - will send complete settings...');
+    console.log('📥 Received alarm config:', JSON.stringify(alarmConfig, null, 2));
     
     // Get current settings and update alarm fields
     const currentSettings = this.ensureDeviceSettings(deviceId);
     const updatedSettings = {
       ...currentSettings,
+      // Handle old reference parameter names
       "Reference Fail": alarmConfig.referenceFail || alarmConfig["Reference Fail"] || currentSettings["Reference Fail"],
       "Reference UP": alarmConfig.referenceUP || alarmConfig["Reference UP"] || currentSettings["Reference UP"],
       "Reference OV": alarmConfig.referenceOV || alarmConfig["Reference OV"] || currentSettings["Reference OV"],
       "Shunt Voltage": alarmConfig.shuntVoltage || alarmConfig["Shunt Voltage"] || currentSettings["Shunt Voltage"],
-      "Shunt Current": alarmConfig.shuntCurrent || alarmConfig["Shunt Current"] || currentSettings["Shunt Current"]
+      "Shunt Current": alarmConfig.shuntCurrent || alarmConfig["Shunt Current"] || currentSettings["Shunt Current"],
+      // Handle new alarm set values (setup, setop, reffcal) with nested object structure
+      "Set UP": (() => {
+        console.log(`🔧 Set UP: input type=${typeof alarmConfig.setup}, value=`, alarmConfig.setup);
+        
+        // Handle nested object format: { value: 0.05, enabled: true }
+        let inputValue = null;
+        if (alarmConfig.setup && typeof alarmConfig.setup === 'object' && alarmConfig.setup.value !== undefined) {
+          inputValue = alarmConfig.setup.value;
+          console.log(`🔧 Set UP: extracted from object - value=${inputValue}, enabled=${alarmConfig.setup.enabled}`);
+        } else if (alarmConfig.setup !== null && alarmConfig.setup !== undefined && typeof alarmConfig.setup !== 'object') {
+          inputValue = alarmConfig.setup;
+          console.log(`🔧 Set UP: direct value=${inputValue}`);
+        }
+        
+        if (inputValue !== null && inputValue !== undefined && inputValue !== "") {
+          const value = parseFloat(inputValue);
+          console.log(`🔧 Set UP: parsing "${inputValue}" → ${value}`);
+          return isNaN(value) ? currentSettings["Set UP"] : value;
+        }
+        
+        console.log(`🔧 Set UP: keeping current value=${currentSettings["Set UP"]}`);
+        return currentSettings["Set UP"];
+      })(),
+      "Set OP": (() => {
+        console.log(`🔧 Set OP: input type=${typeof alarmConfig.setop}, value=`, alarmConfig.setop);
+        
+        // Handle nested object format: { value: X, enabled: true }
+        let inputValue = null;
+        if (alarmConfig.setop && typeof alarmConfig.setop === 'object' && alarmConfig.setop.value !== undefined) {
+          inputValue = alarmConfig.setop.value;
+          console.log(`🔧 Set OP: extracted from object - value=${inputValue}, enabled=${alarmConfig.setop.enabled}`);
+        } else if (alarmConfig.setop !== null && alarmConfig.setop !== undefined && typeof alarmConfig.setop !== 'object') {
+          inputValue = alarmConfig.setop;
+          console.log(`🔧 Set OP: direct value=${inputValue}`);
+        }
+        
+        if (inputValue !== null && inputValue !== undefined && inputValue !== "") {
+          const value = parseFloat(inputValue);
+          console.log(`🔧 Set OP: parsing "${inputValue}" → ${value}`);
+          return isNaN(value) ? currentSettings["Set OP"] : value;
+        }
+        
+        console.log(`🔧 Set OP: keeping current value=${currentSettings["Set OP"]}`);
+        return currentSettings["Set OP"];
+      })(),
+      "Ref Fcal": (() => {
+        console.log(`🔧 Ref Fcal: input type=${typeof alarmConfig.reffcal}, value=`, alarmConfig.reffcal);
+        
+        // Handle nested object format: { value: X, enabled: true }
+        let inputValue = null;
+        if (alarmConfig.reffcal && typeof alarmConfig.reffcal === 'object' && alarmConfig.reffcal.value !== undefined) {
+          inputValue = alarmConfig.reffcal.value;
+          console.log(`🔧 Ref Fcal: extracted from object - value=${inputValue}, enabled=${alarmConfig.reffcal.enabled}`);
+        } else if (alarmConfig.reffcal !== null && alarmConfig.reffcal !== undefined && typeof alarmConfig.reffcal !== 'object') {
+          inputValue = alarmConfig.reffcal;
+          console.log(`🔧 Ref Fcal: direct value=${inputValue}`);
+        }
+        
+        if (inputValue !== null && inputValue !== undefined && inputValue !== "") {
+          const value = parseFloat(inputValue);
+          console.log(`🔧 Ref Fcal: parsing "${inputValue}" → ${value}`);
+          return isNaN(value) ? currentSettings["Ref Fcal"] : value;
+        }
+        
+        console.log(`🔧 Ref Fcal: keeping current value=${currentSettings["Ref Fcal"]}`);
+        return currentSettings["Ref Fcal"];
+      })()
     };
+    
+    // Validate voltage ranges for Set UP, Set OP, Ref Fcal (-4.00V to +4.00V)
+    if (updatedSettings["Set UP"] < -4.00 || updatedSettings["Set UP"] > 4.00) {
+      throw new Error('Set UP voltage must be between -4.00V and +4.00V');
+    }
+    if (updatedSettings["Set OP"] < -4.00 || updatedSettings["Set OP"] > 4.00) {
+      throw new Error('Set OP voltage must be between -4.00V and +4.00V');
+    }
+    if (updatedSettings["Ref Fcal"] < -4.00 || updatedSettings["Ref Fcal"] > 4.00) {
+      throw new Error('Ref Fcal voltage must be between -4.00V and +4.00V');
+    }
+    
+    console.log('💾 Updated settings:', JSON.stringify(updatedSettings, null, 2));
     
     // Store updated settings
     this.deviceSettings.set(deviceId, updatedSettings);
@@ -793,13 +903,206 @@ class MQTTService {
                        key === 'referenceUP' ? 'Reference UP' :
                        key === 'referenceOV' ? 'Reference OV' :
                        key === 'shuntVoltage' ? 'Shunt Voltage' :
-                       key === 'shuntCurrent' ? 'Shunt Current' : key;
+                       key === 'shuntCurrent' ? 'Shunt Current' :
+                       key === 'setup' ? 'Set UP' :
+                       key === 'setop' ? 'Set OP' :
+                       key === 'reffcal' ? 'Ref Fcal' : key;
       changedFields[mappedKey] = updatedSettings[mappedKey];
     });
 
     const commandId = uuidv4();
     if (this.deviceManagementService) {
       try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedFields); } catch (e) { /* ignore */ }
+    }
+    return await this.sendCompleteSettingsPayload(deviceId, commandId);
+  }
+
+  // Configure SET mV (voltage setting in millivolts)
+  async setVoltageConfiguration(deviceId, config) {
+    console.log('🔧 Setting voltage configuration - will send complete settings...');
+    
+    // Get current settings and update voltage field
+    const currentSettings = this.ensureDeviceSettings(deviceId);
+    const updatedSettings = {
+      ...currentSettings,
+      "SET mV": config.voltage || 0
+    };
+    
+    // Store updated settings
+    this.deviceSettings.set(deviceId, updatedSettings);
+
+    // Create commandId and track then send complete payload
+    const commandId = uuidv4();
+    const changedVoltage = { "SET mV": updatedSettings["SET mV"] };
+    if (this.deviceManagementService) {
+      try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedVoltage); } catch (e) { /* ignore */ }
+    }
+    return await this.sendCompleteSettingsPayload(deviceId, commandId);
+  }
+
+  // Configure Set Shunt (current setting in Amperes)
+  async setShuntConfiguration(deviceId, config) {
+    console.log('🔧 Setting shunt configuration - will send complete settings...');
+    
+    // Get current settings and update shunt field
+    const currentSettings = this.ensureDeviceSettings(deviceId);
+    const updatedSettings = {
+      ...currentSettings,
+      "Set Shunt": config.current || 0
+    };
+    
+    // Store updated settings
+    this.deviceSettings.set(deviceId, updatedSettings);
+
+    // Create commandId and track then send complete payload
+    const commandId = uuidv4();
+    const changedShunt = { "Set Shunt": updatedSettings["Set Shunt"] };
+    if (this.deviceManagementService) {
+      try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedShunt); } catch (e) { /* ignore */ }
+    }
+    return await this.sendCompleteSettingsPayload(deviceId, commandId);
+  }
+
+  // Configure logging interval
+  async setLoggingConfiguration(deviceId, config) {
+    console.log('🔧 Setting logging configuration - will send complete settings...');
+    console.log('📥 Received logging config:', JSON.stringify(config, null, 2));
+    
+    // Get current settings and update interval fields
+    const currentSettings = this.ensureDeviceSettings(deviceId);
+    
+    // Handle nested object format for logging interval
+    const { interval, intervalFormatted } = (() => {
+      console.log(`🔧 Logging: input type=${typeof config.loggingInterval}, value=`, config.loggingInterval);
+      
+      // Handle nested object format: { value: "00:01:30", enabled: true }
+      let inputValue = null;
+      if (config.loggingInterval && typeof config.loggingInterval === 'object' && config.loggingInterval.value !== undefined) {
+        inputValue = config.loggingInterval.value;
+        console.log(`🔧 Logging: extracted from object - value="${inputValue}", enabled=${config.loggingInterval.enabled}`);
+      } else if (config.loggingInterval !== null && config.loggingInterval !== undefined && typeof config.loggingInterval !== 'object') {
+        inputValue = config.loggingInterval;
+        console.log(`🔧 Logging: direct value="${inputValue}"`);
+      }
+      
+      if (inputValue !== null && inputValue !== undefined && inputValue !== "") {
+        console.log(`🔧 Logging: using "${inputValue}"`);
+        // Parse HH:MM:SS to seconds
+        const timeParts = inputValue.split(':');
+        const seconds = parseInt(timeParts[0]) * 3600 + parseInt(timeParts[1]) * 60 + parseInt(timeParts[2]);
+        return { interval: seconds, intervalFormatted: inputValue };
+      }
+      
+      console.log(`🔧 Logging: keeping current values - interval=${currentSettings["interval"]}, intervalFormatted="${currentSettings["intervalFormatted"]}"`);
+      return { 
+        interval: currentSettings["interval"] || 1800, 
+        intervalFormatted: currentSettings["intervalFormatted"] || "00:30:00" 
+      };
+    })();
+    
+    const updatedSettings = {
+      ...currentSettings,
+      "interval": interval,
+      "intervalFormatted": intervalFormatted
+    };
+    
+    console.log('💾 Updated logging settings:', JSON.stringify(updatedSettings, null, 2));
+    
+    // Store updated settings
+    this.deviceSettings.set(deviceId, updatedSettings);
+
+    // Create commandId and track then send complete payload
+    const commandId = uuidv4();
+    const changedLogging = { "interval": updatedSettings["interval"], "intervalFormatted": updatedSettings["intervalFormatted"] };
+    if (this.deviceManagementService) {
+      try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedLogging); } catch (e) { /* ignore */ }
+    }
+    return await this.sendCompleteSettingsPayload(deviceId, commandId);
+  }
+
+  // Configure Set UP (alarm set value - range: -4.00V to +4.00V)
+  async setAlarmSetUP(deviceId, config) {
+    console.log('🔧 Setting Set UP alarm configuration - will send complete settings...');
+    
+    // Validate voltage range (-4.00V to +4.00V)
+    const voltage = parseFloat(config.setUP || 0);
+    if (voltage < -4.00 || voltage > 4.00) {
+      throw new Error('Set UP voltage must be between -4.00V and +4.00V');
+    }
+    
+    // Get current settings and update Set UP field
+    const currentSettings = this.ensureDeviceSettings(deviceId);
+    const updatedSettings = {
+      ...currentSettings,
+      "Set UP": voltage
+    };
+    
+    // Store updated settings
+    this.deviceSettings.set(deviceId, updatedSettings);
+
+    // Create commandId and track then send complete payload
+    const commandId = uuidv4();
+    const changedSetUP = { "Set UP": voltage };
+    if (this.deviceManagementService) {
+      try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedSetUP); } catch (e) { /* ignore */ }
+    }
+    return await this.sendCompleteSettingsPayload(deviceId, commandId);
+  }
+
+  // Configure Set OP (alarm set value - range: -4.00V to +4.00V)
+  async setAlarmSetOP(deviceId, config) {
+    console.log('🔧 Setting Set OP alarm configuration - will send complete settings...');
+    
+    // Validate voltage range (-4.00V to +4.00V)
+    const voltage = parseFloat(config.setOP || 0);
+    if (voltage < -4.00 || voltage > 4.00) {
+      throw new Error('Set OP voltage must be between -4.00V and +4.00V');
+    }
+    
+    // Get current settings and update Set OP field
+    const currentSettings = this.ensureDeviceSettings(deviceId);
+    const updatedSettings = {
+      ...currentSettings,
+      "Set OP": voltage
+    };
+    
+    // Store updated settings
+    this.deviceSettings.set(deviceId, updatedSettings);
+
+    // Create commandId and track then send complete payload
+    const commandId = uuidv4();
+    const changedSetOP = { "Set OP": voltage };
+    if (this.deviceManagementService) {
+      try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedSetOP); } catch (e) { /* ignore */ }
+    }
+    return await this.sendCompleteSettingsPayload(deviceId, commandId);
+  }
+
+  // Configure Ref Fcal (reference calibration - range: -4.00V to +4.00V)
+  async setRefFcal(deviceId, config) {
+    console.log('🔧 Setting Ref Fcal configuration - will send complete settings...');
+    
+    // Validate voltage range (-4.00V to +4.00V)
+    const voltage = parseFloat(config.refFcal || 0);
+    if (voltage < -4.00 || voltage > 4.00) {
+      throw new Error('Ref Fcal voltage must be between -4.00V and +4.00V');
+    }
+    
+    // Get current settings and update Ref Fcal field
+    const currentSettings = this.ensureDeviceSettings(deviceId);
+    const updatedSettings = {
+      ...currentSettings,
+      "Ref Fcal": voltage
+    };
+    
+    // Store updated settings
+    this.deviceSettings.set(deviceId, updatedSettings);
+
+    // Create commandId and track then send complete payload
+    const commandId = uuidv4();
+    const changedRefFcal = { "Ref Fcal": voltage };
+    if (this.deviceManagementService) {
+      try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedRefFcal); } catch (e) { /* ignore */ }
     }
     return await this.sendCompleteSettingsPayload(deviceId, commandId);
   }
@@ -891,23 +1194,41 @@ class MQTTService {
         console.warn(`⚠️ Could not fetch device for _id "${deviceId}": ${error.message}, using _id as fallback`);
       }
       
-      // CRITICAL FIX: Always use memory-based settings to avoid stale database reads
-      // Memory is updated immediately before this function is called
-      let payload = this.createSettingsPayloadFromMemory(deviceId, commandId);
-      console.log(`📤 Using MEMORY-based settings (most up-to-date) for device ${actualDeviceId}`);
-
-      // Update payload to use actual deviceId
-      if (payload && payload["Device ID"]) {
-        payload["Device ID"] = actualDeviceId;
-      }
-
-      // 🔄 CRITICAL: Apply value mappings to convert display values to integer codes
-      if (payload && payload.Parameters) {
-        payload.Parameters = this.applyValueMappings(payload.Parameters);
-        console.log(`✅ Value mappings applied to payload Parameters`);
-      }
-
-      console.log(`📦 Complete settings payload:`, JSON.stringify(payload, null, 2));
+      // Get current settings for the device
+      const currentSettings = this.ensureDeviceSettings(deviceId);
+      
+      // Create payload in the exact format requested
+      let payload = {
+        "Device ID": actualDeviceId,
+        "Message Type": "settings",
+        "sender": "Server",
+        "Parameters": {
+          "Electrode": currentSettings["Electrode"],
+          "Shunt Voltage": currentSettings["Shunt Voltage"],
+          "Shunt Current": currentSettings["Shunt Current"],
+          "Reference Fail": currentSettings["Reference Fail"],
+          "Reference UP": currentSettings["Reference UP"],
+          "Reference OV": currentSettings["Reference OV"],
+          "Set UP": currentSettings["Set UP"],
+          "Set OP": currentSettings["Set OP"],
+          "Ref Fcal": currentSettings["Ref Fcal"],
+          "Interrupt ON Time": currentSettings["Interrupt ON Time"],
+          "Interrupt OFF Time": currentSettings["Interrupt OFF Time"],
+          "Interrupt Start TimeStamp": currentSettings["Interrupt Start TimeStamp"],
+          "Interrupt Stop TimeStamp": currentSettings["Interrupt Stop TimeStamp"],
+          "DPOL Interval": currentSettings["DPOL Interval"],
+          "Depolarization Start TimeStamp": currentSettings["Depolarization Start TimeStamp"],
+          "Depolarization Stop TimeStamp": currentSettings["Depolarization Stop TimeStamp"],
+          "Instant Mode": currentSettings["Instant Mode"],
+          "Instant Start TimeStamp": currentSettings["Instant Start TimeStamp"],
+          "Instant End TimeStamp": currentSettings["Instant End TimeStamp"],
+          "interval": currentSettings["interval"],
+          "intervalFormatted": currentSettings["intervalFormatted"]
+        }
+      };
+      
+      console.log(`📤 Sending settings payload for device ${actualDeviceId}`);
+      console.log(`📦 Settings payload:`, JSON.stringify(payload, null, 2));
 
       // Store command in memory for acknowledgment tracking
       const commandRecord = {
@@ -968,19 +1289,17 @@ class MQTTService {
           } else {
             console.log(`✅ Complete settings command sent successfully to topic: ${topic}`);
 
-            // Save settings to database
-            if (payload && payload.Parameters) {
-              await this.saveDeviceSettings(actualDeviceId, payload.Parameters, 'user');
-            }
+            // Settings are already saved via individual setting methods
+            // Complete data frame sent to device via MQTT
 
             // Track command in device management service if available
             if (this.deviceManagementService) {
               try {
                 await this.deviceManagementService.trackCommand(
-                  deviceId, 
+                  actualDeviceId,  // Use actual device ID instead of MongoDB ObjectId
                   commandId, 
-                  'complete_settings', 
-                  payload.Parameters
+                  'complete_data_frame', 
+                  payload
                 );
               } catch (error) {
                 console.warn('⚠️ Could not track command in device management service:', error.message);
@@ -1102,6 +1421,9 @@ class MQTTService {
         "Reference Fail": 30,
         "Reference UP": 300,
         "Reference OV": 60,
+        "Set UP": 0.00,
+        "Set OP": 0.00,
+        "Ref Fcal": 0.00,
         "Interrupt ON Time": 100,
         "Interrupt OFF Time": 100,
         "Interrupt Start TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
@@ -1111,7 +1433,9 @@ class MQTTService {
         "Depolarization Stop TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
         "Instant Mode": 0,
         "Instant Start TimeStamp": "19:04:00",
-        "Instant End TimeStamp": "00:00:00"
+        "Instant End TimeStamp": "00:00:00",
+        "interval": 1800,
+        "intervalFormatted": "00:30:00"
       });
     }
     return this.deviceSettings.get(deviceId);
@@ -1217,12 +1541,33 @@ class MQTTService {
     try {
       const Telemetry = require('../models/telemetry');
       
-      // Extract all data fields from payload
+      // Extract all data fields from payload, including Parameters if nested
       const dataFields = {};
+      
+      // Handle nested Parameters structure (real device format)
+      if (payload.Parameters && typeof payload.Parameters === 'object') {
+        Object.keys(payload.Parameters).forEach(key => {
+          dataFields[key] = payload.Parameters[key];
+        });
+        console.log('📦 Extracted nested Parameters for telemetry');
+      }
+      
+      // Also include root-level fields (simulator format)
       Object.keys(payload).forEach(key => {
         // Skip meta fields, keep actual telemetry data
         if (!['Device ID', 'Message Type', 'sender', 'CommandId', 'Parameters'].includes(key)) {
           dataFields[key] = payload[key];
+        }
+      });
+
+      // Ensure critical REF values are properly captured
+      ['REF/OP', 'REF/UP', 'REF FAIL', 'REF_OP', 'REF_UP', 'REF_FAIL', 
+       'DI1', 'DI2', 'DI3', 'DI4', 'REF1', 'REF2', 'REF3'].forEach(field => {
+        if (payload[field] !== undefined) {
+          dataFields[field] = payload[field];
+        }
+        if (payload.Parameters && payload.Parameters[field] !== undefined) {
+          dataFields[field] = payload.Parameters[field];
         }
       });
 
@@ -1235,7 +1580,8 @@ class MQTTService {
       });
 
       await telemetryRecord.save();
-      console.log(`✅ Saved telemetry data for device ${deviceId}`);
+      console.log(`✅ Saved telemetry data for device ${deviceId} with ${Object.keys(dataFields).length} data fields`);
+      console.log('📊 Saved fields:', Object.keys(dataFields).join(', '));
       
       // Check if payload contains device settings and save them
       await this.saveDeviceSettings(deviceId, payload, 'system');
@@ -1259,12 +1605,19 @@ class MQTTService {
         console.log('📄 Using flat format (simulator)');
       }
       
-      // Check if payload contains any settings fields
+      // Check if payload contains any settings fields (including new ones)
       const hasSettings = settingsPayload.Electrode !== undefined ||
                          settingsPayload.Event !== undefined ||
                          settingsPayload['Manual Mode Action'] !== undefined ||
                          settingsPayload['Shunt Voltage'] !== undefined ||
-                         settingsPayload['Instant Mode'] !== undefined;
+                         settingsPayload['Instant Mode'] !== undefined ||
+                         settingsPayload['SET mV'] !== undefined ||
+                         settingsPayload['Set Shunt'] !== undefined ||
+                         settingsPayload['Logging Interval'] !== undefined ||
+                         settingsPayload.DI1 !== undefined ||
+                         settingsPayload.DI2 !== undefined ||
+                         settingsPayload.DI3 !== undefined ||
+                         settingsPayload.DI4 !== undefined;
       
       if (!hasSettings) {
         return; // No settings in this payload
@@ -1276,7 +1629,7 @@ class MQTTService {
         return;
       }
 
-      // Extract settings from payload (preserve existing if not in payload)
+      // Extract settings from payload (preserve existing if not in payload) - ENHANCED
       const currentSettings = device.configuration?.deviceSettings || {};
       const settings = {
         electrode: settingsPayload.Electrode !== undefined ? settingsPayload.Electrode : currentSettings.electrode || 0,
@@ -1284,9 +1637,17 @@ class MQTTService {
         manualModeAction: settingsPayload['Manual Mode Action'] !== undefined ? settingsPayload['Manual Mode Action'] : currentSettings.manualModeAction || 0,
         shuntVoltage: settingsPayload['Shunt Voltage'] !== undefined ? settingsPayload['Shunt Voltage'] : currentSettings.shuntVoltage || 0,
         shuntCurrent: settingsPayload['Shunt Current'] !== undefined ? settingsPayload['Shunt Current'] : currentSettings.shuntCurrent || 0,
+        // New fields from GSM test report
+        setVoltage: settingsPayload['SET mV'] !== undefined ? settingsPayload['SET mV'] : currentSettings.setVoltage || 0,
+        setShunt: settingsPayload['Set Shunt'] !== undefined ? settingsPayload['Set Shunt'] : currentSettings.setShunt || 0,
         referenceFail: settingsPayload['Reference Fail'] !== undefined ? settingsPayload['Reference Fail'] : currentSettings.referenceFail || 0,
         referenceUP: settingsPayload['Reference UP'] !== undefined ? settingsPayload['Reference UP'] : currentSettings.referenceUP || 0,
         referenceOV: settingsPayload['Reference OV'] !== undefined ? settingsPayload['Reference OV'] : currentSettings.referenceOV || 0,
+        // Digital inputs
+        di1: settingsPayload.DI1 !== undefined ? settingsPayload.DI1 : currentSettings.di1 || 0,
+        di2: settingsPayload.DI2 !== undefined ? settingsPayload.DI2 : currentSettings.di2 || 0,
+        di3: settingsPayload.DI3 !== undefined ? settingsPayload.DI3 : currentSettings.di3 || 0,
+        di4: settingsPayload.DI4 !== undefined ? settingsPayload.DI4 : currentSettings.di4 || 0,
         interruptOnTime: settingsPayload['Interrupt ON Time'] !== undefined ? settingsPayload['Interrupt ON Time'] : currentSettings.interruptOnTime || 0,
         interruptOffTime: settingsPayload['Interrupt OFF Time'] !== undefined ? settingsPayload['Interrupt OFF Time'] : currentSettings.interruptOffTime || 0,
         interruptStartTimestamp: settingsPayload['Interrupt Start TimeStamp'] !== undefined ? settingsPayload['Interrupt Start TimeStamp'] : currentSettings.interruptStartTimestamp || '',
@@ -1296,7 +1657,9 @@ class MQTTService {
         depolarizationStopTimestamp: settingsPayload['Depolarization Stop TimeStamp'] !== undefined ? settingsPayload['Depolarization Stop TimeStamp'] : currentSettings.depolarizationStopTimestamp || '',
         instantMode: settingsPayload['Instant Mode'] !== undefined ? settingsPayload['Instant Mode'] : currentSettings.instantMode || 0,
         instantStartTimestamp: settingsPayload['Instant Start TimeStamp'] !== undefined ? settingsPayload['Instant Start TimeStamp'] : currentSettings.instantStartTimestamp || '',
-        instantEndTimestamp: settingsPayload['Instant End TimeStamp'] !== undefined ? settingsPayload['Instant End TimeStamp'] : currentSettings.instantEndTimestamp || ''
+        instantEndTimestamp: settingsPayload['Instant End TimeStamp'] !== undefined ? settingsPayload['Instant End TimeStamp'] : currentSettings.instantEndTimestamp || '',
+        // Logging configuration
+        loggingInterval: settingsPayload['Logging Interval'] !== undefined ? settingsPayload['Logging Interval'] : currentSettings.loggingInterval || '00:00:10'
       };
 
       // Update device configuration in database
@@ -1448,6 +1811,73 @@ class MQTTService {
       throw error;
     }
   }
+
+  /**
+   * Extract and store device settings from incoming MQTT data
+   * This preserves the original timestamps sent by the device
+   */
+  async extractAndStoreDeviceSettings(deviceId, payload) {
+    try {
+      console.log(`🔍 Extracting device settings for device ${deviceId}`);
+      
+      // List of the 18 device parameters to look for
+      const DEVICE_PARAMETERS = [
+        'Electrode', 'Event', 'Manual Mode Action', 'Shunt Voltage', 'Shunt Current',
+        'Reference Fail', 'Reference UP', 'Reference OV', 'Interrupt ON Time', 'Interrupt OFF Time',
+        'Interrupt Start TimeStamp', 'Interrupt Stop TimeStamp', 'DPOL Interval',
+        'Depolarization Start TimeStamp', 'Depolarization Stop TimeStamp', 'Instant Mode',
+        'Instant Start TimeStamp', 'Instant End TimeStamp'
+      ];
+      
+      // Extract device parameters from payload (preserve original values)
+      const deviceSettings = {};
+      let foundParameters = 0;
+      
+      for (const param of DEVICE_PARAMETERS) {
+        if (payload[param] !== undefined) {
+          deviceSettings[param] = payload[param];
+          foundParameters++;
+          console.log(`📋 Found parameter: ${param} = ${payload[param]}`);
+        }
+      }
+      
+      if (foundParameters > 0) {
+        console.log(`✅ Found ${foundParameters} device parameters, storing in database`);
+        
+        // Store settings using device management service (preserving original timestamps)
+        if (this.deviceManagementService) {
+          // Map to internal field names for database storage
+          const mappedSettings = this.deviceManagementService.mapParametersToInternalFields(deviceSettings);
+          await this.deviceManagementService.storeDeviceSettings(deviceId, mappedSettings, 'mqtt_incoming');
+          console.log(`💾 Device settings stored in database for device ${deviceId}`);
+          
+          // Store BOTH formats in memory - mapped for backend use, original for MQTT
+          const currentMemorySettings = this.deviceSettings.get(deviceId) || {};
+          const updatedMemorySettings = { ...currentMemorySettings, ...deviceSettings };
+          this.deviceSettings.set(deviceId, updatedMemorySettings);
+          console.log(`💾 Device settings stored in memory for device ${deviceId}`);
+          
+          // Emit real-time update to frontend with original parameter names
+          if (this.socketIO) {
+            this.socketIO.emit('deviceSettingsUpdate', {
+              deviceId,
+              settings: deviceSettings,
+              source: 'device',
+              timestamp: new Date().toISOString()
+            });
+            console.log(`📡 Sent real-time device settings update to frontend`);
+          }
+        }
+      } else {
+        console.log(`ℹ️ No device parameters found in payload for device ${deviceId}`);
+      }
+      
+    } catch (error) {
+      console.error(`❌ Error extracting device settings for device ${deviceId}:`, error.message);
+    }
+  }
+
+
 
   disconnect() {
     if (this.client) {

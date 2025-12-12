@@ -36,26 +36,82 @@ function transformDeviceData(payload, topic) {
     });
   }
   
-  // Add Reference voltages (REF1, REF2, REF3)
+  // Add Reference voltages (REF1, REF2, REF3) with OPEN display for > 5.00V
   if (params.REF1 !== undefined) {
+    const ref1Value = parseFloat(params.REF1);
     metrics.push({
       type: 'REF1',
-      value: params.REF1,
+      value: ref1Value > 5.00 ? 'OPEN' : params.REF1,
       icon: 'bi-graph-up'
     });
   }
   if (params.REF2 !== undefined) {
+    const ref2Value = parseFloat(params.REF2);
     metrics.push({
       type: 'REF2',
-      value: params.REF2,
+      value: ref2Value > 5.00 ? 'OPEN' : params.REF2,
       icon: 'bi-graph-up'
     });
   }
   if (params.REF3 !== undefined) {
+    const ref3Value = parseFloat(params.REF3);
     metrics.push({
       type: 'REF3',
-      value: params.REF3,
+      value: ref3Value > 5.00 ? 'OPEN' : params.REF3,
       icon: 'bi-graph-up'
+    });
+  }
+  
+  // Add REF alarm states (REF/OP, REF/UP, REF FAIL)
+  if (params['REF/OP'] !== undefined || params.REF_OP !== undefined) {
+    metrics.push({
+      type: 'REF/OP',
+      value: params['REF/OP'] || params.REF_OP,
+      icon: 'bi-exclamation-triangle'
+    });
+  }
+  if (params['REF/UP'] !== undefined || params.REF_UP !== undefined) {
+    metrics.push({
+      type: 'REF/UP',
+      value: params['REF/UP'] || params.REF_UP,
+      icon: 'bi-arrow-up-circle'
+    });
+  }
+  if (params['REF FAIL'] !== undefined || params.REF_FAIL !== undefined) {
+    metrics.push({
+      type: 'REF FAIL',
+      value: params['REF FAIL'] || params.REF_FAIL,
+      icon: 'bi-x-circle'
+    });
+  }
+  
+  // Add Digital Inputs (DI1, DI2, DI3, DI4)
+  if (params.DI1 !== undefined) {
+    metrics.push({
+      type: 'DI1',
+      value: params.DI1,
+      icon: 'bi-toggles'
+    });
+  }
+  if (params.DI2 !== undefined) {
+    metrics.push({
+      type: 'DI2',
+      value: params.DI2,
+      icon: 'bi-toggles'
+    });
+  }
+  if (params.DI3 !== undefined) {
+    metrics.push({
+      type: 'DI3',
+      value: params.DI3,
+      icon: 'bi-toggles'
+    });
+  }
+  if (params.DI4 !== undefined) {
+    metrics.push({
+      type: 'DI4',
+      value: params.DI4,
+      icon: 'bi-toggles'
     });
   }
   

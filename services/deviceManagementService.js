@@ -152,11 +152,10 @@ class DeviceManagementService {
           "Reference Fail": settings.referenceFail !== undefined ? settings.referenceFail : 30,
           "Reference UP": settings.referenceUP !== undefined ? settings.referenceUP : 300,
           "Reference OV": settings.referenceOV !== undefined ? settings.referenceOV : 60,
-          "Interrupt ON Time": settings.interruptOnTime !== undefined ? settings.interruptOnTime : 100,
-          "Interrupt OFF Time": settings.interruptOffTime !== undefined ? settings.interruptOffTime : 100,
+          "Interrupt ON Time": settings.interruptOnTime !== undefined ? settings.interruptOnTime : 86400,
+          "Interrupt OFF Time": settings.interruptOffTime !== undefined ? settings.interruptOffTime : 86400,
           "Interrupt Start TimeStamp": settings.interruptStartTimeStamp || settings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
           "Interrupt Stop TimeStamp": settings.interruptStopTimeStamp || settings.interruptStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-          "DPOL Interval": settings.dpolInterval || "00:00:00",
           "Depolarization Start TimeStamp": settings.depolarizationStartTimeStamp || settings.depolarizationStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
           "Depolarization Stop TimeStamp": settings.depolarizationStopTimeStamp || settings.depolarizationStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
           "Instant Mode": settings.instantMode !== undefined ? settings.instantMode : 0,
@@ -200,11 +199,10 @@ class DeviceManagementService {
           "Reference Fail": settings.referenceFail || 30,
           "Reference UP": settings.referenceUP || 300,
           "Reference OV": settings.referenceOV || 60,
-          "Interrupt ON Time": settings.interruptOnTime || 100,
-          "Interrupt OFF Time": settings.interruptOffTime || 100,
+          "Interrupt ON Time": settings.interruptOnTime || 86400,
+          "Interrupt OFF Time": settings.interruptOffTime || 86400,
           "Interrupt Start TimeStamp": settings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
           "Interrupt Stop TimeStamp": settings.interruptStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-          "DPOL Interval": settings.dpolInterval || "00:00:00",
           "Depolarization Start TimeStamp": settings.depolarizationStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
           "Depolarization Stop TimeStamp": settings.depolarizationStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
           "Instant Mode": settings.instantMode || 0,
@@ -396,8 +394,8 @@ class DeviceManagementService {
       referenceFail: 30,
       referenceUP: 300,
       referenceOV: 60,
-      interruptOnTime: 100,
-      interruptOffTime: 100,
+      interruptOnTime: 86400,
+      interruptOffTime: 86400,
       interruptStartTimeStamp: defaultTimestamp,
       interruptStopTimeStamp: defaultTimestamp,
       dpolInterval: "00:00:00",
@@ -428,7 +426,7 @@ class DeviceManagementService {
       "Interrupt OFF Time": "interruptOffTime",
       "Interrupt Start TimeStamp": "interruptStartTimeStamp",
       "Interrupt Stop TimeStamp": "interruptStopTimeStamp",
-      "DPOL Interval": "dpolInterval",
+
       "Depolarization Start TimeStamp": "depolarizationStartTimeStamp",
       "Depolarization Stop TimeStamp": "depolarizationStopTimeStamp",
       "Instant Mode": "instantMode",
@@ -602,7 +600,7 @@ class DeviceManagementService {
    */
   getDefaultDeviceSettings() {
     return {
-      "Electrode": 0, // 0=Cu/cuso4, 1=Zinc, 2=Ag/AgCl, 3=Custom
+      "Electrode": 0, // 0=Cu/cuso4, 1=Zinc, 2=Ag/AgCl
       "Event": 0, // 0=Normal, 1=Interrupt, 2=Manual, 3=DPOL, 4=INST
       "Manual Mode Action": 0, // 0=stop, 1=start
       "Shunt Voltage": 25, // mV
@@ -610,11 +608,11 @@ class DeviceManagementService {
       "Reference Fail": 30, // mV  
       "Reference UP": 300, // mV
       "Reference OV": 60, // mV
-      "Interrupt ON Time": 100, // seconds
-      "Interrupt OFF Time": 100, // seconds
+      "Interrupt ON Time": 86400, // seconds (24 hours)
+      "Interrupt OFF Time": 86400, // seconds (24 hours)
       "Interrupt Start TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
       "Interrupt Stop TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
-      "DPOL Interval": "00:00:00",
+
       "Depolarization Start TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
       "Depolarization Stop TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
       "Instant Mode": 0, // 0=daily, 1=weekly
@@ -642,7 +640,7 @@ class DeviceManagementService {
       'interruptOffTime': 'Interrupt OFF Time',
       'interruptStartTimeStamp': 'Interrupt Start TimeStamp',
       'interruptStopTimeStamp': 'Interrupt Stop TimeStamp',
-      'dpolInterval': 'DPOL Interval',
+
       'depolarizationStartTimeStamp': 'Depolarization Start TimeStamp',
       'depolarizationStopTimeStamp': 'Depolarization Stop TimeStamp',
       'instantMode': 'Instant Mode',
@@ -680,7 +678,7 @@ class DeviceManagementService {
       'Interrupt OFF Time': 'interruptOffTime',
       'Interrupt Start TimeStamp': 'interruptStartTimeStamp',
       'Interrupt Stop TimeStamp': 'interruptStopTimeStamp',
-      'DPOL Interval': 'dpolInterval',
+
       'Depolarization Start TimeStamp': 'depolarizationStartTimeStamp',
       'Depolarization Stop TimeStamp': 'depolarizationStopTimeStamp',
       'Instant Mode': 'instantMode',

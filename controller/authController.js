@@ -2,6 +2,44 @@ const User = require('../models/user');
 const jwt = require('jsonwebtoken');
 const Joi = require('joi');
 
+// Rate limiting for failed login attempts
+const loginAttempts = new Map();
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_TIME = 15 * 60 * 1000; // 15 minutes
+
+// Helper function to check and update login attempts
+function checkLoginAttempts(identifier) {
+  const now = Date.now();
+  const attempts = loginAttempts.get(identifier) || { count: 0, lastAttempt: 0, lockedUntil: 0 };
+  
+  // Reset attempts if lockout time has passed
+  if (attempts.lockedUntil && now > attempts.lockedUntil) {
+    attempts.count = 0;
+    attempts.lockedUntil = 0;
+  }
+  
+  return attempts;
+}
+
+function recordFailedAttempt(identifier) {
+  const now = Date.now();
+  const attempts = loginAttempts.get(identifier) || { count: 0, lastAttempt: 0, lockedUntil: 0 };
+  
+  attempts.count += 1;
+  attempts.lastAttempt = now;
+  
+  if (attempts.count >= MAX_LOGIN_ATTEMPTS) {
+    attempts.lockedUntil = now + LOCKOUT_TIME;
+  }
+  
+  loginAttempts.set(identifier, attempts);
+  return attempts;
+}
+
+function clearLoginAttempts(identifier) {
+  loginAttempts.delete(identifier);
+}
+
 // Validation schemas
 const registerSchema = Joi.object({
   username: Joi.string().min(3).max(50).required(),
@@ -80,15 +118,28 @@ class AuthController {
   // Login user
   static async login(req, res) {
     try {
+      // Validate request body
       const { error, value } = loginSchema.validate(req.body);
       if (error) {
         return res.status(400).json({
           success: false,
-          error: error.details[0].message
+          error: 'Please provide valid email/username and password'
         });
       }
 
       const { username, password } = value;
+      const clientIP = req.ip || req.connection.remoteAddress;
+      const identifier = `${username.toLowerCase()}_${clientIP}`;
+
+      // Check for rate limiting
+      const attempts = checkLoginAttempts(identifier);
+      if (attempts.lockedUntil && Date.now() < attempts.lockedUntil) {
+        const remainingTime = Math.ceil((attempts.lockedUntil - Date.now()) / 60000);
+        return res.status(429).json({
+          success: false,
+          error: `Too many attempts. Try again in ${remainingTime} minute(s)`
+        });
+      }
 
       // Find user
       const user = await User.findOne({
@@ -97,19 +148,60 @@ class AuthController {
       });
 
       if (!user) {
+        // Record failed attempt for non-existent user
+        recordFailedAttempt(identifier);
         return res.status(401).json({
           success: false,
-          error: 'Invalid credentials'
+          error: 'User not found'
+        });
+      }
+
+      // Check if user account is locked
+      if (user.accountLocked && user.lockedUntil && new Date() < user.lockedUntil) {
+        const remainingMinutes = Math.ceil((user.lockedUntil - new Date()) / 60000);
+        return res.status(401).json({
+          success: false,
+          error: `Account locked. Try again in ${remainingMinutes} minute(s)`
         });
       }
 
       // Check password
       const isValidPassword = await user.comparePassword(password);
       if (!isValidPassword) {
-        return res.status(401).json({
+        console.log('❌ Password validation failed for user:', username);
+        
+        // Record failed attempt
+        const failedAttempts = recordFailedAttempt(identifier);
+        
+        // Update user's failed login attempts
+        user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
+        user.lastFailedLogin = new Date();
+        
+        // Lock account if too many failed attempts
+        if (user.failedLoginAttempts >= MAX_LOGIN_ATTEMPTS) {
+          user.accountLocked = true;
+          user.lockedUntil = new Date(Date.now() + LOCKOUT_TIME);
+        }
+        
+        await user.save();
+        
+        const errorResponse = {
           success: false,
-          error: 'Invalid credentials'
-        });
+          error: 'Password is wrong'
+        };
+        
+        console.log('📤 Sending error response:', errorResponse);
+        return res.status(401).json(errorResponse);
+      }
+
+      // Clear login attempts on successful login
+      clearLoginAttempts(identifier);
+      
+      // Reset user's failed login attempts
+      if (user.failedLoginAttempts > 0) {
+        user.failedLoginAttempts = 0;
+        user.accountLocked = false;
+        user.lockedUntil = null;
       }
 
       // Generate tokens
@@ -138,9 +230,28 @@ class AuthController {
 
     } catch (error) {
       console.error('Login error:', error);
+      
+      // Handle specific database errors
+      if (error.name === 'ValidationError') {
+        return res.status(400).json({
+          success: false,
+          error: 'Please provide valid login credentials.',
+          type: 'VALIDATION_ERROR'
+        });
+      }
+      
+      if (error.name === 'MongoError' || error.name === 'MongooseError') {
+        return res.status(503).json({
+          success: false,
+          error: 'Database temporarily unavailable. Please try again in a few moments.',
+          type: 'DATABASE_ERROR'
+        });
+      }
+      
       res.status(500).json({
         success: false,
-        error: 'Internal server error'
+        error: 'Something went wrong on our end. Please try again later or contact support if the issue persists.',
+        type: 'INTERNAL_ERROR'
       });
     }
   }

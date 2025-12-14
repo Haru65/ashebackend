@@ -154,13 +154,12 @@ class DeviceConfigController {
   async configureInstMode(req, res) {
     try {
       const { deviceId } = req.params;
-      const { startTime, endTime, frequency } = req.body;
+      const { startTime, frequency } = req.body;
 
       console.log(`🔧 Configuring INST mode for device ${deviceId}:`, req.body);
 
       const config = {
         startTime,
-        endTime,
         frequency
       };
 
@@ -318,11 +317,10 @@ class DeviceConfigController {
             "Reference Fail": 30,
             "Reference UP": 300,
             "Reference OV": 60,
-            "Interrupt ON Time": 100,
-            "Interrupt OFF Time": 100,
+            "Interrupt ON Time": 86400,
+            "Interrupt OFF Time": 86400,
             "Interrupt Start TimeStamp": "2025-02-20 19:04:00",
             "Interrupt Stop TimeStamp": "2025-02-20 19:05:00",
-            "DPOL Interval": "00:00:00",
             "Depolarization Start TimeStamp": "2025-02-20 19:04:00",
             "Depolarization Stop TimeStamp": "2025-02-20 19:05:00",
             "Instant Mode": 0,

@@ -497,11 +497,10 @@ class MQTTService {
       "DI2": 0,
       "DI3": 0,
       "DI4": 0,
-      "Interrupt ON Time": 100,
-      "Interrupt OFF Time": 100,
+      "Interrupt ON Time": 86400,
+      "Interrupt OFF Time": 86400,
       "Interrupt Start TimeStamp": "2025-02-20 19:04:00",
       "Interrupt Stop TimeStamp": "2025-02-20 19:05:00",
-      "DPOL Interval": "00:00:00",
       "Depolarization Start TimeStamp": "2025-02-20 19:04:00",
       "Depolarization Stop TimeStamp": "2025-02-20 19:05:00",
       "Instant Mode": 0,
@@ -662,8 +661,7 @@ class MQTTService {
       ...currentSettings,
       "Event": 3, // DPOL mode
       "Depolarization Start TimeStamp": `${config.startDate} ${startTime}`,
-      "Depolarization Stop TimeStamp": `${config.endDate} ${endTime}`,
-      "DPOL Interval": config.interval || "00:00:00"
+      "Depolarization Stop TimeStamp": `${config.endDate} ${endTime}`
     };
     
     // Store updated settings
@@ -674,8 +672,7 @@ class MQTTService {
     const changedDpol = {
       "Event": 3,
       "Depolarization Start TimeStamp": updatedSettings["Depolarization Start TimeStamp"],
-      "Depolarization Stop TimeStamp": updatedSettings["Depolarization Stop TimeStamp"],
-      "DPOL Interval": updatedSettings["DPOL Interval"]
+      "Depolarization Stop TimeStamp": updatedSettings["Depolarization Stop TimeStamp"]
     };
     if (this.deviceManagementService) {
       try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedDpol); } catch (e) { /* ignore */ }
@@ -696,18 +693,15 @@ class MQTTService {
     
     // Validate and log the received times
     console.log('📍 Instant Start TimeStamp received:', config.startTime);
-    console.log('📍 Instant End TimeStamp received:', config.endTime);
     
     const updatedSettings = {
       ...currentSettings,
       "Event": 4, // Instant mode
       "Instant Mode": instantModeValue,
-      "Instant Start TimeStamp": config.startTime || "00:00:00",
-      "Instant End TimeStamp": config.endTime || "00:00:00"
+      "Instant Start TimeStamp": config.startTime || "00:00:00"
     };
     
     console.log('💾 Storing in memory - Instant Start TimeStamp:', updatedSettings["Instant Start TimeStamp"]);
-    console.log('💾 Storing in memory - Instant End TimeStamp:', updatedSettings["Instant End TimeStamp"]);
     
     // Store updated settings in memory
     this.deviceSettings.set(deviceId, updatedSettings);
@@ -718,8 +712,7 @@ class MQTTService {
         const dbParams = {
           "Instant Mode": instantModeValue,
           "Event": 4,
-          "Instant Start TimeStamp": config.startTime || "00:00:00",
-          "Instant End TimeStamp": config.endTime || "00:00:00"
+          "Instant Start TimeStamp": config.startTime || "00:00:00"
         };
         console.log('💿 Updating database with:', JSON.stringify(dbParams, null, 2));
         await this.deviceManagementService.updateDeviceParameters(deviceId, dbParams);
@@ -734,8 +727,7 @@ class MQTTService {
     const changedInst = {
       "Event": 4,
       "Instant Mode": instantModeValue,
-      "Instant Start TimeStamp": updatedSettings["Instant Start TimeStamp"],
-      "Instant End TimeStamp": updatedSettings["Instant End TimeStamp"]
+      "Instant Start TimeStamp": updatedSettings["Instant Start TimeStamp"]
     };
     if (this.deviceManagementService) {
       try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedInst); } catch (e) { /* ignore */ }
@@ -1216,7 +1208,6 @@ class MQTTService {
           "Interrupt OFF Time": currentSettings["Interrupt OFF Time"],
           "Interrupt Start TimeStamp": currentSettings["Interrupt Start TimeStamp"],
           "Interrupt Stop TimeStamp": currentSettings["Interrupt Stop TimeStamp"],
-          "DPOL Interval": currentSettings["DPOL Interval"],
           "Depolarization Start TimeStamp": currentSettings["Depolarization Start TimeStamp"],
           "Depolarization Stop TimeStamp": currentSettings["Depolarization Stop TimeStamp"],
           "Instant Mode": currentSettings["Instant Mode"],
@@ -1389,7 +1380,6 @@ class MQTTService {
         "Interrupt OFF Time": settingsConfig["Interrupt OFF Time"] !== undefined ? settingsConfig["Interrupt OFF Time"] : (settingsConfig.interruptOffTime !== undefined ? settingsConfig.interruptOffTime : currentSettings["Interrupt OFF Time"]),
         "Interrupt Start TimeStamp": settingsConfig["Interrupt Start TimeStamp"] !== undefined ? settingsConfig["Interrupt Start TimeStamp"] : (settingsConfig.interruptStartTimestamp !== undefined ? settingsConfig.interruptStartTimestamp : currentSettings["Interrupt Start TimeStamp"]),
         "Interrupt Stop TimeStamp": settingsConfig["Interrupt Stop TimeStamp"] !== undefined ? settingsConfig["Interrupt Stop TimeStamp"] : (settingsConfig.interruptStopTimestamp !== undefined ? settingsConfig.interruptStopTimestamp : currentSettings["Interrupt Stop TimeStamp"]),
-        "DPOL Interval": settingsConfig["DPOL Interval"] !== undefined ? settingsConfig["DPOL Interval"] : (settingsConfig.dpolInterval !== undefined ? settingsConfig.dpolInterval : currentSettings["DPOL Interval"]),
         "Depolarization Start TimeStamp": settingsConfig["Depolarization Start TimeStamp"] !== undefined ? settingsConfig["Depolarization Start TimeStamp"] : (settingsConfig.depolarizationStartTimestamp !== undefined ? settingsConfig.depolarizationStartTimestamp : currentSettings["Depolarization Start TimeStamp"]),
         "Depolarization Stop TimeStamp": settingsConfig["Depolarization Stop TimeStamp"] !== undefined ? settingsConfig["Depolarization Stop TimeStamp"] : (settingsConfig.depolarizationStopTimestamp !== undefined ? settingsConfig.depolarizationStopTimestamp : currentSettings["Depolarization Stop TimeStamp"]),
         "Instant Mode": settingsConfig["Instant Mode"] !== undefined ? settingsConfig["Instant Mode"] : (settingsConfig.instantMode !== undefined ? settingsConfig.instantMode : currentSettings["Instant Mode"]),
@@ -1424,11 +1414,10 @@ class MQTTService {
         "Set UP": 0.00,
         "Set OP": 0.00,
         "Ref Fcal": 0.00,
-        "Interrupt ON Time": 100,
-        "Interrupt OFF Time": 100,
+        "Interrupt ON Time": 86400,
+        "Interrupt OFF Time": 86400,
         "Interrupt Start TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
         "Interrupt Stop TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
-        "DPOL Interval": "00:00:00",
         "Depolarization Start TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
         "Depolarization Stop TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
         "Instant Mode": 0,
@@ -1652,7 +1641,6 @@ class MQTTService {
         interruptOffTime: settingsPayload['Interrupt OFF Time'] !== undefined ? settingsPayload['Interrupt OFF Time'] : currentSettings.interruptOffTime || 0,
         interruptStartTimestamp: settingsPayload['Interrupt Start TimeStamp'] !== undefined ? settingsPayload['Interrupt Start TimeStamp'] : currentSettings.interruptStartTimestamp || '',
         interruptStopTimestamp: settingsPayload['Interrupt Stop TimeStamp'] !== undefined ? settingsPayload['Interrupt Stop TimeStamp'] : currentSettings.interruptStopTimestamp || '',
-        dpolInterval: settingsPayload['DPOL Interval'] !== undefined ? settingsPayload['DPOL Interval'] : currentSettings.dpolInterval || '00:00:00',
         depolarizationStartTimestamp: settingsPayload['Depolarization Start TimeStamp'] !== undefined ? settingsPayload['Depolarization Start TimeStamp'] : currentSettings.depolarizationStartTimestamp || '',
         depolarizationStopTimestamp: settingsPayload['Depolarization Stop TimeStamp'] !== undefined ? settingsPayload['Depolarization Stop TimeStamp'] : currentSettings.depolarizationStopTimestamp || '',
         instantMode: settingsPayload['Instant Mode'] !== undefined ? settingsPayload['Instant Mode'] : currentSettings.instantMode || 0,
@@ -1683,11 +1671,10 @@ class MQTTService {
         "Reference Fail": settingsPayload['Reference Fail'] !== undefined ? settingsPayload['Reference Fail'] : currentSettings.referenceFail || 30,
         "Reference UP": settingsPayload['Reference UP'] !== undefined ? settingsPayload['Reference UP'] : currentSettings.referenceUP || 300,
         "Reference OV": settingsPayload['Reference OV'] !== undefined ? settingsPayload['Reference OV'] : currentSettings.referenceOV || 60,
-        "Interrupt ON Time": settingsPayload['Interrupt ON Time'] !== undefined ? settingsPayload['Interrupt ON Time'] : currentSettings.interruptOnTime || 100,
-        "Interrupt OFF Time": settingsPayload['Interrupt OFF Time'] !== undefined ? settingsPayload['Interrupt OFF Time'] : currentSettings.interruptOffTime || 100,
+        "Interrupt ON Time": settingsPayload['Interrupt ON Time'] !== undefined ? settingsPayload['Interrupt ON Time'] : currentSettings.interruptOnTime || 86400,
+        "Interrupt OFF Time": settingsPayload['Interrupt OFF Time'] !== undefined ? settingsPayload['Interrupt OFF Time'] : currentSettings.interruptOffTime || 86400,
         "Interrupt Start TimeStamp": settingsPayload['Interrupt Start TimeStamp'] !== undefined ? settingsPayload['Interrupt Start TimeStamp'] : currentSettings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
         "Interrupt Stop TimeStamp": settingsPayload['Interrupt Stop TimeStamp'] !== undefined ? settingsPayload['Interrupt Stop TimeStamp'] : currentSettings.interruptStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-        "DPOL Interval": settingsPayload['DPOL Interval'] !== undefined ? settingsPayload['DPOL Interval'] : currentSettings.dpolInterval || "00:00:00",
         "Depolarization Start TimeStamp": settingsPayload['Depolarization Start TimeStamp'] !== undefined ? settingsPayload['Depolarization Start TimeStamp'] : currentSettings.depolarizationStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
         "Depolarization Stop TimeStamp": settingsPayload['Depolarization Stop TimeStamp'] !== undefined ? settingsPayload['Depolarization Stop TimeStamp'] : currentSettings.depolarizationStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
         "Instant Mode": settingsPayload['Instant Mode'] !== undefined ? settingsPayload['Instant Mode'] : currentSettings.instantMode || 0,

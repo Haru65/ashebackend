@@ -42,7 +42,21 @@ const userSchema = new mongoose.Schema({
   refreshTokens: [{
     token: String,
     createdAt: { type: Date, default: Date.now, expires: '7d' }
-  }]
+  }],
+  failedLoginAttempts: {
+    type: Number,
+    default: 0
+  },
+  accountLocked: {
+    type: Boolean,
+    default: false
+  },
+  lockedUntil: {
+    type: Date
+  },
+  lastFailedLogin: {
+    type: Date
+  }
 }, {
   timestamps: true
 });

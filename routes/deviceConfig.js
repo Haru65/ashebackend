@@ -20,9 +20,18 @@ router.get('/devices/:deviceId/settings', deviceConfigController.getDeviceSettin
 router.post('/devices/:deviceId/settings', deviceConfigController.updateDeviceSettings);
 router.post('/devices/:deviceId/settings/single', deviceConfigController.updateSingleSetting);
 
-// New configuration routes for missing features
+// New configuration routes for missing features  
 router.post('/devices/:deviceId/configure/voltage', deviceConfigController.configureSetVoltage);
 router.post('/devices/:deviceId/configure/shunt', deviceConfigController.configureSetShunt);
+
+// New routes for Shunt Voltage and Shunt Current configuration (data frame parameters)
+router.post('/devices/:deviceId/configure/shunt-voltage', deviceConfigController.configureShuntVoltage);
+router.post('/devices/:deviceId/configure/shunt-current', deviceConfigController.configureShuntCurrent);
 router.post('/devices/:deviceId/configure/logging', deviceConfigController.configureLoggingInterval);
+
+// Individual set value configuration routes with acknowledgment tracking
+router.post('/devices/:deviceId/configure/set-up', deviceConfigController.configureSetUP);
+router.post('/devices/:deviceId/configure/set-op', deviceConfigController.configureSetOP);
+router.post('/devices/:deviceId/configure/ref-fcal', deviceConfigController.configureRefFcal);
 
 module.exports = router;

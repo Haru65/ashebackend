@@ -1,3 +1,17 @@
+// Event/Mode mapping helper
+function mapEventCode(eventCode) {
+  const eventMappings = {
+    0: 'Normal',
+    1: 'Interrupt',
+    2: 'Manual',
+    3: 'DEPOL',
+    4: 'Instant'
+  };
+  
+  const numericCode = parseInt(eventCode);
+  return eventMappings[numericCode] || `Unknown (${eventCode})`;
+}
+
 // Basic data transform helper
 function transformDeviceData(payload, topic) {
   // Extract device ID from MQTT topic (e.g., 'devices/123/data' -> '123')
@@ -27,11 +41,14 @@ function transformDeviceData(payload, topic) {
     });
   }
   
-  // Add EVENT status
+  // Add EVENT status with readable mapping
   if (params.EVENT !== undefined) {
+    const eventText = mapEventCode(params.EVENT);
     metrics.push({
       type: 'EVENT',
-      value: params.EVENT,
+      value: `${eventText} (${params.EVENT})`,
+      rawValue: params.EVENT,
+      displayValue: eventText,
       icon: 'bi-exclamation-circle'
     });
   }
@@ -206,5 +223,6 @@ function createThrottledEmit(io, mqttService) {
 
 module.exports = {
   transformDeviceData,
-  createThrottledEmit
+  createThrottledEmit,
+  mapEventCode
 };

@@ -312,8 +312,8 @@ class DeviceConfigController {
           "sender": "Server",
           "Parameters": {
             "Electrode": 0,
-            "Shunt Voltage": 25,
-            "Shunt Current": 999,
+            "Shunt Voltage": "25.00",
+            "Shunt Current": "99.99",
             "Reference Fail": 30,
             "Reference UP": 300,
             "Reference OV": 60,
@@ -543,7 +543,7 @@ class DeviceConfigController {
     }
   }
 
-  // Configure alarm/set values (REF UP, OP, FCAL)
+  // Configure alarm/set values (REF UP, OP, FCAL) with acknowledgment tracking
   async configureAlarm(req, res) {
     try {
       const { deviceId } = req.params;
@@ -586,14 +586,20 @@ class DeviceConfigController {
         } : null
       };
 
-      // Publish command and respond immediately
-      mqttService.setAlarmConfiguration(deviceId, config).catch(err => {
-        console.error('Background alarm configuration command failed:', err);
-      });
+      // Send command with acknowledgment tracking
+      const result = await mqttService.setAlarmConfiguration(deviceId, config);
       
       res.json({
         success: true,
-        message: 'Alarm/Set values configuration sent to device'
+        message: 'Set values configuration sent to device',
+        commandId: result.commandId,
+        data: {
+          deviceId: deviceId,
+          commandId: result.commandId,
+          configType: 'set_values',
+          timestamp: new Date().toISOString(),
+          waitingForAcknowledgment: true
+        }
       });
 
     } catch (error) {
@@ -601,6 +607,232 @@ class DeviceConfigController {
       res.status(500).json({
         success: false,
         message: error.message || 'Failed to configure alarm'
+      });
+    }
+  }
+
+  // Configure Set UP value individually with acknowledgment tracking
+  async configureSetUP(req, res) {
+    try {
+      const { deviceId } = req.params;
+      const { setUP } = req.body;
+
+      console.log(`🔧 Configuring Set UP value for device ${deviceId}:`, setUP);
+
+      // Validate voltage range (-4.00V to +4.00V)
+      if (setUP < -4.00 || setUP > 4.00) {
+        return res.status(400).json({
+          success: false,
+          message: 'Set UP voltage must be between -4.00V and +4.00V'
+        });
+      }
+
+      const config = { setUP };
+
+      // Send command with acknowledgment tracking
+      const result = await mqttService.setAlarmSetUP(deviceId, config);
+      
+      res.json({
+        success: true,
+        message: `Set UP value ${setUP}V configured and sent to device`,
+        commandId: result.commandId,
+        data: {
+          deviceId: deviceId,
+          commandId: result.commandId,
+          configType: 'set_up',
+          setValue: setUP,
+          timestamp: new Date().toISOString(),
+          waitingForAcknowledgment: true
+        }
+      });
+
+    } catch (error) {
+      console.error('Error configuring Set UP:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to configure Set UP value'
+      });
+    }
+  }
+
+  // Configure Set OP value individually with acknowledgment tracking
+  async configureSetOP(req, res) {
+    try {
+      const { deviceId } = req.params;
+      const { setOP } = req.body;
+
+      console.log(`🔧 Configuring Set OP value for device ${deviceId}:`, setOP);
+
+      // Validate voltage range (-4.00V to +4.00V)
+      if (setOP < -4.00 || setOP > 4.00) {
+        return res.status(400).json({
+          success: false,
+          message: 'Set OP voltage must be between -4.00V and +4.00V'
+        });
+      }
+
+      const config = { setOP };
+
+      // Send command with acknowledgment tracking
+      const result = await mqttService.setAlarmSetOP(deviceId, config);
+      
+      res.json({
+        success: true,
+        message: `Set OP value ${setOP}V configured and sent to device`,
+        commandId: result.commandId,
+        data: {
+          deviceId: deviceId,
+          commandId: result.commandId,
+          configType: 'set_op',
+          setValue: setOP,
+          timestamp: new Date().toISOString(),
+          waitingForAcknowledgment: true
+        }
+      });
+
+    } catch (error) {
+      console.error('Error configuring Set OP:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to configure Set OP value'
+      });
+    }
+  }
+
+  // Configure Ref Fcal value individually with acknowledgment tracking
+  async configureRefFcal(req, res) {
+    try {
+      const { deviceId } = req.params;
+      const { refFcal } = req.body;
+
+      console.log(`🔧 Configuring Ref Fcal value for device ${deviceId}:`, refFcal);
+
+      // Validate voltage range (-4.00V to +4.00V)
+      if (refFcal < -4.00 || refFcal > 4.00) {
+        return res.status(400).json({
+          success: false,
+          message: 'Ref Fcal voltage must be between -4.00V and +4.00V'
+        });
+      }
+
+      const config = { refFcal };
+
+      // Send command with acknowledgment tracking
+      const result = await mqttService.setRefFcal(deviceId, config);
+      
+      res.json({
+        success: true,
+        message: `Ref Fcal value ${refFcal}V configured and sent to device`,
+        commandId: result.commandId,
+        data: {
+          deviceId: deviceId,
+          commandId: result.commandId,
+          configType: 'ref_fcal',
+          setValue: refFcal,
+          timestamp: new Date().toISOString(),
+          waitingForAcknowledgment: true
+        }
+      });
+
+    } catch (error) {
+      console.error('Error configuring Ref Fcal:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to configure Ref Fcal value'
+      });
+    }
+  }
+
+  // Configure Shunt Voltage (maps to "Shunt Voltage": 25 in data frame) 
+  async configureShuntVoltage(req, res) {
+    try {
+      const { deviceId } = req.params;
+      const { shuntVoltage } = req.body;
+
+      console.log(`🔧 Configuring Shunt Voltage for device ${deviceId}:`, shuntVoltage);
+
+      // Parse and validate voltage range (0.00 to 99.99)
+      const voltage = parseFloat(shuntVoltage);
+      if (voltage < 0.00 || voltage > 99.99) {
+        return res.status(400).json({
+          success: false,
+          message: 'Shunt voltage must be between 0.00 and 99.99'
+        });
+      }
+
+      // Format to preserve leading zeros (e.g., 00.97 stays as "00.97")
+      const formattedVoltage = voltage.toFixed(2).padStart(5, '0');
+      const config = { shuntVoltage: formattedVoltage };
+
+      // Send command with acknowledgment tracking
+      const result = await mqttService.setShuntVoltage(deviceId, config);
+      
+      res.json({
+        success: true,
+        message: `Shunt voltage ${shuntVoltage} configured and sent to device`,
+        commandId: result.commandId,
+        data: {
+          deviceId: deviceId,
+          commandId: result.commandId,
+          configType: 'shunt_voltage',
+          setValue: shuntVoltage,
+          timestamp: new Date().toISOString(),
+          waitingForAcknowledgment: true
+        }
+      });
+
+    } catch (error) {
+      console.error('Error configuring Shunt Voltage:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to configure shunt voltage'
+      });
+    }
+  }
+
+  // Configure Shunt Current (maps to "Shunt Current": 999 in data frame)
+  async configureShuntCurrent(req, res) {
+    try {
+      const { deviceId } = req.params;
+      const { shuntCurrent } = req.body;
+
+      console.log(`🔧 Configuring Shunt Current for device ${deviceId}:`, shuntCurrent);
+
+      // Parse and validate current range (0.00 to 99.99)
+      const current = parseFloat(shuntCurrent);
+      if (current < 0.00 || current > 99.99) {
+        return res.status(400).json({
+          success: false,
+          message: 'Shunt current must be between 0.00 and 99.99'
+        });
+      }
+
+      // Format to preserve leading zeros (e.g., 00.97 stays as "00.97")
+      const formattedCurrent = current.toFixed(2).padStart(5, '0');
+      const config = { shuntCurrent: formattedCurrent };
+
+      // Send command with acknowledgment tracking
+      const result = await mqttService.setShuntCurrent(deviceId, config);
+      
+      res.json({
+        success: true,
+        message: `Shunt current ${shuntCurrent} configured and sent to device`,
+        commandId: result.commandId,
+        data: {
+          deviceId: deviceId,
+          commandId: result.commandId,
+          configType: 'shunt_current',
+          setValue: shuntCurrent,
+          timestamp: new Date().toISOString(),
+          waitingForAcknowledgment: true
+        }
+      });
+
+    } catch (error) {
+      console.error('Error configuring Shunt Current:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to configure shunt current'
       });
     }
   }

@@ -206,6 +206,46 @@ class DeviceController {
     }
   }
 
+  // Delete a device by deviceId
+  static async deleteDevice(req, res) {
+    try {
+      const { deviceId } = req.params;
+
+      // Check if device exists
+      const device = await Device.findOne({ deviceId });
+      if (!device) {
+        return res.status(404).json({
+          success: false,
+          error: 'Device not found',
+          message: `Device with ID ${deviceId} does not exist`
+        });
+      }
+
+      // Remove device from database
+      await Device.deleteOne({ deviceId });
+
+      // Also remove any historical data for this device
+      const DeviceHistory = require('../models/DeviceHistory');
+      await DeviceHistory.deleteMany({ deviceId });
+
+      console.log(`🗑️  Device deleted: ${device.deviceName || deviceId} (ID: ${deviceId})`);
+
+      res.json({
+        success: true,
+        message: 'Device deleted successfully',
+        deviceId: deviceId,
+        deviceName: device.deviceName || deviceId
+      });
+    } catch (error) {
+      console.error('Error deleting device:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: error.message
+      });
+    }
+  }
+
   // Get all devices data (legacy MQTT-based endpoint)
   static async getDevices(req, res) {
     try {
@@ -801,6 +841,76 @@ class DeviceController {
 
     } catch (error) {
       console.error('Error setting logging interval:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: error.message
+      });
+    }
+  }
+
+  // Get device settings/configuration
+  static async getDeviceSettings(req, res) {
+    try {
+      const { deviceId } = req.params;
+      console.log(`📖 Getting settings for device ${deviceId}`);
+
+      // Get device settings from MQTT service memory
+      const settings = mqttService.getDeviceSettings(deviceId);
+
+      if (!settings) {
+        console.log(`❌ No settings found for device ${deviceId}`);
+        return res.json({
+          success: true,
+          data: {
+            deviceId,
+            parameters: {},
+            message: 'No settings configured for this device'
+          }
+        });
+      }
+
+      console.log(`✅ Found settings for device ${deviceId}:`, {
+        'Shunt Voltage': settings['Shunt Voltage'],
+        'Shunt Current': settings['Shunt Current'],
+        totalParams: Object.keys(settings).length
+      });
+
+      res.json({
+        success: true,
+        data: {
+          deviceId,
+          parameters: settings,
+          lastUpdated: new Date().toISOString()
+        }
+      });
+
+    } catch (error) {
+      console.error('Error getting device settings:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: error.message
+      });
+    }
+  }
+
+  // Get event mappings for frontend use
+  static async getEventMappings(req, res) {
+    try {
+      const eventMappings = mqttService.getEventMappings();
+      
+      res.json({
+        success: true,
+        data: {
+          eventMappings: eventMappings,
+          description: 'Event/Mode code to name mappings',
+          usage: 'Use these mappings to display readable event names in the frontend'
+        }
+      });
+
+    } catch (error) {
+      console.error('Error getting event mappings:', error);
       res.status(500).json({
         success: false,
         error: 'Internal server error',

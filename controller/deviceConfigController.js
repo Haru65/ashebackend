@@ -552,7 +552,7 @@ class DeviceConfigController {
       console.log(`🔧 Configuring alarm/set values for device ${deviceId}:`, req.body);
 
       // Validate input ranges for UP and OP
-      if (setup && setup.enabled) {
+      if (setup && setup.value !== undefined && setup.value !== null) {
         if (setup.value < -4.00 || setup.value > 4.00) {
           return res.status(400).json({
             success: false,
@@ -561,7 +561,7 @@ class DeviceConfigController {
         }
       }
 
-      if (setop && setop.enabled) {
+      if (setop && setop.value !== undefined && setop.value !== null) {
         if (setop.value < -4.00 || setop.value > 4.00) {
           return res.status(400).json({
             success: false,
@@ -571,18 +571,14 @@ class DeviceConfigController {
       }
 
       const config = {
-        setup: setup && setup.enabled ? {
-          value: setup.value,
-          enabled: setup.enabled
+        setup: setup && setup.value !== undefined ? {
+          value: setup.value
         } : null,
-        setop: setop && setop.enabled ? {
-          value: setop.value, 
-          enabled: setop.enabled
+        setop: setop && setop.value !== undefined ? {
+          value: setop.value
         } : null,
-        reffcal: reffcal && reffcal.enabled ? {
-          value: reffcal.value,
-          calibration: reffcal.calibration || '',
-          enabled: reffcal.enabled
+        reffcal: reffcal && reffcal.value !== undefined ? {
+          value: reffcal.value
         } : null
       };
 

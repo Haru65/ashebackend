@@ -323,7 +323,7 @@ class DeviceManagementService {
         timestamp: new Date()
       };
 
-      await device.addConfigRequest(commandId, commandType);
+      await device.save();
       console.log(`✅ Command tracked for device ${deviceId}: ${commandId}`);
     } catch (error) {
       console.error('❌ Error tracking command:', error);

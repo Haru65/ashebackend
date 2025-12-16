@@ -12,7 +12,7 @@ const deviceBroker = {
   dataTopic: defaultDataTopic,
   commandTopic: defaultCommandTopic,
   options: {
-    clientId: process.env.MQTT_CLIENT_ID || 'backend_server_123',
+    clientId: process.env.MQTT_CLIENT_ID || `backend_server_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     username: process.env.MQTT_USERNAME || process.env.MQTT_USER || 'zeptac_iot',
     password: process.env.MQTT_PASSWORD || process.env.MQTT_PASS || 'ZepIOT@123',
     keepalive: 60,
@@ -21,7 +21,7 @@ const deviceBroker = {
     clean: true,
     rejectUnauthorized: false,
     protocolVersion: 4,
-    queueQoSZero: true,
+    queueQoSZero: false,
     will: {
       topic: `devices/${deviceId}/status`,
       payload: JSON.stringify({

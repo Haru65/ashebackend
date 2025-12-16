@@ -136,4 +136,77 @@ router.get('/latest', authenticateToken, async (req, res) => {
   }
 });
 
+// Get recent telemetry with device parameters (ref1, ref2, ref3, dcv, dci, acv)
+router.get('/recent', authenticateToken, async (req, res) => {
+  try {
+    const { 
+      deviceId, 
+      limit = 100,
+      timePeriod = '24h'
+    } = req.query;
+
+    // Calculate time range based on period
+    const now = new Date();
+    let startDate = new Date();
+    
+    switch (timePeriod) {
+      case '24h':
+        startDate.setHours(now.getHours() - 24);
+        break;
+      case '7d':
+        startDate.setDate(now.getDate() - 7);
+        break;
+      case '30d':
+        startDate.setDate(now.getDate() - 30);
+        break;
+      default:
+        startDate.setHours(now.getHours() - 24);
+    }
+
+    const query = {
+      timestamp: { $gte: startDate }
+    };
+
+    if (deviceId) {
+      query.deviceId = deviceId;
+    }
+
+    const telemetryData = await Telemetry
+      .find(query)
+      .sort({ timestamp: 1 })
+      .limit(parseInt(limit));
+
+    // Extract parameters from data map
+    const formattedData = telemetryData.map(item => {
+      const dataObj = item.data ? Object.fromEntries(item.data) : {};
+      return {
+        deviceId: item.deviceId,
+        timestamp: item.timestamp,
+        ref1: dataObj.ref1 || dataObj.REF1 || 0,
+        ref2: dataObj.ref2 || dataObj.REF2 || 0,
+        ref3: dataObj.ref3 || dataObj.REF3 || 0,
+        dcv: dataObj.dcv || dataObj.DCV || 0,
+        dci: dataObj.dci || dataObj.DCI || 0,
+        acv: dataObj.acv || dataObj.ACV || 0
+      };
+    });
+
+    res.json({
+      success: true,
+      data: formattedData,
+      meta: {
+        count: formattedData.length,
+        timePeriod
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching recent telemetry:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch recent telemetry data'
+    });
+  }
+});
+
 module.exports = router;

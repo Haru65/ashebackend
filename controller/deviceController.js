@@ -52,6 +52,7 @@ class DeviceController {
           color: device.metadata?.color || null,
           description: device.metadata?.description || null
         },
+        configuration: device.configuration || null,
         historicalCollection: device.historicalCollection || null,
         createdAt: device.createdAt,
         updatedAt: device.updatedAt

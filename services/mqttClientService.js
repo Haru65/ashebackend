@@ -160,7 +160,30 @@ class MqttClientService {
           'sensors.pressure': payload.pressure !== undefined ? payload.pressure : undefined,
           'status.state': 'online',
           'status.lastSeen': new Date(),
-          'mqtt.topics.data': topic
+          'mqtt.topics.data': topic,
+          // Map Parameters object from MQTT payload to device configuration
+          'configuration.deviceSettings.electrode': payload.Parameters?.Electrode !== undefined ? payload.Parameters.Electrode : undefined,
+          'configuration.deviceSettings.event': payload.Parameters?.Event !== undefined ? payload.Parameters.Event : undefined,
+          'configuration.deviceSettings.manualModeAction': payload.Parameters?.["Manual Mode Action"] !== undefined ? payload.Parameters["Manual Mode Action"] : undefined,
+          'configuration.deviceSettings.shuntVoltage': payload.Parameters?.["Shunt Voltage"] !== undefined ? payload.Parameters["Shunt Voltage"] : undefined,
+          'configuration.deviceSettings.shuntCurrent': payload.Parameters?.["Shunt Current"] !== undefined ? payload.Parameters["Shunt Current"] : undefined,
+          'configuration.deviceSettings.referenceFail': payload.Parameters?.["Reference Fail"] !== undefined ? payload.Parameters["Reference Fail"] : undefined,
+          'configuration.deviceSettings.referenceUP': payload.Parameters?.["Reference UP"] !== undefined ? payload.Parameters["Reference UP"] : undefined,
+          'configuration.deviceSettings.referenceOV': payload.Parameters?.["Reference OV"] !== undefined ? payload.Parameters["Reference OV"] : undefined,
+          'configuration.deviceSettings.di1': payload.Parameters?.["DI1"] !== undefined ? payload.Parameters["DI1"] : undefined,
+          'configuration.deviceSettings.di2': payload.Parameters?.["DI2"] !== undefined ? payload.Parameters["DI2"] : undefined,
+          'configuration.deviceSettings.di3': payload.Parameters?.["DI3"] !== undefined ? payload.Parameters["DI3"] : undefined,
+          'configuration.deviceSettings.di4': payload.Parameters?.["DI4"] !== undefined ? payload.Parameters["DI4"] : undefined,
+          'configuration.deviceSettings.interruptOnTime': payload.Parameters?.["Interrupt ON Time"] !== undefined ? payload.Parameters["Interrupt ON Time"] : undefined,
+          'configuration.deviceSettings.interruptOffTime': payload.Parameters?.["Interrupt OFF Time"] !== undefined ? payload.Parameters["Interrupt OFF Time"] : undefined,
+          'configuration.deviceSettings.interruptStartTimestamp': payload.Parameters?.["Interrupt Start TimeStamp"] !== undefined ? payload.Parameters["Interrupt Start TimeStamp"] : undefined,
+          'configuration.deviceSettings.interruptStopTimestamp': payload.Parameters?.["Interrupt Stop TimeStamp"] !== undefined ? payload.Parameters["Interrupt Stop TimeStamp"] : undefined,
+          'configuration.deviceSettings.dpolInterval': payload.Parameters?.["DPOL Interval"] !== undefined ? payload.Parameters["DPOL Interval"] : undefined,
+          'configuration.deviceSettings.depolarizationStartTimestamp': payload.Parameters?.["Depolarization Start TimeStamp"] !== undefined ? payload.Parameters["Depolarization Start TimeStamp"] : undefined,
+          'configuration.deviceSettings.depolarizationStopTimestamp': payload.Parameters?.["Depolarization Stop TimeStamp"] !== undefined ? payload.Parameters["Depolarization Stop TimeStamp"] : undefined,
+          'configuration.deviceSettings.instantMode': payload.Parameters?.["Instant Mode"] !== undefined ? payload.Parameters["Instant Mode"] : undefined,
+          'configuration.deviceSettings.instantStartTimestamp': payload.Parameters?.["Instant Start TimeStamp"] !== undefined ? payload.Parameters["Instant Start TimeStamp"] : undefined,
+          'configuration.deviceSettings.instantEndTimestamp': payload.Parameters?.["Instant End TimeStamp"] !== undefined ? payload.Parameters["Instant End TimeStamp"] : undefined
         }
       };
 
@@ -182,7 +205,7 @@ class MqttClientService {
         }
       );
 
-      console.log(`[MQTT Client] 💾 Updated device ${deviceId} in MongoDB`);
+      console.log(`[MQTT Client] 💾 Updated device ${deviceId} in MongoDB with all parameters`);
       return device;
 
     } catch (error) {

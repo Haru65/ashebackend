@@ -534,22 +534,19 @@ class MQTTService {
   getDefaultDeviceSettings() {
     return {
       "Electrode": 0,
+      "Event": 0,
+      "Manual Mode Action": 0,
       "SET mV": 0, // Voltage setting in millivolts
       "Set Shunt": 0, // Current setting in Amperes (not mA)
-      "Shunt Voltage": "25.00",
-      "Shunt Current": "999.00",
+      "Shunt Voltage": 25.00,
+      "Shunt Current": 999.00,
       "Reference Fail": 30,
-      "Reference UP": 300,
-      "Reference OP": 60,
+      "Reference UP": 0.30,
+      "Reference OP": 0.60,
       // User-facing set values (must persist when individually updated)
       "Set UP": 0,
       "Set OP": 0,
-      "Ref Fcal": 0,
-      // Digital inputs that were missing from frame
-      "DI1": 0,
-      "DI2": 0,
-      "DI3": 0,
-      "DI4": 0,
+      "Ref Fail": 0,
       "Interrupt ON Time": 86400,
       "Interrupt OFF Time": 86400,
       "Interrupt Start TimeStamp": "2025-02-20 19:04:00",
@@ -559,7 +556,8 @@ class MQTTService {
       "Instant Mode": 0,
       "Instant Start TimeStamp": "19:04:00",
       "Instant End TimeStamp": "00:00:00",
-      "Logging Interval": "00:00:10" // Default 10 seconds logging
+      "logging_interval": 600,
+      "logging_interval_format": "00:10:00"
     };
   }
 
@@ -1191,7 +1189,7 @@ class MQTTService {
     const currentSettings = await this.ensureDeviceSettings(deviceId);
     
     // Handle nested object format for logging interval
-    const { interval, intervalFormatted } = (() => {
+    const { logging_interval, logging_interval_format } = (() => {
       console.log(`🔧 Logging: input type=${typeof config.loggingInterval}, value=`, config.loggingInterval);
       
       // Handle nested object format: { value: "00:01:30", enabled: true }
@@ -1209,20 +1207,20 @@ class MQTTService {
         // Parse HH:MM:SS to seconds
         const timeParts = inputValue.split(':');
         const seconds = parseInt(timeParts[0]) * 3600 + parseInt(timeParts[1]) * 60 + parseInt(timeParts[2]);
-        return { interval: seconds, intervalFormatted: inputValue };
+        return { logging_interval: seconds, logging_interval_format: inputValue };
       }
       
-      console.log(`🔧 Logging: keeping current values - interval=${currentSettings["interval"]}, intervalFormatted="${currentSettings["intervalFormatted"]}"`);
+      console.log(`🔧 Logging: keeping current values - logging_interval=${currentSettings["logging_interval"]}, logging_interval_format="${currentSettings["logging_interval_format"]}"`);
       return { 
-        interval: currentSettings["interval"] || 1800, 
-        intervalFormatted: currentSettings["intervalFormatted"] || "00:30:00" 
+        logging_interval: currentSettings["logging_interval"] || 1800, 
+        logging_interval_format: currentSettings["logging_interval_format"] || "00:30:00" 
       };
     })();
     
     const updatedSettings = {
       ...currentSettings,
-      "interval": interval,
-      "intervalFormatted": intervalFormatted
+      "logging_interval": logging_interval,
+      "logging_interval_format": logging_interval_format
     };
     
     console.log('💾 Updated logging settings:', JSON.stringify(updatedSettings, null, 2));
@@ -1232,7 +1230,7 @@ class MQTTService {
 
     // Create commandId and track then send complete payload
     const commandId = uuidv4();
-    const changedLogging = { "interval": updatedSettings["interval"], "intervalFormatted": updatedSettings["intervalFormatted"] };
+    const changedLogging = { "logging_interval": updatedSettings["logging_interval"], "logging_interval_format": updatedSettings["logging_interval_format"] };
     if (this.deviceManagementService) {
       try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedLogging); } catch (e) { /* ignore */ }
     }
@@ -1297,21 +1295,21 @@ class MQTTService {
     return await this.sendCompleteSettingsPayload(deviceId, commandId);
   }
 
-  // Configure Ref Fcal (reference calibration - range: -4.00V to +4.00V)
-  async setRefFcal(deviceId, config) {
-    console.log('🔧 Setting Ref Fcal configuration - will send complete settings...');
+  // Configure Ref Fail (reference calibration - range: -4.00V to +4.00V)
+  async setRefFail(deviceId, config) {
+    console.log('🔧 Setting Ref Fail configuration - will send complete settings...');
     
     // Validate voltage range (-4.00V to +4.00V)
-    const voltage = parseFloat(config.refFcal || 0);
+    const voltage = parseFloat(config.refFail || 0);
     if (voltage < -4.00 || voltage > 4.00) {
-      throw new Error('Ref Fcal voltage must be between -4.00V and +4.00V');
+      throw new Error('Ref Fail voltage must be between -4.00V and +4.00V');
     }
     
-    // Get current settings and update Ref Fcal field
+    // Get current settings and update Ref Fail field
     const currentSettings = await this.ensureDeviceSettings(deviceId);
     const updatedSettings = {
       ...currentSettings,
-      "Ref Fcal": voltage
+      "Ref Fail": voltage
     };
     
     // Store updated settings
@@ -1319,9 +1317,9 @@ class MQTTService {
 
     // Create commandId and track then send complete payload
     const commandId = uuidv4();
-    const changedRefFcal = { "Ref Fcal": voltage };
+    const changedRefFail = { "Ref Fail": voltage };
     if (this.deviceManagementService) {
-      try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedRefFcal); } catch (e) { /* ignore */ }
+      try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedRefFail); } catch (e) { /* ignore */ }
     }
     return await this.sendCompleteSettingsPayload(deviceId, commandId);
   }
@@ -1446,7 +1444,7 @@ class MQTTService {
         "Reference Fail": currentSettings["Reference Fail"],
         "Reference UP": currentSettings["Reference UP"],
         "Reference OP": currentSettings["Reference OP"],
-        "Ref Fcal": currentSettings["Ref Fcal"] !== undefined ? currentSettings["Ref Fcal"] : 0,
+        "Ref Fail": currentSettings["Ref Fail"] !== undefined ? currentSettings["Ref Fail"] : 0,
         "Interrupt ON Time": currentSettings["Interrupt ON Time"],
         "Interrupt OFF Time": currentSettings["Interrupt OFF Time"],
         "Interrupt Start TimeStamp": currentSettings["Interrupt Start TimeStamp"],
@@ -1456,8 +1454,8 @@ class MQTTService {
         "Instant Mode": currentSettings["Instant Mode"],
         "Instant Start TimeStamp": currentSettings["Instant Start TimeStamp"],
         "Instant End TimeStamp": currentSettings["Instant End TimeStamp"],
-        "interval": currentSettings["interval"],
-        "intervalFormatted": currentSettings["intervalFormatted"]
+        "logging_interval": currentSettings["logging_interval"],
+        "logging_interval_format": currentSettings["logging_interval_format"]
       };
       
       // Note: Set UP, Set OP are UI-only labels that update Reference UP and Reference OV

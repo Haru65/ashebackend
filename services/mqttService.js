@@ -371,9 +371,7 @@ class MQTTService {
       const params = pendingCommand.commandPayload.Parameters;
       const setValue = {};
       
-      if (params['Set UP'] !== undefined) setValue.setUP = params['Set UP'];
-      if (params['Set OP'] !== undefined) setValue.setOP = params['Set OP'];
-      if (params['Ref Fail'] !== undefined) setValue.refFail = params['Ref Fail'];
+      if (params['Reference Fail'] !== undefined) setValue.referenceFail = params['Reference Fail'];
       
       if (Object.keys(setValue).length > 0) {
         acknowledgmentData.setValues = setValue;
@@ -536,17 +534,11 @@ class MQTTService {
       "Electrode": 0,
       "Event": 0,
       "Manual Mode Action": 0,
-      "SET mV": 0, // Voltage setting in millivolts
-      "Set Shunt": 0, // Current setting in Amperes (not mA)
       "Shunt Voltage": 25.00,
-      "Shunt Current": 999.00,
+      "Shunt Current": 99.00,
       "Reference Fail": 30,
       "Reference UP": 0.30,
       "Reference OP": 0.60,
-      // User-facing set values (must persist when individually updated)
-      "Set UP": 0,
-      "Set OP": 0,
-      "Ref Fail": 0,
       "Interrupt ON Time": 86400,
       "Interrupt OFF Time": 86400,
       "Interrupt Start TimeStamp": "2025-02-20 19:04:00",
@@ -879,7 +871,7 @@ class MQTTService {
     
     // Get current settings and update alarm fields
     const currentSettings = await this.ensureDeviceSettings(deviceId);
-    // First extract Set UP, Set OP, Ref Fail values
+    // Extract Reference value updates from alarm config
     const extractSetValue = (config, fieldName) => {
       if (config && typeof config === 'object' && config.value !== undefined) {
         return parseFloat(config.value);
@@ -902,88 +894,20 @@ class MQTTService {
       // Set OP maps to Reference OP
       "Reference OP": setopValue !== null ? setopValue : (alarmConfig.referenceOP || alarmConfig["Reference OP"] || currentSettings["Reference OP"]),
       "Shunt Voltage": alarmConfig.shuntVoltage || alarmConfig["Shunt Voltage"] || currentSettings["Shunt Voltage"],
-      "Shunt Current": alarmConfig.shuntCurrent || alarmConfig["Shunt Current"] || currentSettings["Shunt Current"],
-      // Store Set UP, Set OP, and Ref Fail separately (these are user-facing set values)
-      "Set UP": (() => {
-        console.log(`🔧 Set UP: input type=${typeof alarmConfig.setup}, value=`, alarmConfig.setup);
-        
-        // Handle nested object format: { value: 0.05, enabled: true }
-        let inputValue = null;
-        if (alarmConfig.setup && typeof alarmConfig.setup === 'object' && alarmConfig.setup.value !== undefined) {
-          inputValue = alarmConfig.setup.value;
-          console.log(`🔧 Set UP: extracted from object - value=${inputValue}, enabled=${alarmConfig.setup.enabled}`);
-        } else if (alarmConfig.setup !== null && alarmConfig.setup !== undefined && typeof alarmConfig.setup !== 'object') {
-          inputValue = alarmConfig.setup;
-          console.log(`🔧 Set UP: direct value=${inputValue}`);
-        }
-        
-        if (inputValue !== null && inputValue !== undefined && inputValue !== "") {
-          const value = parseFloat(inputValue);
-          console.log(`🔧 Set UP: parsing "${inputValue}" → ${value}`);
-          return isNaN(value) ? (currentSettings["Set UP"] || 0) : value;
-        }
-        
-        console.log(`🔧 Set UP: keeping current value=${currentSettings["Set UP"]}`);
-        return currentSettings["Set UP"] !== undefined ? currentSettings["Set UP"] : 0;
-      })(),
-      "Set OP": (() => {
-        console.log(`🔧 Set OP: input type=${typeof alarmConfig.setop}, value=`, alarmConfig.setop);
-        
-        // Handle nested object format: { value: X, enabled: true }
-        let inputValue = null;
-        if (alarmConfig.setop && typeof alarmConfig.setop === 'object' && alarmConfig.setop.value !== undefined) {
-          inputValue = alarmConfig.setop.value;
-          console.log(`🔧 Set OP: extracted from object - value=${inputValue}, enabled=${alarmConfig.setop.enabled}`);
-        } else if (alarmConfig.setop !== null && alarmConfig.setop !== undefined && typeof alarmConfig.setop !== 'object') {
-          inputValue = alarmConfig.setop;
-          console.log(`🔧 Set OP: direct value=${inputValue}`);
-        }
-        
-        if (inputValue !== null && inputValue !== undefined && inputValue !== "") {
-          const value = parseFloat(inputValue);
-          console.log(`🔧 Set OP: parsing "${inputValue}" → ${value}`);
-          return isNaN(value) ? (currentSettings["Set OP"] || 0) : value;
-        }
-        
-        console.log(`🔧 Set OP: keeping current value=${currentSettings["Set OP"]}`);
-        return currentSettings["Set OP"] !== undefined ? currentSettings["Set OP"] : 0;
-      })(),
-      "Ref Fail": (() => {
-        console.log(`🔧 Ref Fail: input type=${typeof alarmConfig.reffail}, value=`, alarmConfig.reffail);
-        
-        // Handle nested object format: { value: X, enabled: true }
-        let inputValue = null;
-        if (alarmConfig.reffail && typeof alarmConfig.reffail === 'object' && alarmConfig.reffail.value !== undefined) {
-          inputValue = alarmConfig.reffail.value;
-          console.log(`🔧 Ref Fail: extracted from object - value=${inputValue}, enabled=${alarmConfig.reffail.enabled}`);
-        } else if (alarmConfig.reffail !== null && alarmConfig.reffail !== undefined && typeof alarmConfig.reffail !== 'object') {
-          inputValue = alarmConfig.reffail;
-          console.log(`🔧 Ref Fail: direct value=${inputValue}`);
-        }
-        
-        if (inputValue !== null && inputValue !== undefined && inputValue !== "") {
-          const value = parseFloat(inputValue);
-          console.log(`🔧 Ref Fail: parsing "${inputValue}" → ${value}`);
-          return isNaN(value) ? (currentSettings["Ref Fail"] || 0) : value;
-        }
-        
-        console.log(`🔧 Ref Fail: keeping current value=${currentSettings["Ref Fail"]}`);
-        return currentSettings["Ref Fail"] !== undefined ? currentSettings["Ref Fail"] : 0;
-      })()
+      "Shunt Current": alarmConfig.shuntCurrent || alarmConfig["Shunt Current"] || currentSettings["Shunt Current"]
     };
 
     console.log(`🔧 Set UP (${setupValue}) → Reference UP (${updatedSettings["Reference UP"]})`);
     console.log(`🔧 Set OP (${setopValue}) → Reference OP (${updatedSettings["Reference OP"]})`);
-    console.log(`🔧 Ref Fail (${reffcalValue}) → Ref Fail (${updatedSettings["Ref Fail"]})`);
     
     // Validate voltage ranges for Reference UP, Reference OP, Reference Fail (-4.00V to +4.00V)
     const refUP = updatedSettings["Reference UP"];
     const refOP = updatedSettings["Reference OP"];
-    const refFail = updatedSettings["Ref Fail"];
+    const refFail = updatedSettings["Reference Fail"];
     
     console.log(`🔍 Validating Reference UP: ${refUP} (type: ${typeof refUP}, isNaN: ${isNaN(refUP)})`);
     console.log(`🔍 Validating Reference OP: ${refOP} (type: ${typeof refOP}, isNaN: ${isNaN(refOP)})`);
-    console.log(`🔍 Validating Ref Fail: ${refFail} (type: ${typeof refFail}, isNaN: ${isNaN(refFail)})`);
+    console.log(`🔍 Validating Reference Fail: ${refFail} (type: ${typeof refFail}, isNaN: ${isNaN(refFail)})`);
     
     if (refUP !== undefined && refUP !== null && !isNaN(refUP) && (refUP < -4.00 || refUP > 4.00)) {
       throw new Error('Reference UP voltage must be between -4.00V and +4.00V');
@@ -992,7 +916,7 @@ class MQTTService {
       throw new Error('Reference OP voltage must be between -4.00V and +4.00V');
     }
     if (refFail !== undefined && refFail !== null && !isNaN(refFail) && (refFail < -4.00 || refFail > 4.00)) {
-      throw new Error('Ref Fail voltage must be between -4.00V and +4.00V');
+      throw new Error('Reference Fail voltage must be between -4.00V and +4.00V');
     }
     
     console.log('💾 Updated settings:', JSON.stringify(updatedSettings, null, 2));
@@ -1004,14 +928,10 @@ class MQTTService {
     if (this.deviceManagementService) {
       try {
         const settingsToSave = {};
-        // Save Reference values (Set UP maps to Reference UP, Set OP maps to Reference OP)
+        // Save Reference values only
         if (updatedSettings["Reference Fail"] !== undefined) settingsToSave["Reference Fail"] = updatedSettings["Reference Fail"];
         if (updatedSettings["Reference UP"] !== undefined) settingsToSave["Reference UP"] = updatedSettings["Reference UP"];
         if (updatedSettings["Reference OP"] !== undefined) settingsToSave["Reference OP"] = updatedSettings["Reference OP"];
-        // Save Set UP, Set OP, and Ref Fail (these are the user-facing set values that should persist)
-        if (updatedSettings["Set UP"] !== undefined) settingsToSave["Set UP"] = updatedSettings["Set UP"];
-        if (updatedSettings["Set OP"] !== undefined) settingsToSave["Set OP"] = updatedSettings["Set OP"];
-        if (updatedSettings["Ref Fail"] !== undefined) settingsToSave["Ref Fail"] = updatedSettings["Ref Fail"];
         // Save Shunt values if they're part of alarm config
         if (updatedSettings["Shunt Voltage"] !== undefined) settingsToSave["Shunt Voltage"] = updatedSettings["Shunt Voltage"];
         if (updatedSettings["Shunt Current"] !== undefined) settingsToSave["Shunt Current"] = updatedSettings["Shunt Current"];
@@ -1037,7 +957,7 @@ class MQTTService {
                        key === 'shuntCurrent' ? 'Shunt Current' :
                        key === 'setup' ? 'Reference UP' :  // Set UP maps to Reference UP
                        key === 'setop' ? 'Reference OP' :  // Set OP maps to Reference OP
-                       key === 'reffail' ? 'Ref Fail' : key;
+                       key === 'reffail' ? 'Reference Fail' : key;
       changedFields[mappedKey] = updatedSettings[mappedKey];
     });
 
@@ -1295,21 +1215,21 @@ class MQTTService {
     return await this.sendCompleteSettingsPayload(deviceId, commandId);
   }
 
-  // Configure Ref Fail (reference calibration - range: -4.00V to +4.00V)
+  // Configure Reference Fail (reference calibration - range: -4.00V to +4.00V)
   async setRefFail(deviceId, config) {
-    console.log('🔧 Setting Ref Fail configuration - will send complete settings...');
+    console.log('🔧 Setting Reference Fail configuration - will send complete settings...');
     
     // Validate voltage range (-4.00V to +4.00V)
     const voltage = parseFloat(config.refFail || 0);
     if (voltage < -4.00 || voltage > 4.00) {
-      throw new Error('Ref Fail voltage must be between -4.00V and +4.00V');
+      throw new Error('Reference Fail voltage must be between -4.00V and +4.00V');
     }
     
-    // Get current settings and update Ref Fail field
+    // Get current settings and update Reference Fail field
     const currentSettings = await this.ensureDeviceSettings(deviceId);
     const updatedSettings = {
       ...currentSettings,
-      "Ref Fail": voltage
+      "Reference Fail": voltage
     };
     
     // Store updated settings
@@ -1317,7 +1237,7 @@ class MQTTService {
 
     // Create commandId and track then send complete payload
     const commandId = uuidv4();
-    const changedRefFail = { "Ref Fail": voltage };
+    const changedRefFail = { "Reference Fail": voltage };
     if (this.deviceManagementService) {
       try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedRefFail); } catch (e) { /* ignore */ }
     }
@@ -1435,35 +1355,31 @@ class MQTTService {
       // Get current settings for the device
       const currentSettings = await this.ensureDeviceSettings(deviceId);
       
-      // Create parameters object from current settings
+      // Create parameters object from current settings - ALL 19 CORE PARAMETERS
       const parameters = {
-        "Electrode": currentSettings["Electrode"],
-        "Event": currentSettings["Event"],
-        "Manual Mode Action": currentSettings["Manual Mode Action"] || 0,
-        "Shunt Voltage": currentSettings["Shunt Voltage"],
-        "Shunt Current": currentSettings["Shunt Current"],
-        "Reference Fail": currentSettings["Reference Fail"],
-        "Reference UP": currentSettings["Reference UP"],
-        "Reference OP": currentSettings["Reference OP"],
-        "Ref Fail": currentSettings["Ref Fail"] !== undefined ? currentSettings["Ref Fail"] : 0,
-        "SET mV": currentSettings["SET mV"] || 0,
-        "Set Shunt": currentSettings["Set Shunt"] || 0,
-        "Set UP": currentSettings["Set UP"] || 0,
-        "Set OP": currentSettings["Set OP"] || 0,
-        "Interrupt ON Time": currentSettings["Interrupt ON Time"],
-        "Interrupt OFF Time": currentSettings["Interrupt OFF Time"],
-        "Interrupt Start TimeStamp": currentSettings["Interrupt Start TimeStamp"],
-        "Interrupt Stop TimeStamp": currentSettings["Interrupt Stop TimeStamp"],
-        "Depolarization Start TimeStamp": currentSettings["Depolarization Start TimeStamp"],
-        "Depolarization Stop TimeStamp": currentSettings["Depolarization Stop TimeStamp"],
-        "Instant Mode": currentSettings["Instant Mode"],
-        "Instant Start TimeStamp": currentSettings["Instant Start TimeStamp"],
-        "Instant End TimeStamp": currentSettings["Instant End TimeStamp"],
-        "logging_interval": currentSettings["logging_interval"],
-        "logging_interval_format": currentSettings["logging_interval_format"]
+        "Electrode": currentSettings["Electrode"] || 0,
+        "Event": currentSettings["Event"] || 0,
+        "Manual Mode Action": currentSettings["Manual Mode Action"] !== undefined ? currentSettings["Manual Mode Action"] : 0,
+        "Shunt Voltage": currentSettings["Shunt Voltage"] || 25.00,
+        "Shunt Current": currentSettings["Shunt Current"] || 99.00,
+        "Reference Fail": currentSettings["Reference Fail"] || 30,
+        "Reference UP": currentSettings["Reference UP"] !== undefined ? currentSettings["Reference UP"] : 0.30,
+        "Reference OP": currentSettings["Reference OP"] !== undefined ? currentSettings["Reference OP"] : 0.60,
+        "Interrupt ON Time": currentSettings["Interrupt ON Time"] || 86400,
+        "Interrupt OFF Time": currentSettings["Interrupt OFF Time"] || 86400,
+        "Interrupt Start TimeStamp": currentSettings["Interrupt Start TimeStamp"] || "2025-02-20 19:04:00",
+        "Interrupt Stop TimeStamp": currentSettings["Interrupt Stop TimeStamp"] || "2025-02-20 19:05:00",
+        "Depolarization Start TimeStamp": currentSettings["Depolarization Start TimeStamp"] || "2025-02-20 19:04:00",
+        "Depolarization Stop TimeStamp": currentSettings["Depolarization Stop TimeStamp"] || "2025-02-20 19:05:00",
+        "Instant Mode": currentSettings["Instant Mode"] !== undefined ? currentSettings["Instant Mode"] : 0,
+        "Instant Start TimeStamp": currentSettings["Instant Start TimeStamp"] || "19:04:00",
+        "Instant End TimeStamp": currentSettings["Instant End TimeStamp"] || "00:00:00",
+        "logging_interval": currentSettings["logging_interval"] || 600,
+        "logging_interval_format": currentSettings["logging_interval_format"] || "00:10:00"
       };
       
-      // Note: Set UP, Set OP are UI-only labels that update Reference UP and Reference OV
+      // Note: Set UP and Set OP were UI-only labels that map to Reference UP and Reference OP
+      // These deprecated fields have been consolidated into the Reference fields
 
       // Apply value mappings to convert string values to numeric codes
       const mappedParameters = this.applyValueMappings(parameters);

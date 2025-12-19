@@ -147,22 +147,17 @@ class DeviceManagementService {
           "Electrode": settings.electrode !== undefined ? settings.electrode : 0,
           "Event": settings.event !== undefined ? settings.event : 0,
           "Manual Mode Action": settings.manualModeAction !== undefined ? settings.manualModeAction : 0,
-          "Shunt Voltage": settings.shuntVoltage !== undefined ? settings.shuntVoltage : 25,
-          "Shunt Current": settings.shuntCurrent !== undefined ? settings.shuntCurrent : 999,
+          "Shunt Voltage": settings.shuntVoltage !== undefined ? settings.shuntVoltage : 25.00,
+          "Shunt Current": settings.shuntCurrent !== undefined ? settings.shuntCurrent : 99.00,
           "Reference Fail": settings.referenceFail !== undefined ? settings.referenceFail : 30,
           "Reference UP": settings.referenceUP !== undefined ? settings.referenceUP : 0.30,
           "Reference OP": settings.referenceOP !== undefined ? settings.referenceOP : 0.60,
-          "Ref Fail": settings.refFail !== undefined ? settings.refFail : 0,
-          "SET mV": settings.setMV !== undefined ? settings.setMV : 0,
-          "Set Shunt": settings.setShunt !== undefined ? settings.setShunt : 0,
-          "Set UP": settings.setUp !== undefined ? settings.setUp : 0,
-          "Set OP": settings.setOP !== undefined ? settings.setOP : 0,
           "Interrupt ON Time": settings.interruptOnTime !== undefined ? settings.interruptOnTime : 86400,
           "Interrupt OFF Time": settings.interruptOffTime !== undefined ? settings.interruptOffTime : 86400,
-          "Interrupt Start TimeStamp": settings.interruptStartTimeStamp || settings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-          "Interrupt Stop TimeStamp": settings.interruptStopTimeStamp || settings.interruptStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-          "Depolarization Start TimeStamp": settings.depolarizationStartTimeStamp || settings.depolarizationStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-          "Depolarization Stop TimeStamp": settings.depolarizationStopTimeStamp || settings.depolarizationStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+          "Interrupt Start TimeStamp": settings.interruptStartTimeStamp || settings.interruptStartTimestamp || "2025-02-20 19:04:00",
+          "Interrupt Stop TimeStamp": settings.interruptStopTimeStamp || settings.interruptStopTimestamp || "2025-02-20 19:05:00",
+          "Depolarization Start TimeStamp": settings.depolarizationStartTimeStamp || settings.depolarizationStartTimestamp || "2025-02-20 19:04:00",
+          "Depolarization Stop TimeStamp": settings.depolarizationStopTimeStamp || settings.depolarizationStopTimestamp || "2025-02-20 19:05:00",
           "Instant Mode": settings.instantMode !== undefined ? settings.instantMode : 0,
           "Instant Start TimeStamp": settings.instantStartTimeStamp || settings.instantStartTimestamp || "19:04:00",
           "Instant End TimeStamp": settings.instantEndTimeStamp || settings.instantEndTimestamp || "00:00:00",
@@ -501,42 +496,10 @@ class DeviceManagementService {
   }
 
   /**
-   * Get device settings
-   * @param {string} deviceId - Device identifier
-   * @returns {Object} Device settings in standardized format
+   * Alias for backward compatibility - GET device settings for frontend
    */
   async getDeviceSettingsForFrontend(deviceId) {
-    try {
-      console.log(`📖 Getting device settings for device ${deviceId}`);
-
-      const device = await Device.findByDeviceId(deviceId);
-      if (!device) {
-        throw new Error(`Device ${deviceId} not found`);
-      }
-
-      const deviceSettings = device.configuration?.deviceSettings || {};
-      
-      // If deviceSettings is empty, provide default parameters
-      // Otherwise convert camelCase to Title Case for frontend display
-      const parameters = Object.keys(deviceSettings).length === 0 
-        ? this.getDefaultDeviceSettings()
-        : this.convertToTitleCaseParameters(deviceSettings);
-      
-      // Return in the format expected by frontend with Parameters wrapper
-      const response = {
-        "Device ID": deviceId,
-        "Message Type": "settings",
-        "sender": "Server",
-        "Parameters": parameters
-      };
-
-      console.log(`✅ Retrieved ${Object.keys(parameters).length} parameters for device ${deviceId}`);
-      return response;
-
-    } catch (error) {
-      console.error(`❌ Error getting device settings for ${deviceId}:`, error.message);
-      throw error;
-    }
+    return await this.getDeviceSettings(deviceId);
   }
 
   /**
@@ -546,60 +509,6 @@ class DeviceManagementService {
    * @param {string} source - Source of the settings (e.g., 'mqtt_incoming', 'api_request')
    * @returns {Object} Updated device object
    */
-  async storeDeviceSettings(deviceId, settings, source = 'api_request') {
-    try {
-      console.log(`📝 Storing device settings for device ${deviceId} (source: ${source})`);
-      console.log(`📋 Settings to store:`, JSON.stringify(settings, null, 2));
-
-      // Find or create device
-      let device = await Device.findByDeviceId(deviceId);
-      if (!device) {
-        console.log(`⚠️ Device ${deviceId} not found, creating new device`);
-        device = new Device({
-          deviceId,
-          name: `Device ${deviceId}`,
-          type: 'sensor',
-          status: 'active',
-          configuration: {
-            deviceSettings: {},
-            lastUpdated: new Date(),
-            source: source
-          }
-        });
-      }
-
-      // Get current settings and merge (preserve existing + add new)
-      const currentSettings = device.configuration?.deviceSettings || {};
-      
-      // Convert Title Case settings to camelCase for consistent storage
-      const normalizedSettings = this.convertToCamelCaseParameters(settings);
-      
-      const mergedSettings = {
-        ...currentSettings,
-        ...normalizedSettings // New settings override existing ones
-      };
-
-      // Update device configuration
-      device.configuration = {
-        deviceSettings: mergedSettings,
-        lastUpdated: new Date(),
-        source: source,
-        lastConfigUpdate: new Date()
-      };
-
-      // Save to database
-      await device.save();
-      
-      console.log(`✅ Device settings stored successfully for device ${deviceId}`);
-      console.log(`📊 Total parameters stored: ${Object.keys(mergedSettings).length}`);
-      
-      return device;
-
-    } catch (error) {
-      console.error(`❌ Error storing device settings for device ${deviceId}:`, error.message);
-      throw error;
-    }
-  }
 
   /**
    * Get default device settings with proper parameter names
@@ -607,24 +516,26 @@ class DeviceManagementService {
    */
   getDefaultDeviceSettings() {
     return {
-      "Electrode": 0, // 0=Cu/cuso4, 1=Zinc, 2=Ag/AgCl
-      "Event": 0, // 0=Normal, 1=Interrupt, 2=Manual, 3=DPOL, 4=INST
-      "Manual Mode Action": 0, // 0=stop, 1=start
-      "Shunt Voltage": 25, // mV
-      "Shunt Current": 999, // mA
-      "Reference Fail": 30, // mV  
-      "Reference UP": 300, // mV
-      "Reference OV": 60, // mV
-      "Interrupt ON Time": 86400, // seconds (24 hours)
-      "Interrupt OFF Time": 86400, // seconds (24 hours)
-      "Interrupt Start TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
-      "Interrupt Stop TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
-
-      "Depolarization Start TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
-      "Depolarization Stop TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
-      "Instant Mode": 0, // 0=daily, 1=weekly
+      "Electrode": 0,
+      "Event": 0,
+      "Manual Mode Action": 0,
+      "Shunt Voltage": 25.00,
+      "Shunt Current": 99.00,
+      "Reference Fail": 30,
+      "Reference UP": 0.30,
+      "Reference OP": 0.60,
+      "Reference Fail": 0,
+      "Interrupt ON Time": 86400,
+      "Interrupt OFF Time": 86400,
+      "Interrupt Start TimeStamp": "2025-02-20 19:04:00",
+      "Interrupt Stop TimeStamp": "2025-02-20 19:05:00",
+      "Depolarization Start TimeStamp": "2025-02-20 19:04:00",
+      "Depolarization Stop TimeStamp": "2025-02-20 19:05:00",
+      "Instant Mode": 0,
       "Instant Start TimeStamp": "19:04:00",
-      "Instant End TimeStamp": "00:00:00"
+      "Instant End TimeStamp": "00:00:00",
+      "logging_interval": 600,
+      "logging_interval_format": "00:10:00"
     };
   }
 

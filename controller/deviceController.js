@@ -765,15 +765,15 @@ class DeviceController {
       
       // Use the proper MQTT service method to send complete settings frame
       try {
-        // Convert interval to HH:MM:SS format for the logging configuration
+        // Use logging_interval and logging_interval_format for the configuration
         const config = {
           loggingInterval: {
-            value: parameters.intervalFormatted || "00:30:00",
+            value: parameters.logging_interval_format || "00:30:00",
             enabled: true
           }
         };
         
-        // This will send the complete 20-parameter settings frame
+        // This will send the complete settings frame with logging_interval and logging_interval_format
         const result = await mqttService.setLoggingConfiguration(device._id, config);
         console.log(`✅ [MQTT] Complete settings frame sent successfully to ${deviceId}`);
         
@@ -781,8 +781,8 @@ class DeviceController {
         const updateData = {
           $set: {
             'configuration.loggingInterval': {
-              interval: parameters.interval,
-              intervalFormatted: parameters.intervalFormatted,
+              logging_interval: parameters.logging_interval,
+              logging_interval_format: parameters.logging_interval_format,
               description: parameters.description,
               lastUpdated: new Date(),
               updatedBy: req.user ? req.user.username : 'system'
@@ -799,8 +799,8 @@ class DeviceController {
           message: 'Logging interval updated successfully - complete settings frame sent',
           data: {
             deviceId,
-            loggingInterval: parameters.interval,
-            intervalFormatted: parameters.intervalFormatted,
+            logging_interval: parameters.logging_interval,
+            logging_interval_format: parameters.logging_interval_format,
             description: parameters.description,
             storedInDatabase: true,
             completeSettingsFrameSent: true,
@@ -815,8 +815,8 @@ class DeviceController {
         const updateData = {
           $set: {
             'configuration.loggingInterval': {
-              interval: parameters.interval,
-              intervalFormatted: parameters.intervalFormatted,
+              logging_interval: parameters.logging_interval,
+              logging_interval_format: parameters.logging_interval_format,
               description: parameters.description,
               lastUpdated: new Date(),
               updatedBy: req.user ? req.user.username : 'system'

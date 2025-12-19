@@ -150,8 +150,13 @@ class DeviceManagementService {
           "Shunt Voltage": settings.shuntVoltage !== undefined ? settings.shuntVoltage : 25,
           "Shunt Current": settings.shuntCurrent !== undefined ? settings.shuntCurrent : 999,
           "Reference Fail": settings.referenceFail !== undefined ? settings.referenceFail : 30,
-          "Reference UP": settings.referenceUP !== undefined ? settings.referenceUP : 300,
-          "Reference OV": settings.referenceOV !== undefined ? settings.referenceOV : 60,
+          "Reference UP": settings.referenceUP !== undefined ? settings.referenceUP : 0.30,
+          "Reference OP": settings.referenceOP !== undefined ? settings.referenceOP : 0.60,
+          "Ref Fail": settings.refFail !== undefined ? settings.refFail : 0,
+          "SET mV": settings.setMV !== undefined ? settings.setMV : 0,
+          "Set Shunt": settings.setShunt !== undefined ? settings.setShunt : 0,
+          "Set UP": settings.setUp !== undefined ? settings.setUp : 0,
+          "Set OP": settings.setOP !== undefined ? settings.setOP : 0,
           "Interrupt ON Time": settings.interruptOnTime !== undefined ? settings.interruptOnTime : 86400,
           "Interrupt OFF Time": settings.interruptOffTime !== undefined ? settings.interruptOffTime : 86400,
           "Interrupt Start TimeStamp": settings.interruptStartTimeStamp || settings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
@@ -160,7 +165,9 @@ class DeviceManagementService {
           "Depolarization Stop TimeStamp": settings.depolarizationStopTimeStamp || settings.depolarizationStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
           "Instant Mode": settings.instantMode !== undefined ? settings.instantMode : 0,
           "Instant Start TimeStamp": settings.instantStartTimeStamp || settings.instantStartTimestamp || "19:04:00",
-          "Instant End TimeStamp": settings.instantEndTimeStamp || settings.instantEndTimestamp || "00:00:00"
+          "Instant End TimeStamp": settings.instantEndTimeStamp || settings.instantEndTimestamp || "00:00:00",
+          "logging_interval": settings.logging_interval !== undefined ? settings.logging_interval : 600,
+          "logging_interval_format": settings.logging_interval_format || "00:10:00"
         }
       };
     } catch (error) {
@@ -498,7 +505,7 @@ class DeviceManagementService {
    * @param {string} deviceId - Device identifier
    * @returns {Object} Device settings in standardized format
    */
-  async getDeviceSettings(deviceId) {
+  async getDeviceSettingsForFrontend(deviceId) {
     try {
       console.log(`📖 Getting device settings for device ${deviceId}`);
 

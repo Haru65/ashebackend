@@ -373,7 +373,7 @@ class MQTTService {
       
       if (params['Set UP'] !== undefined) setValue.setUP = params['Set UP'];
       if (params['Set OP'] !== undefined) setValue.setOP = params['Set OP'];
-      if (params['Ref Fcal'] !== undefined) setValue.refFcal = params['Ref Fcal'];
+      if (params['Ref Fail'] !== undefined) setValue.refFail = params['Ref Fail'];
       
       if (Object.keys(setValue).length > 0) {
         acknowledgmentData.setValues = setValue;
@@ -879,7 +879,7 @@ class MQTTService {
     
     // Get current settings and update alarm fields
     const currentSettings = await this.ensureDeviceSettings(deviceId);
-    // First extract Set UP, Set OP, Ref Fcal values
+    // First extract Set UP, Set OP, Ref Fail values
     const extractSetValue = (config, fieldName) => {
       if (config && typeof config === 'object' && config.value !== undefined) {
         return parseFloat(config.value);
@@ -891,7 +891,7 @@ class MQTTService {
 
     const setupValue = extractSetValue(alarmConfig.setup, 'setup');
     const setopValue = extractSetValue(alarmConfig.setop, 'setop');
-    const reffcalValue = extractSetValue(alarmConfig.reffcal, 'reffcal');
+    const reffailValue = extractSetValue(alarmConfig.reffail, 'reffail');
 
     const updatedSettings = {
       ...currentSettings,
@@ -903,7 +903,7 @@ class MQTTService {
       "Reference OP": setopValue !== null ? setopValue : (alarmConfig.referenceOP || alarmConfig["Reference OP"] || currentSettings["Reference OP"]),
       "Shunt Voltage": alarmConfig.shuntVoltage || alarmConfig["Shunt Voltage"] || currentSettings["Shunt Voltage"],
       "Shunt Current": alarmConfig.shuntCurrent || alarmConfig["Shunt Current"] || currentSettings["Shunt Current"],
-      // Store Set UP, Set OP, and Ref Fcal separately (these are user-facing set values)
+      // Store Set UP, Set OP, and Ref Fail separately (these are user-facing set values)
       "Set UP": (() => {
         console.log(`🔧 Set UP: input type=${typeof alarmConfig.setup}, value=`, alarmConfig.setup);
         
@@ -948,42 +948,42 @@ class MQTTService {
         console.log(`🔧 Set OP: keeping current value=${currentSettings["Set OP"]}`);
         return currentSettings["Set OP"] !== undefined ? currentSettings["Set OP"] : 0;
       })(),
-      "Ref Fcal": (() => {
-        console.log(`🔧 Ref Fcal: input type=${typeof alarmConfig.reffcal}, value=`, alarmConfig.reffcal);
+      "Ref Fail": (() => {
+        console.log(`🔧 Ref Fail: input type=${typeof alarmConfig.reffail}, value=`, alarmConfig.reffail);
         
         // Handle nested object format: { value: X, enabled: true }
         let inputValue = null;
-        if (alarmConfig.reffcal && typeof alarmConfig.reffcal === 'object' && alarmConfig.reffcal.value !== undefined) {
-          inputValue = alarmConfig.reffcal.value;
-          console.log(`🔧 Ref Fcal: extracted from object - value=${inputValue}, enabled=${alarmConfig.reffcal.enabled}`);
-        } else if (alarmConfig.reffcal !== null && alarmConfig.reffcal !== undefined && typeof alarmConfig.reffcal !== 'object') {
-          inputValue = alarmConfig.reffcal;
-          console.log(`🔧 Ref Fcal: direct value=${inputValue}`);
+        if (alarmConfig.reffail && typeof alarmConfig.reffail === 'object' && alarmConfig.reffail.value !== undefined) {
+          inputValue = alarmConfig.reffail.value;
+          console.log(`🔧 Ref Fail: extracted from object - value=${inputValue}, enabled=${alarmConfig.reffail.enabled}`);
+        } else if (alarmConfig.reffail !== null && alarmConfig.reffail !== undefined && typeof alarmConfig.reffail !== 'object') {
+          inputValue = alarmConfig.reffail;
+          console.log(`🔧 Ref Fail: direct value=${inputValue}`);
         }
         
         if (inputValue !== null && inputValue !== undefined && inputValue !== "") {
           const value = parseFloat(inputValue);
-          console.log(`🔧 Ref Fcal: parsing "${inputValue}" → ${value}`);
-          return isNaN(value) ? (currentSettings["Ref Fcal"] || 0) : value;
+          console.log(`🔧 Ref Fail: parsing "${inputValue}" → ${value}`);
+          return isNaN(value) ? (currentSettings["Ref Fail"] || 0) : value;
         }
         
-        console.log(`🔧 Ref Fcal: keeping current value=${currentSettings["Ref Fcal"]}`);
-        return currentSettings["Ref Fcal"] !== undefined ? currentSettings["Ref Fcal"] : 0;
+        console.log(`🔧 Ref Fail: keeping current value=${currentSettings["Ref Fail"]}`);
+        return currentSettings["Ref Fail"] !== undefined ? currentSettings["Ref Fail"] : 0;
       })()
     };
 
     console.log(`🔧 Set UP (${setupValue}) → Reference UP (${updatedSettings["Reference UP"]})`);
     console.log(`🔧 Set OP (${setopValue}) → Reference OP (${updatedSettings["Reference OP"]})`);
-    console.log(`🔧 Ref Fcal (${reffcalValue}) → Ref Fcal (${updatedSettings["Ref Fcal"]})`);
+    console.log(`🔧 Ref Fail (${reffcalValue}) → Ref Fail (${updatedSettings["Ref Fail"]})`);
     
     // Validate voltage ranges for Reference UP, Reference OP, Reference Fail (-4.00V to +4.00V)
     const refUP = updatedSettings["Reference UP"];
     const refOP = updatedSettings["Reference OP"];
-    const refFcal = updatedSettings["Ref Fcal"];
+    const refFail = updatedSettings["Ref Fail"];
     
     console.log(`🔍 Validating Reference UP: ${refUP} (type: ${typeof refUP}, isNaN: ${isNaN(refUP)})`);
     console.log(`🔍 Validating Reference OP: ${refOP} (type: ${typeof refOP}, isNaN: ${isNaN(refOP)})`);
-    console.log(`🔍 Validating Ref Fcal: ${refFcal} (type: ${typeof refFcal}, isNaN: ${isNaN(refFcal)})`);
+    console.log(`🔍 Validating Ref Fail: ${refFail} (type: ${typeof refFail}, isNaN: ${isNaN(refFail)})`);
     
     if (refUP !== undefined && refUP !== null && !isNaN(refUP) && (refUP < -4.00 || refUP > 4.00)) {
       throw new Error('Reference UP voltage must be between -4.00V and +4.00V');
@@ -991,8 +991,8 @@ class MQTTService {
     if (refOP !== undefined && refOP !== null && !isNaN(refOP) && (refOP < -4.00 || refOP > 4.00)) {
       throw new Error('Reference OP voltage must be between -4.00V and +4.00V');
     }
-    if (refFcal !== undefined && refFcal !== null && !isNaN(refFcal) && (refFcal < -4.00 || refFcal > 4.00)) {
-      throw new Error('Ref Fcal voltage must be between -4.00V and +4.00V');
+    if (refFail !== undefined && refFail !== null && !isNaN(refFail) && (refFail < -4.00 || refFail > 4.00)) {
+      throw new Error('Ref Fail voltage must be between -4.00V and +4.00V');
     }
     
     console.log('💾 Updated settings:', JSON.stringify(updatedSettings, null, 2));
@@ -1008,10 +1008,10 @@ class MQTTService {
         if (updatedSettings["Reference Fail"] !== undefined) settingsToSave["Reference Fail"] = updatedSettings["Reference Fail"];
         if (updatedSettings["Reference UP"] !== undefined) settingsToSave["Reference UP"] = updatedSettings["Reference UP"];
         if (updatedSettings["Reference OP"] !== undefined) settingsToSave["Reference OP"] = updatedSettings["Reference OP"];
-        // Save Set UP, Set OP, and Ref Fcal (these are the user-facing set values that should persist)
+        // Save Set UP, Set OP, and Ref Fail (these are the user-facing set values that should persist)
         if (updatedSettings["Set UP"] !== undefined) settingsToSave["Set UP"] = updatedSettings["Set UP"];
         if (updatedSettings["Set OP"] !== undefined) settingsToSave["Set OP"] = updatedSettings["Set OP"];
-        if (updatedSettings["Ref Fcal"] !== undefined) settingsToSave["Ref Fcal"] = updatedSettings["Ref Fcal"];
+        if (updatedSettings["Ref Fail"] !== undefined) settingsToSave["Ref Fail"] = updatedSettings["Ref Fail"];
         // Save Shunt values if they're part of alarm config
         if (updatedSettings["Shunt Voltage"] !== undefined) settingsToSave["Shunt Voltage"] = updatedSettings["Shunt Voltage"];
         if (updatedSettings["Shunt Current"] !== undefined) settingsToSave["Shunt Current"] = updatedSettings["Shunt Current"];
@@ -1037,7 +1037,7 @@ class MQTTService {
                        key === 'shuntCurrent' ? 'Shunt Current' :
                        key === 'setup' ? 'Reference UP' :  // Set UP maps to Reference UP
                        key === 'setop' ? 'Reference OP' :  // Set OP maps to Reference OP
-                       key === 'reffcal' ? 'Ref Fcal' : key;
+                       key === 'reffail' ? 'Ref Fail' : key;
       changedFields[mappedKey] = updatedSettings[mappedKey];
     });
 
@@ -1439,12 +1439,17 @@ class MQTTService {
       const parameters = {
         "Electrode": currentSettings["Electrode"],
         "Event": currentSettings["Event"],
+        "Manual Mode Action": currentSettings["Manual Mode Action"] || 0,
         "Shunt Voltage": currentSettings["Shunt Voltage"],
         "Shunt Current": currentSettings["Shunt Current"],
         "Reference Fail": currentSettings["Reference Fail"],
         "Reference UP": currentSettings["Reference UP"],
         "Reference OP": currentSettings["Reference OP"],
         "Ref Fail": currentSettings["Ref Fail"] !== undefined ? currentSettings["Ref Fail"] : 0,
+        "SET mV": currentSettings["SET mV"] || 0,
+        "Set Shunt": currentSettings["Set Shunt"] || 0,
+        "Set UP": currentSettings["Set UP"] || 0,
+        "Set OP": currentSettings["Set OP"] || 0,
         "Interrupt ON Time": currentSettings["Interrupt ON Time"],
         "Interrupt OFF Time": currentSettings["Interrupt OFF Time"],
         "Interrupt Start TimeStamp": currentSettings["Interrupt Start TimeStamp"],
@@ -1567,7 +1572,7 @@ class MQTTService {
               
               if (params['Set UP'] !== undefined) setValue.setUP = params['Set UP'];
               if (params['Set OP'] !== undefined) setValue.setOP = params['Set OP'];
-              if (params['Ref Fcal'] !== undefined) setValue.refFcal = params['Ref Fcal'];
+              if (params['Ref Fail'] !== undefined) setValue.refFail = params['Ref Fail'];
               
               if (Object.keys(setValue).length > 0) {
                 commandSentData.setValues = setValue;

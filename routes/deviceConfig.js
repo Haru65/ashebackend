@@ -32,6 +32,6 @@ router.post('/devices/:deviceId/configure/logging', deviceConfigController.confi
 // Individual set value configuration routes with acknowledgment tracking
 router.post('/devices/:deviceId/configure/set-up', deviceConfigController.configureSetUP);
 router.post('/devices/:deviceId/configure/set-op', deviceConfigController.configureSetOP);
-router.post('/devices/:deviceId/configure/ref-fcal', deviceConfigController.configureRefFcal);
+router.post('/devices/:deviceId/configure/ref-fail', deviceConfigController.configureRefFail);
 
 module.exports = router;

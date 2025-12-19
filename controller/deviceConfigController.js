@@ -543,11 +543,11 @@ class DeviceConfigController {
     }
   }
 
-  // Configure alarm/set values (REF UP, OP, FCAL) with acknowledgment tracking
+  // Configure alarm/set values (REF UP, OP, FAIL) with acknowledgment tracking
   async configureAlarm(req, res) {
     try {
       const { deviceId } = req.params;
-      const { setup, setop, reffcal } = req.body;
+      const { setup, setop, reffail } = req.body;
 
       console.log(`🔧 Configuring alarm/set values for device ${deviceId}:`, req.body);
 
@@ -577,8 +577,8 @@ class DeviceConfigController {
         setop: setop && setop.value !== undefined ? {
           value: setop.value
         } : null,
-        reffcal: reffcal && reffcal.value !== undefined ? {
-          value: reffcal.value
+        reffail: reffail && reffail.value !== undefined ? {
+          value: reffail.value
         } : null
       };
 
@@ -695,46 +695,46 @@ class DeviceConfigController {
     }
   }
 
-  // Configure Ref Fcal value individually with acknowledgment tracking
-  async configureRefFcal(req, res) {
+  // Configure Ref Fail value individually with acknowledgment tracking
+  async configureRefFail(req, res) {
     try {
       const { deviceId } = req.params;
-      const { refFcal } = req.body;
+      const { refFail } = req.body;
 
-      console.log(`🔧 Configuring Ref Fcal value for device ${deviceId}:`, refFcal);
+      console.log(`🔧 Configuring Ref Fail value for device ${deviceId}:`, refFail);
 
       // Validate voltage range (-4.00V to +4.00V)
-      if (refFcal < -4.00 || refFcal > 4.00) {
+      if (refFail < -4.00 || refFail > 4.00) {
         return res.status(400).json({
           success: false,
-          message: 'Ref Fcal voltage must be between -4.00V and +4.00V'
+          message: 'Ref Fail voltage must be between -4.00V and +4.00V'
         });
       }
 
-      const config = { refFcal };
+      const config = { refFail };
 
       // Send command with acknowledgment tracking
-      const result = await mqttService.setRefFcal(deviceId, config);
+      const result = await mqttService.setRefFail(deviceId, config);
       
       res.json({
         success: true,
-        message: `Ref Fcal value ${refFcal}V configured and sent to device`,
+        message: `Ref Fail value ${refFail}V configured and sent to device`,
         commandId: result.commandId,
         data: {
           deviceId: deviceId,
           commandId: result.commandId,
-          configType: 'ref_fcal',
-          setValue: refFcal,
+          configType: 'ref_fail',
+          setValue: refFail,
           timestamp: new Date().toISOString(),
           waitingForAcknowledgment: true
         }
       });
 
     } catch (error) {
-      console.error('Error configuring Ref Fcal:', error);
+      console.error('Error configuring Ref Fail:', error);
       res.status(500).json({
         success: false,
-        message: error.message || 'Failed to configure Ref Fcal value'
+        message: error.message || 'Failed to configure Ref Fail value'
       });
     }
   }

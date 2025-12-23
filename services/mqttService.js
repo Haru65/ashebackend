@@ -3,6 +3,7 @@ const { deviceBroker } = require('../config/mqtt');
 const { transformDeviceData, createThrottledEmit, mapEventCode } = require('../utils/dataTransform');
 const { v4: uuidv4 } = require('uuid');
 const Device = require('../models/Device');
+const alarmMonitoringService = require('./alarmMonitoringService');
 
 class MQTTService {
   constructor() {
@@ -129,11 +130,10 @@ class MQTTService {
           // await this.updateDeviceStatus(deviceId, payload); // COMMENTED OUT - causing timestamp override
           
           // Save telemetry data to database  
-          // await this.saveTelemetryData(deviceId, payload); // COMMENTED OUT - causing timestamp override
+          await this.saveTelemetryData(deviceId, payload); // ✅ RE-ENABLED - Saves telemetry to database for Reports page
           
-          // ISSUE: These methods were overriding the device timestamps with current server time
-          // The device sends specific timestamps like "Interrupt Start TimeStamp": "2025-12-10 15:45:55"
-          // But these methods were replacing them with new Date(), causing continuous timestamp changes
+          // Note: saveTelemetryData uses server-side timestamps for the telemetry record
+          // This is correct behavior - device-specific timestamps are preserved in the data.Parameters
           
           console.log('💾 Updated device data and notified frontend');
         } else if (topicType === 'commands') {
@@ -545,11 +545,11 @@ class MQTTService {
       "Interrupt Stop TimeStamp": "2025-02-20 19:05:00",
       "Depolarization Start TimeStamp": "2025-02-20 19:04:00",
       "Depolarization Stop TimeStamp": "2025-02-20 19:05:00",
+      "Depolarization_interval": "00:10:00",
       "Instant Mode": 0,
       "Instant Start TimeStamp": "19:04:00",
       "Instant End TimeStamp": "00:00:00",
-      "logging_interval": 600,
-      "logging_interval_format": "00:10:00"
+      "logging_interval": "00:10:00"
     };
   }
 
@@ -722,11 +722,19 @@ class MQTTService {
       ? `${config.endTime}:00` 
       : config.endTime;
     
+    // Depolarization_interval now uses hh:mm:ss format only
+    let dpolIntervalFormat = config.intervalFormat || currentSettings["Depolarization_interval"] || "00:10:00";
+    
+    if (config.interval && typeof config.interval === 'string' && config.interval.includes(':')) {
+      dpolIntervalFormat = config.interval;
+    }
+    
     const updatedSettings = {
       ...currentSettings,
       "Event": 3, // DPOL mode
       "Depolarization Start TimeStamp": `${config.startDate} ${startTime}`,
-      "Depolarization Stop TimeStamp": `${config.endDate} ${endTime}`
+      "Depolarization Stop TimeStamp": `${config.endDate} ${endTime}`,
+      "Depolarization_interval": dpolIntervalFormat
     };
     
     // Store updated settings
@@ -737,7 +745,8 @@ class MQTTService {
     const changedDpol = {
       "Event": 3,
       "Depolarization Start TimeStamp": updatedSettings["Depolarization Start TimeStamp"],
-      "Depolarization Stop TimeStamp": updatedSettings["Depolarization Stop TimeStamp"]
+      "Depolarization Stop TimeStamp": updatedSettings["Depolarization Stop TimeStamp"],
+      "Depolarization_interval": updatedSettings["Depolarization_interval"]
     };
     if (this.deviceManagementService) {
       try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedDpol); } catch (e) { /* ignore */ }
@@ -1301,6 +1310,26 @@ class MQTTService {
   applyValueMappings(parameters) {
     const mapped = { ...parameters };
     
+    // Convert shunt values from "00.00" format to 0000 integer format (remove decimal point)
+    // e.g., "25.50" -> 2550, "00.97" -> 97
+    if (mapped['Shunt Voltage'] !== undefined) {
+      const voltageStr = mapped['Shunt Voltage'].toString();
+      if (voltageStr.includes('.')) {
+        mapped['Shunt Voltage'] = parseInt(voltageStr.replace('.', ''));
+      } else {
+        mapped['Shunt Voltage'] = parseInt(voltageStr);
+      }
+    }
+    
+    if (mapped['Shunt Current'] !== undefined) {
+      const currentStr = mapped['Shunt Current'].toString();
+      if (currentStr.includes('.')) {
+        mapped['Shunt Current'] = parseInt(currentStr.replace('.', ''));
+      } else {
+        mapped['Shunt Current'] = parseInt(currentStr);
+      }
+    }
+    
     // Apply mappings to specific fields
     if (mapped['Electrode'] !== undefined) {
       mapped['Electrode'] = this.mapValueToCode('Electrode', mapped['Electrode']);
@@ -1355,7 +1384,7 @@ class MQTTService {
       // Get current settings for the device
       const currentSettings = await this.ensureDeviceSettings(deviceId);
       
-      // Create parameters object from current settings - ALL 19 CORE PARAMETERS
+      // Create parameters object from current settings - ALL 20 CORE PARAMETERS
       const parameters = {
         "Electrode": currentSettings["Electrode"] || 0,
         "Event": currentSettings["Event"] || 0,
@@ -1371,15 +1400,16 @@ class MQTTService {
         "Interrupt Stop TimeStamp": currentSettings["Interrupt Stop TimeStamp"] || "2025-02-20 19:05:00",
         "Depolarization Start TimeStamp": currentSettings["Depolarization Start TimeStamp"] || "2025-02-20 19:04:00",
         "Depolarization Stop TimeStamp": currentSettings["Depolarization Stop TimeStamp"] || "2025-02-20 19:05:00",
+        "Depolarization_interval": currentSettings["Depolarization_interval"] || "00:10:00",
         "Instant Mode": currentSettings["Instant Mode"] !== undefined ? currentSettings["Instant Mode"] : 0,
         "Instant Start TimeStamp": currentSettings["Instant Start TimeStamp"] || "19:04:00",
         "Instant End TimeStamp": currentSettings["Instant End TimeStamp"] || "00:00:00",
-        "logging_interval": currentSettings["logging_interval"] || 600,
-        "logging_interval_format": currentSettings["logging_interval_format"] || "00:10:00"
+        "logging_interval": currentSettings["logging_interval"] || "00:10:00"
       };
       
       // Note: Set UP and Set OP were UI-only labels that map to Reference UP and Reference OP
       // These deprecated fields have been consolidated into the Reference fields
+      // Depolarization_interval and logging_interval now use hh:mm:ss format only (no numeric versions)
 
       // Apply value mappings to convert string values to numeric codes
       const mappedParameters = this.applyValueMappings(parameters);
@@ -1742,6 +1772,10 @@ class MQTTService {
       await telemetryRecord.save();
       console.log(`✅ Saved telemetry data for device ${deviceId} with ${Object.keys(dataFields).length} data fields`);
       console.log('📊 Saved fields:', Object.keys(dataFields).join(', '));
+      
+      // Check alarms for this device data
+      const event = payload.EVENT || payload.Event || 'NORMAL';
+      await alarmMonitoringService.checkAlarmsForDevice(payload, deviceId, event);
       
       // Check if payload contains device settings and save them
       await this.saveDeviceSettings(deviceId, payload, 'system');

@@ -8,6 +8,7 @@ const router = express.Router();
 router.get('/devices', DeviceController.getAllDevices); // Public endpoint - no auth required
 router.post('/devices', DeviceController.createDevice); // Public endpoint for adding new devices
 router.get('/devices/mqtt', authenticateToken, requirePermission('read_devices'), DeviceController.getDevices);
+router.get('/devices/params/:deviceName', DeviceController.getDeviceParametersByName); // Get device params by name
 router.get('/devices/:deviceId', DeviceController.getDeviceById); // Public endpoint - no auth required
 router.get('/devices/:deviceId/settings', DeviceController.getDeviceSettings); // Get device configuration/settings
 router.delete('/devices/:deviceId', DeviceController.deleteDevice); // Delete device

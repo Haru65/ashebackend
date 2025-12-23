@@ -6,6 +6,10 @@ const { authenticateToken } = require('../middleware/auth');
 // Get telemetry data with filtering
 router.get('/', authenticateToken, async (req, res) => {
   try {
+    console.log('📊 Telemetry GET / route hit');
+    console.log('   User:', req.user?.userId);
+    console.log('   Permissions:', req.user?.permissions);
+    
     const {
       deviceId,
       startDate,
@@ -31,7 +35,7 @@ router.get('/', authenticateToken, async (req, res) => {
       }
     }
 
-    console.log('Telemetry query:', query);
+    console.log('📊 Telemetry query:', query);
 
     // Execute query
     const telemetryData = await Telemetry
@@ -42,6 +46,8 @@ router.get('/', authenticateToken, async (req, res) => {
 
     // Get total count for pagination
     const totalCount = await Telemetry.countDocuments(query);
+
+    console.log('✅ Telemetry results:', telemetryData.length, 'records');
 
     res.json({
       success: true,

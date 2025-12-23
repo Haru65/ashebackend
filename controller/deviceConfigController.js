@@ -119,7 +119,7 @@ class DeviceConfigController {
   async configureDpolMode(req, res) {
     try {
       const { deviceId } = req.params;
-      const { startDate, startTime, endDate, endTime, dateFormat } = req.body;
+      const { startDate, startTime, endDate, endTime, dateFormat, interval, intervalFormat } = req.body;
 
       console.log(`🔧 Configuring DPOL mode for device ${deviceId}:`, req.body);
 
@@ -128,7 +128,9 @@ class DeviceConfigController {
         startTime,
         endDate,
         endTime,
-        dateFormat: dateFormat || {}
+        dateFormat: dateFormat || {},
+        interval,
+        intervalFormat
       };
 
       // Publish command and respond immediately (don't wait for device ack)

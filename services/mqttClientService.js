@@ -6,6 +6,7 @@
 const mqtt = require('mqtt');
 const Device = require('../models/Device');
 const DeviceHistory = require('../models/DeviceHistory');
+const alarmMonitoringService = require('./alarmMonitoringService');
 
 class MqttClientService {
   constructor(brokerUrl = 'mqtt://test.mosquitto.org', username = null, password = null) {
@@ -135,6 +136,28 @@ class MqttClientService {
 
       // Store message in DeviceHistory collection
       await this.storeHistory(deviceId, payload, topic);
+
+      // Check alarms for this device data (CRITICAL: This triggers email notifications!)
+      const event = payload.Parameters?.Event || payload.EVENT || payload.event || 'NORMAL';
+      const sensorData = {
+        dcv: payload.Parameters?.["Shunt Voltage"] || payload.dcv || 0,
+        dci: payload.Parameters?.["Shunt Current"] || payload.dci || 0,
+        acv: payload.Parameters?.["Reference OV"] || payload.acv || 0,
+        ref_1: payload.Parameters?.["Reference Fail"] || payload.ref_1 || 0,
+        ref_2: payload.Parameters?.["Reference UP"] || payload.ref_2 || 0,
+        ref_3: payload.Parameters?.["Reference OV"] || payload.ref_3 || 0,
+        EVENT: event,
+        ...payload
+      };
+      
+      console.log(`[MQTT Client] 🔔 Alarm Check Data for ${deviceId}:`, {
+        dci: sensorData.dci,
+        dcv: sensorData.dcv,
+        acv: sensorData.acv,
+        event: event
+      });
+      
+      await alarmMonitoringService.checkAlarmsForDevice(sensorData, deviceId, event);
 
       console.log(`[MQTT Client] ✅ Successfully processed message from device ${deviceId}`);
 

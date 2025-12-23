@@ -15,8 +15,7 @@ const { initializeServices, shutdownServices } = require('./initIoTServices');
 // Import routes
 const routes = require('./routes');
 const deviceConfigRoutes = require('./routes/deviceConfig');
-const telemetryRoutes = require('./routes/telemetry');
-// Removed deviceRoutes - using routes/device.js via routes/index.js instead
+// telemetryRoutes handled in routes/index.js
 
 const app = express();
 const server = http.createServer(app);
@@ -44,8 +43,7 @@ socketService.initialize(io);
 
 // Routes - ORDER MATTERS! Mount more specific routes before generic ones
 app.use('/api', deviceConfigRoutes); // Mount device config routes FIRST (more specific: /api/devices/:id/configure/...)
-app.use('/api/telemetry', telemetryRoutes);
-app.use('/', routes); // Mount generic routes LAST (includes /api/devices/:id)
+app.use('/', routes); // Mount generic routes INCLUDING telemetry (has /api/telemetry)
 
 // Periodic status logging
 const startStatusReporting = () => {

@@ -7,7 +7,13 @@ const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
+    console.log('🔐 Auth middleware check:');
+    console.log('   Authorization header:', authHeader ? 'Present' : 'Missing');
+    console.log('   Token:', token ? 'Present' : 'Missing');
+    console.log('   NODE_ENV:', process.env.NODE_ENV);
+
     if (!token) {
+      console.error('❌ No token provided');
       return res.status(401).json({
         success: false,
         error: 'Access token required'
@@ -15,6 +21,7 @@ const authenticateToken = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this-in-production');
+    console.log('✅ Token decoded successfully:', decoded.userId);
     
     // For development/testing - allow if we can decode the token
     if (process.env.NODE_ENV === 'development') {

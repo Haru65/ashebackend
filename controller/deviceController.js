@@ -1,5 +1,6 @@
 const mqttService = require('../services/mqttService');
 const socketService = require('../services/socketService');
+const alarmMonitoringService = require('../services/alarmMonitoringService');
 const Device = require('../models/Device');
 const DeviceHistory = require('../models/DeviceHistory');
 
@@ -148,6 +149,10 @@ class DeviceController {
           timestamp: historyEntry.timestamp
         }
       });
+
+      // Check alarms for this device data
+      const event = sensorData.EVENT || sensorData.event || 'NORMAL';
+      await alarmMonitoringService.checkAlarmsForDevice(sensorData, deviceId, event);
 
       res.json({
         success: true,
@@ -916,6 +921,59 @@ class DeviceController {
         success: false,
         error: 'Internal server error',
         message: error.message
+      });
+    }
+  }
+
+  // Get device parameters by device name for alarm creation
+  static async getDeviceParametersByName(req, res) {
+    try {
+      const { deviceName } = req.params;
+
+      // Find device by name
+      const device = await Device.findOne({ 
+        $or: [
+          { deviceName: deviceName },
+          { deviceId: deviceName }
+        ] 
+      }).lean();
+
+      if (!device) {
+        return res.status(404).json({
+          success: false,
+          message: 'Device not found',
+          data: null
+        });
+      }
+
+      // Extract device parameters
+      const deviceParams = {
+        deviceId: device.deviceId,
+        deviceName: device.deviceName || device.deviceId,
+        location: device.location || 'N/A',
+        status: device.status?.state || 'offline',
+        device_params: {
+          ref_1: device.configuration?.deviceSettings?.referenceFail || 0,
+          ref_2: device.configuration?.deviceSettings?.referenceUP || 0,
+          ref_3: device.configuration?.deviceSettings?.referenceOV || 0,
+          dcv: device.sensors?.voltage || 0, // DC Voltage from sensors
+          dci: device.sensors?.current || 0, // DC Current from sensors
+          acv: device.sensors?.acVoltage || 0  // AC Voltage from sensors
+        },
+        sensors: device.sensors || {},
+        configuration: device.configuration?.deviceSettings || {}
+      };
+
+      res.json({
+        success: true,
+        data: deviceParams
+      });
+    } catch (error) {
+      console.error('Error fetching device parameters:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching device parameters',
+        error: error.message
       });
     }
   }

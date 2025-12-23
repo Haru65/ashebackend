@@ -27,19 +27,24 @@ class EmailService {
    */
   initializeTransporters() {
     // Gmail transporter
-    if (process.env.GMAIL_USER && process.env.GMAIL_PASSWORD) {
-      this.transporters.gmail = nodemailer.createTransporter({
+    // Support both GMAIL_PASSWORD and GMAIL_APP_PASSWORD (app password from https://myaccount.google.com/apppasswords)
+    const gmailPassword = process.env.GMAIL_PASSWORD || process.env.GMAIL_APP_PASSWORD;
+    if (process.env.GMAIL_USER && gmailPassword) {
+      this.transporters.gmail = nodemailer.createTransport({
         service: 'gmail',
         auth: {
           user: process.env.GMAIL_USER,
-          pass: process.env.GMAIL_PASSWORD
+          pass: gmailPassword
         }
       });
+      console.log('✅ Gmail transporter initialized');
+    } else {
+      console.log('⚠️ Gmail transporter skipped - missing GMAIL_USER or GMAIL_PASSWORD/GMAIL_APP_PASSWORD');
     }
 
     // Outlook transporter
     if (process.env.OUTLOOK_USER && process.env.OUTLOOK_PASSWORD) {
-      this.transporters.outlook = nodemailer.createTransporter({
+      this.transporters.outlook = nodemailer.createTransport({
         service: 'hotmail',
         auth: {
           user: process.env.OUTLOOK_USER,
@@ -50,7 +55,7 @@ class EmailService {
 
     // Generic SMTP transporter
     if (process.env.SMTP_HOST) {
-      this.transporters.smtp = nodemailer.createTransporter({
+      this.transporters.smtp = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
         port: process.env.SMTP_PORT || 587,
         secure: process.env.SMTP_SECURE === 'true',
@@ -291,6 +296,53 @@ class EmailService {
     
     const subject = `🚨 ${alarm.severity.toUpperCase()} ALARM: ${alarm.name} - ${alarm.unit_no}`;
     
+    // Build device parameters table with REF1, REF2, REF3, DCV, DCI, ACV
+    const deviceParams = alarm.device_params || {};
+    const parametersTableHTML = `
+      <h3>Device Parameters:</h3>
+      <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+        <thead>
+          <tr style="background-color: #f8f9fa; border-bottom: 2px solid #dee2e6;">
+            <th style="padding: 10px; text-align: left; border: 1px solid #dee2e6;">Parameter</th>
+            <th style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Current Value</th>
+            <th style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Threshold</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid #dee2e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>DCV</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">0</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.dcv || 0}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #dee2e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>DCI</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">0</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.dci || 0}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #dee2e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>ACV</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">0</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.acv || 0}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #dee2e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>REF1</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">-</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.dcv || 0}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #dee2e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>REF2</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">-</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.dci || 0}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #dee2e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>REF3</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">-</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.acv || 0}</td>
+          </tr>
+        </tbody>
+      </table>
+    `;
+    
     const content = `
       <div class="alarm-details">
         <h3>Alarm Details</h3>
@@ -303,15 +355,7 @@ class EmailService {
         <p><strong>Severity:</strong> <span style="color: ${severityColor}; font-weight: bold;">${alarm.severity.toUpperCase()}</span></p>
       </div>
       
-      <h3>Process Variable Values (PV1-PV6):</h3>
-      <div style="display: flex; flex-wrap: wrap; gap: 10px; margin: 15px 0;">
-        <span style="background-color: #007bff; color: white; padding: 5px 10px; border-radius: 15px; font-size: 12px;">PV1: ${alarm.pv_values.pv1}</span>
-        <span style="background-color: #007bff; color: white; padding: 5px 10px; border-radius: 15px; font-size: 12px;">PV2: ${alarm.pv_values.pv2}</span>
-        <span style="background-color: #007bff; color: white; padding: 5px 10px; border-radius: 15px; font-size: 12px;">PV3: ${alarm.pv_values.pv3}</span>
-        <span style="background-color: #007bff; color: white; padding: 5px 10px; border-radius: 15px; font-size: 12px;">PV4: ${alarm.pv_values.pv4}</span>
-        <span style="background-color: #007bff; color: white; padding: 5px 10px; border-radius: 15px; font-size: 12px;">PV5: ${alarm.pv_values.pv5}</span>
-        <span style="background-color: #007bff; color: white; padding: 5px 10px; border-radius: 15px; font-size: 12px;">PV6: ${alarm.pv_values.pv6}</span>
-      </div>
+      ${parametersTableHTML}
       
       <div style="text-align: center;">
         <a href="${process.env.FRONTEND_URL}${alarm.link}" class="btn">View Device Details</a>
@@ -416,6 +460,104 @@ class EmailService {
     }
     
     return status;
+  }
+
+  /**
+   * Generic send email method - handles both custom emails and alarm emails
+   * @param {Object} options - Email options
+   * @param {String} options.to - Recipient email
+   * @param {String} options.subject - Email subject
+   * @param {String} options.template - Template name ('alarm', 'custom', etc.)
+   * @param {Object} options.data - Template data
+   * @param {String} options.provider - Email provider to use (default: 'gmail')
+   */
+  async sendEmail(options) {
+    try {
+      const { to, subject, template, data, provider = 'gmail' } = options;
+
+      if (!to) {
+        throw new Error('Recipient email address is required');
+      }
+
+      const transporter = this.transporters[provider];
+      if (!transporter) {
+        throw new Error(`Email provider '${provider}' is not configured`);
+      }
+
+      // Generate email content from template
+      let htmlContent = '';
+      if (template === 'alarm') {
+        htmlContent = this.formatAlarmEmailContent(data);
+      } else {
+        htmlContent = this.processTemplate(template || 'custom', data);
+      }
+
+      // Send email
+      const result = await transporter.sendMail({
+        from: process.env.EMAIL_FROM || process.env.GMAIL_USER,
+        to: to,
+        subject: subject,
+        html: htmlContent
+      });
+
+      console.log(`[Email Service] ✅ Email sent successfully to ${to}`);
+      return { success: true, messageId: result.messageId };
+    } catch (error) {
+      console.error('[Email Service] ❌ Failed to send email:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Format alarm email content
+   */
+  formatAlarmEmailContent(alarmData) {
+    if (!alarmData) return '<p>Alarm triggered</p>';
+
+    return `
+      <html>
+        <body style="font-family: Arial, sans-serif; color: #333;">
+          <div style="border-left: 4px solid #dc3545; padding: 20px; background-color: #f8f9fa;">
+            <h2 style="color: #dc3545; margin-top: 0;">🚨 ALARM TRIGGERED</h2>
+            
+            <p><strong>Alarm Name:</strong> ${alarmData.alarmName || 'Unknown'}</p>
+            <p><strong>Device:</strong> ${alarmData.deviceName || 'Unknown'}</p>
+            <p><strong>Parameter:</strong> ${alarmData.parameter || 'N/A'}</p>
+            <p><strong>Severity:</strong> <span style="color: #dc3545; font-weight: bold;">${alarmData.severity || 'Unknown'}</span></p>
+            <p><strong>Timestamp:</strong> ${alarmData.timestamp || new Date().toLocaleString()}</p>
+            
+            <h3>Reason:</h3>
+            <p>${alarmData.reason || 'No reason provided'}</p>
+            
+            ${alarmData.device_params ? `
+            <h3>Device Parameters:</h3>
+            <table style="border-collapse: collapse; width: 100%; margin-top: 10px;">
+              <tr style="background-color: #e9ecef;">
+                <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Parameter</th>
+                <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Current Value</th>
+                <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Threshold</th>
+              </tr>
+              <tr>
+                <td style="border: 1px solid #ddd; padding: 8px;">DCV</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.dcv || 0}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">Ref 1: ${alarmData.device_params.ref_1 || 0}</td>
+              </tr>
+              <tr>
+                <td style="border: 1px solid #ddd; padding: 8px;">DCI</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.dci || 0}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">Ref 2: ${alarmData.device_params.ref_2 || 0}</td>
+              </tr>
+              <tr>
+                <td style="border: 1px solid #ddd; padding: 8px;">ACV</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.acv || 0}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">Ref 3: ${alarmData.device_params.ref_3 || 0}</td>
+              </tr>
+            </table>
+            ` : ''}
+          </div>
+        </body>
+      </html>
+    `;
   }
 }
 

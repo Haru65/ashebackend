@@ -1,6 +1,7 @@
 const mqtt = require('mqtt');
 const { deviceBroker } = require('../config/mqtt');
 const { transformDeviceData, createThrottledEmit, mapEventCode } = require('../utils/dataTransform');
+const { secondsToHHMMSS, hhmmssToSeconds, ensureLoggingIntervalFormat } = require('../utils/timeConverter');
 const { v4: uuidv4 } = require('uuid');
 const Device = require('../models/Device');
 const alarmMonitoringService = require('./alarmMonitoringService');
@@ -1384,6 +1385,14 @@ class MQTTService {
       // Get current settings for the device
       const currentSettings = await this.ensureDeviceSettings(deviceId);
       
+      // Ensure logging_interval_format is set based on logging_interval
+      if (currentSettings["logging_interval"]) {
+        if (typeof currentSettings["logging_interval"] === 'number') {
+          // Convert seconds to hh:mm:ss if not already converted
+          currentSettings["logging_interval_format"] = secondsToHHMMSS(currentSettings["logging_interval"]);
+        }
+      }
+      
       // Create parameters object from current settings - ALL 20 CORE PARAMETERS
       const parameters = {
         "Electrode": currentSettings["Electrode"] || 0,
@@ -1404,7 +1413,7 @@ class MQTTService {
         "Instant Mode": currentSettings["Instant Mode"] !== undefined ? currentSettings["Instant Mode"] : 0,
         "Instant Start TimeStamp": currentSettings["Instant Start TimeStamp"] || "19:04:00",
         "Instant End TimeStamp": currentSettings["Instant End TimeStamp"] || "00:00:00",
-        "logging_interval": currentSettings["logging_interval"] || "00:10:00"
+        "logging_interval": currentSettings["logging_interval_format"] || secondsToHHMMSS(currentSettings["logging_interval"] || 600)
       };
       
       // Note: Set UP and Set OP were UI-only labels that map to Reference UP and Reference OP

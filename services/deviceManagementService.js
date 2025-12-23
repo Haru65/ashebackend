@@ -1,5 +1,6 @@
 const Device = require('../models/Device');
 const { v4: uuidv4 } = require('uuid');
+const { ensureLoggingIntervalFormat, secondsToHHMMSS } = require('../utils/timeConverter');
 
 /**
  * Core Device Management Service
@@ -162,7 +163,7 @@ class DeviceManagementService {
           "Instant Start TimeStamp": settings.instantStartTimeStamp || settings.instantStartTimestamp || "19:04:00",
           "Instant End TimeStamp": settings.instantEndTimeStamp || settings.instantEndTimestamp || "00:00:00",
           "logging_interval": settings.logging_interval !== undefined ? settings.logging_interval : 600,
-          "logging_interval_format": settings.logging_interval_format || "00:10:00"
+          "logging_interval_format": settings.logging_interval_format || secondsToHHMMSS(settings.logging_interval || 600)
         }
       };
     } catch (error) {

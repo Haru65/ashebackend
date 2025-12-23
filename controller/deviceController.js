@@ -1,6 +1,7 @@
 const mqttService = require('../services/mqttService');
 const socketService = require('../services/socketService');
 const alarmMonitoringService = require('../services/alarmMonitoringService');
+const { secondsToHHMMSS, hhmmssToSeconds, ensureLoggingIntervalFormat } = require('../utils/timeConverter');
 const Device = require('../models/Device');
 const DeviceHistory = require('../models/DeviceHistory');
 
@@ -768,12 +769,28 @@ class DeviceController {
 
       console.log(`📤 [MQTT] Setting logging interval via complete settings frame for device ${deviceId}`);
       
+      // Ensure both logging_interval and logging_interval_format are set
+      let loggingInterval = parameters.logging_interval || parameters.interval;
+      let loggingIntervalFormat = parameters.logging_interval_format;
+      
+      // If only numeric interval is provided, convert to hh:mm:ss
+      if (typeof loggingInterval === 'number' && !loggingIntervalFormat) {
+        loggingIntervalFormat = secondsToHHMMSS(loggingInterval);
+        console.log(`🔄 Converted logging_interval ${loggingInterval}s to ${loggingIntervalFormat}`);
+      }
+      
+      // If only hh:mm:ss format is provided, convert to seconds
+      if (typeof loggingIntervalFormat === 'string' && typeof loggingInterval !== 'number') {
+        loggingInterval = hhmmssToSeconds(loggingIntervalFormat);
+        console.log(`🔄 Converted logging_interval_format ${loggingIntervalFormat} to ${loggingInterval}s`);
+      }
+      
       // Use the proper MQTT service method to send complete settings frame
       try {
-        // Use logging_interval and logging_interval_format for the configuration
+        // Use logging_interval_format (hh:mm:ss) for the configuration
         const config = {
           loggingInterval: {
-            value: parameters.logging_interval_format || "00:30:00",
+            value: loggingIntervalFormat || "00:30:00",
             enabled: true
           }
         };
@@ -786,8 +803,8 @@ class DeviceController {
         const updateData = {
           $set: {
             'configuration.loggingInterval': {
-              logging_interval: parameters.logging_interval,
-              logging_interval_format: parameters.logging_interval_format,
+              logging_interval: loggingInterval,
+              logging_interval_format: loggingIntervalFormat,
               description: parameters.description,
               lastUpdated: new Date(),
               updatedBy: req.user ? req.user.username : 'system'
@@ -804,8 +821,8 @@ class DeviceController {
           message: 'Logging interval updated successfully - complete settings frame sent',
           data: {
             deviceId,
-            logging_interval: parameters.logging_interval,
-            logging_interval_format: parameters.logging_interval_format,
+            logging_interval: loggingInterval,
+            logging_interval_format: loggingIntervalFormat,
             description: parameters.description,
             storedInDatabase: true,
             completeSettingsFrameSent: true,
@@ -820,8 +837,8 @@ class DeviceController {
         const updateData = {
           $set: {
             'configuration.loggingInterval': {
-              logging_interval: parameters.logging_interval,
-              logging_interval_format: parameters.logging_interval_format,
+              logging_interval: loggingInterval,
+              logging_interval_format: loggingIntervalFormat,
               description: parameters.description,
               lastUpdated: new Date(),
               updatedBy: req.user ? req.user.username : 'system'

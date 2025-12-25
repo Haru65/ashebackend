@@ -45,7 +45,7 @@ async function testDeviceSpecificAlarms() {
         deviceSettings: {
           referenceFail: 10,
           referenceUP: 50,
-          referenceOV: 100
+          referenceOP: 100
         }
       }
     });
@@ -60,7 +60,7 @@ async function testDeviceSpecificAlarms() {
         deviceSettings: {
           referenceFail: 20,
           referenceUP: 75,
-          referenceOV: 150
+          referenceOP: 150
         }
       }
     });

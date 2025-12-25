@@ -29,6 +29,9 @@ class MQTTService {
     // Store current device settings per deviceId
     this.deviceSettings = new Map(); // deviceId -> settings object
     
+    // Store device logging intervals for dynamic timeout calculation
+    this.deviceLoggingIntervals = new Map(); // deviceId -> loggingIntervalSeconds
+    
     // Device Management Service Integration
     this.deviceManagementService = null;
     
@@ -128,7 +131,7 @@ class MQTTService {
           this.emitActiveDeviceLocations(deviceId, payload);
           
           // Update device status in MongoDB
-          // await this.updateDeviceStatus(deviceId, payload); // COMMENTED OUT - causing timestamp override
+          await this.updateDeviceStatus(deviceId, payload); // ✅ RE-ENABLED - Keep MongoDB in sync with current status
           
           // Save telemetry data to database  
           await this.saveTelemetryData(deviceId, payload); // ✅ RE-ENABLED - Saves telemetry to database for Reports page
@@ -537,9 +540,9 @@ class MQTTService {
       "Manual Mode Action": 0,
       "Shunt Voltage": 25.00,
       "Shunt Current": 99.00,
-      "Reference Fail": 30,
-      "Reference UP": 0.30,
-      "Reference OP": 0.60,
+      "Reference Fail": 0.90,
+      "Reference UP": 0.90,
+      "Reference OP": 0.70,
       "Interrupt ON Time": 86400,
       "Interrupt OFF Time": 86400,
       "Interrupt Start TimeStamp": "2025-02-20 19:04:00",
@@ -563,8 +566,23 @@ class MQTTService {
           const dbSettings = await this.deviceManagementService.getDeviceSettings(deviceId);
           if (dbSettings && dbSettings.Parameters) {
             console.log(`📥 Loaded device settings from database for ${deviceId}`);
-            this.deviceSettings.set(deviceId, dbSettings.Parameters);
-            return dbSettings.Parameters;
+            
+            // Normalize Reference values to formatted strings with 2 decimals
+            const normalizedSettings = { ...dbSettings.Parameters };
+            const refFields = ['Reference Fail', 'Reference UP', 'Reference OP'];
+            refFields.forEach(field => {
+              if (normalizedSettings[field] !== undefined && normalizedSettings[field] !== null) {
+                const numVal = typeof normalizedSettings[field] === 'string' 
+                  ? parseFloat(normalizedSettings[field]) 
+                  : normalizedSettings[field];
+                if (!isNaN(numVal)) {
+                  normalizedSettings[field] = numVal.toFixed(2);  // Ensure "3.80" format
+                }
+              }
+            });
+            
+            this.deviceSettings.set(deviceId, normalizedSettings);
+            return normalizedSettings;
           }
         } catch (error) {
           console.warn(`⚠️ Could not load settings from database for ${deviceId}, using defaults:`, error.message);
@@ -881,55 +899,225 @@ class MQTTService {
     
     // Get current settings and update alarm fields
     const currentSettings = await this.ensureDeviceSettings(deviceId);
-    // Extract Reference value updates from alarm config
+    
+    // Extract Reference value updates from alarm config - PRESERVE STRING FORMAT WITH 2 DECIMALS
     const extractSetValue = (config, fieldName) => {
       if (config && typeof config === 'object' && config.value !== undefined) {
-        return parseFloat(config.value);
+        const value = config.value;
+        // If it's a string, format it to 2 decimals
+        if (typeof value === 'string') {
+          const numValue = parseFloat(value);
+          if (!isNaN(numValue)) {
+            return numValue.toFixed(2);  // Return as formatted string "3.80" not "3.8"
+          }
+        }
+        // If it's already a number, convert to 2 decimal string
+        if (typeof value === 'number') {
+          return value.toFixed(2);
+        }
+        return value;
       } else if (config !== null && config !== undefined && typeof config !== 'object') {
-        return parseFloat(config);
+        const numValue = parseFloat(config);
+        if (!isNaN(numValue)) {
+          return numValue.toFixed(2);  // Return as formatted string
+        }
+        return config;
       }
       return null;
+    };
+
+    // Electrode-based validation for Set UP values
+    const validateSetUpByElectrode = (setupValue, electrode) => {
+      if (setupValue === null || setupValue === undefined) {
+        return { valid: true, value: setupValue, message: null };
+      }
+
+      const numValue = parseFloat(setupValue);
+      const electrodeType = currentSettings["Electrode"] || electrode || 0;
+
+      // Mapping: Electrode 0 (Cu/CuSO4) and 2 (Ag/AgCl) → range 0.6 to 1.0
+      // Mapping: Electrode 1 (Zinc) → range -0.5 to 0.0
+      
+      if (electrodeType === 0 || electrodeType === 2) {
+        // Cu/CuSO4 or Ag/AgCl: 0.6 to 1.0
+        if (numValue < 0.6 || numValue > 1.0) {
+          return {
+            valid: false,
+            value: setupValue,
+            message: `❌ Set UP value ${numValue} is out of range for electrode ${electrodeType}. Required range: 0.6 to 1.0 for Cu/CuSO4 or Ag/AgCl electrodes.`,
+            electrode: electrodeType,
+            minValue: 0.6,
+            maxValue: 1.0
+          };
+        }
+      } else if (electrodeType === 1) {
+        // Zinc: -0.5 to 0.0
+        if (numValue < -0.5 || numValue > 0.0) {
+          return {
+            valid: false,
+            value: setupValue,
+            message: `❌ Set UP value ${numValue} is out of range for electrode ${electrodeType}. Required range: -0.5 to 0.0 for Zinc electrode.`,
+            electrode: electrodeType,
+            minValue: -0.5,
+            maxValue: 0.0
+          };
+        }
+      }
+
+      return { valid: true, value: setupValue, message: null };
+    };
+
+    // Electrode-based validation for Set OP values
+    const validateSetOpByElectrode = (setopValue, electrode) => {
+      if (setopValue === null || setopValue === undefined) {
+        return { valid: true, value: setopValue, message: null };
+      }
+
+      const numValue = parseFloat(setopValue);
+      const electrodeType = currentSettings["Electrode"] || electrode || 0;
+
+      // Mapping: Electrode 0 (Cu/CuSO4) and 2 (Ag/AgCl) → range 1.20 to 3.00
+      // Mapping: Electrode 1 (Zinc) → range 0.10 to 1.90
+      
+      if (electrodeType === 0 || electrodeType === 2) {
+        // Cu/CuSO4 or Ag/AgCl: 1.20 to 3.00
+        if (numValue < 1.20 || numValue > 3.00) {
+          return {
+            valid: false,
+            value: setopValue,
+            message: `❌ Set OP value ${numValue} is out of range for electrode ${electrodeType}. Required range: 1.20 to 3.00 for Cu/CuSO4 or Ag/AgCl electrodes.`,
+            electrode: electrodeType,
+            minValue: 1.20,
+            maxValue: 3.00
+          };
+        }
+      } else if (electrodeType === 1) {
+        // Zinc: 0.10 to 1.90
+        if (numValue < 0.10 || numValue > 1.90) {
+          return {
+            valid: false,
+            value: setopValue,
+            message: `❌ Set OP value ${numValue} is out of range for electrode ${electrodeType}. Required range: 0.10 to 1.90 for Zinc electrode.`,
+            electrode: electrodeType,
+            minValue: 0.10,
+            maxValue: 1.90
+          };
+        }
+      }
+
+      return { valid: true, value: setopValue, message: null };
+    };
+
+    // Static validation for Reference Fail (Set Fail) - fixed values per electrode type
+    const validateSetFailByElectrode = (setfailValue, electrode) => {
+      if (setfailValue === null || setfailValue === undefined) {
+        return { valid: true, value: setfailValue, message: null };
+      }
+
+      const numValue = parseFloat(setfailValue);
+      const electrodeType = currentSettings["Electrode"] || electrode || 0;
+
+      // Static values: Cu/CuSO4 and Ag/AgCl → 0.3, Zinc → -0.8
+      const staticValues = {
+        0: 0.3,   // Cu/CuSO4
+        2: 0.3,   // Ag/AgCl
+        1: -0.8   // Zinc
+      };
+
+      const expectedValue = staticValues[electrodeType] !== undefined ? staticValues[electrodeType] : 0.3;
+
+      // Allow a small tolerance for floating point comparison (e.g., 0.30 vs 0.3)
+      const tolerance = 0.001;
+      if (Math.abs(numValue - expectedValue) > tolerance) {
+        return {
+          valid: false,
+          value: setfailValue,
+          message: `❌ Set Fail value ${numValue} is not allowed for electrode ${electrodeType}. This value is FIXED and cannot be changed: ${expectedValue} for this electrode type.`,
+          electrode: electrodeType,
+          staticValue: expectedValue
+        };
+      }
+
+      return { valid: true, value: setfailValue, message: null };
     };
 
     const setupValue = extractSetValue(alarmConfig.setup, 'setup');
     const setopValue = extractSetValue(alarmConfig.setop, 'setop');
     const reffailValue = extractSetValue(alarmConfig.reffail, 'reffail');
 
+    // Validate Set UP value against electrode constraints
+    const setupValidation = validateSetUpByElectrode(setupValue, currentSettings["Electrode"]);
+    
+    if (!setupValidation.valid) {
+      console.warn(setupValidation.message);
+      return {
+        success: false,
+        error: setupValidation.message,
+        validation: {
+          field: 'Set UP',
+          providedValue: setupValidation.value,
+          electrode: setupValidation.electrode,
+          allowedMin: setupValidation.minValue,
+          allowedMax: setupValidation.maxValue
+        }
+      };
+    }
+
+    // Validate Set OP value against electrode constraints
+    const setopValidation = validateSetOpByElectrode(setopValue, currentSettings["Electrode"]);
+    
+    if (!setopValidation.valid) {
+      console.warn(setopValidation.message);
+      return {
+        success: false,
+        error: setopValidation.message,
+        validation: {
+          field: 'Set OP',
+          providedValue: setopValidation.value,
+          electrode: setopValidation.electrode,
+          allowedMin: setopValidation.minValue,
+          allowedMax: setopValidation.maxValue
+        }
+      };
+    }
+
+    // Validate Set Fail (Reference Fail) - static value per electrode
+    const setfailValidation = validateSetFailByElectrode(reffailValue, currentSettings["Electrode"]);
+    
+    if (!setfailValidation.valid) {
+      console.warn(setfailValidation.message);
+      return {
+        success: false,
+        error: setfailValidation.message,
+        validation: {
+          field: 'Set Fail',
+          providedValue: setfailValidation.value,
+          electrode: setfailValidation.electrode,
+          staticValue: setfailValidation.staticValue
+        }
+      };
+    }
+
     const updatedSettings = {
       ...currentSettings,
-      // Only update Reference Fail if explicitly provided
+      // Only update Reference Fail if explicitly provided, otherwise keep current value
       "Reference Fail": reffailValue !== null ? reffailValue : currentSettings["Reference Fail"],
-      // Set UP maps to Reference UP
-      "Reference UP": setupValue !== null ? setupValue : (alarmConfig.referenceUP || alarmConfig["Reference UP"] || currentSettings["Reference UP"]),
-      // Set OP maps to Reference OP
-      "Reference OP": setopValue !== null ? setopValue : (alarmConfig.referenceOP || alarmConfig["Reference OP"] || currentSettings["Reference OP"]),
+      // Set UP maps to Reference UP - only update if explicitly provided
+      "Reference UP": setupValue !== null ? setupValue : currentSettings["Reference UP"],
+      // Set OP maps to Reference OP - only update if explicitly provided
+      "Reference OP": setopValue !== null ? setopValue : currentSettings["Reference OP"],
       "Shunt Voltage": alarmConfig.shuntVoltage || alarmConfig["Shunt Voltage"] || currentSettings["Shunt Voltage"],
       "Shunt Current": alarmConfig.shuntCurrent || alarmConfig["Shunt Current"] || currentSettings["Shunt Current"]
     };
 
-    console.log(`🔧 Set UP (${setupValue}) → Reference UP (${updatedSettings["Reference UP"]})`);
+    console.log(`🔧 Set UP (${setupValue}) → Reference UP (${updatedSettings["Reference UP"]}) [Electrode: ${currentSettings["Electrode"]}]`);
     console.log(`🔧 Set OP (${setopValue}) → Reference OP (${updatedSettings["Reference OP"]})`);
+    console.log(`🔧 Set Fail (${reffailValue}) → Reference Fail (${updatedSettings["Reference Fail"]})`);
     
-    // Validate voltage ranges for Reference UP, Reference OP, Reference Fail (-4.0V to +4.0V)
-    const refUP = updatedSettings["Reference UP"];
-    const refOP = updatedSettings["Reference OP"];
-    const refFail = reffailValue !== null ? reffailValue : null;  // Only validate if explicitly set
-    
-    console.log(`🔍 Validating Reference UP: ${refUP} (type: ${typeof refUP}, isNaN: ${isNaN(refUP)})`);
-    console.log(`🔍 Validating Reference OP: ${refOP} (type: ${typeof refOP}, isNaN: ${isNaN(refOP)})`);
-    console.log(`🔍 Validating Reference Fail: ${refFail} (type: ${typeof refFail}, isNaN: ${isNaN(refFail)})`);
-    
-    if (refUP !== undefined && refUP !== null && !isNaN(refUP) && (refUP < -4.0 || refUP > 4.0)) {
-      throw new Error('Reference UP voltage must be between -4.0V and +4.0V');
-    }
-    if (refOP !== undefined && refOP !== null && !isNaN(refOP) && (refOP < -4.0 || refOP > 4.0)) {
-      throw new Error('Reference OP voltage must be between -4.0V and +4.0V');
-    }
-    if (refFail !== undefined && refFail !== null && !isNaN(refFail) && (refFail < -4.0 || refFail > 4.0)) {
-      throw new Error('Reference Fail voltage must be between -4.0V and +4.0V');
-    }
-    
-    console.log('💾 Updated settings:', JSON.stringify(updatedSettings, null, 2));
+    // Add display names for frontend consistency (Set UP, Set OP, Set Fail for alarm modal display)
+    updatedSettings["Set UP"] = updatedSettings["Reference UP"];
+    updatedSettings["Set OP"] = updatedSettings["Reference OP"];
+    updatedSettings["Set Fail"] = updatedSettings["Reference Fail"];
     
     // Store updated settings in memory
     this.deviceSettings.set(deviceId, updatedSettings);
@@ -938,10 +1126,11 @@ class MQTTService {
     if (this.deviceManagementService) {
       try {
         const settingsToSave = {};
-        // Save Reference values only
-        if (updatedSettings["Reference Fail"] !== undefined) settingsToSave["Reference Fail"] = updatedSettings["Reference Fail"];
-        if (updatedSettings["Reference UP"] !== undefined) settingsToSave["Reference UP"] = updatedSettings["Reference UP"];
-        if (updatedSettings["Reference OP"] !== undefined) settingsToSave["Reference OP"] = updatedSettings["Reference OP"];
+        // Save Reference values as formatted strings (keep 2 decimal places for MQTT transmission)
+        // This ensures 3.80 stays as "3.80" not converted to 3.8
+        if (updatedSettings["Reference Fail"] !== undefined) settingsToSave["Reference Fail"] = updatedSettings["Reference Fail"].toString();
+        if (updatedSettings["Reference UP"] !== undefined) settingsToSave["Reference UP"] = updatedSettings["Reference UP"].toString();
+        if (updatedSettings["Reference OP"] !== undefined) settingsToSave["Reference OP"] = updatedSettings["Reference OP"].toString();
         // Save Shunt values if they're part of alarm config
         if (updatedSettings["Shunt Voltage"] !== undefined) settingsToSave["Shunt Voltage"] = updatedSettings["Shunt Voltage"];
         if (updatedSettings["Shunt Current"] !== undefined) settingsToSave["Shunt Current"] = updatedSettings["Shunt Current"];
@@ -1394,15 +1583,36 @@ class MQTTService {
       }
       
       // Create parameters object from current settings - ALL 20 CORE PARAMETERS
+      // Format Reference values: convert to integer (multiply by 100) and pad with leading zeros for 3-digit format
+      // Example: 0.30 → "030", 1.60 → "160", 3.80 → "380"
+      const formatRefValueForDevice = (value) => {
+        if (value === undefined || value === null) return undefined;
+        let numVal;
+        if (typeof value === 'string') {
+          numVal = parseFloat(value);
+        } else if (typeof value === 'number') {
+          numVal = value;
+        } else {
+          return value;
+        }
+        if (!isNaN(numVal)) {
+          // Convert to integer by multiplying by 100 (1.60 -> 160)
+          // Then pad with leading zeros to make it 3 digits (30 -> "030")
+          const intVal = Math.round(numVal * 100);
+          return intVal.toString().padStart(3, '0');
+        }
+        return value;
+      };
+
       const parameters = {
         "Electrode": currentSettings["Electrode"] || 0,
         "Event": currentSettings["Event"] || 0,
         "Manual Mode Action": currentSettings["Manual Mode Action"] !== undefined ? currentSettings["Manual Mode Action"] : 0,
         "Shunt Voltage": currentSettings["Shunt Voltage"] || 25.00,
         "Shunt Current": currentSettings["Shunt Current"] || 99.00,
-        "Reference Fail": currentSettings["Reference Fail"] || 30,
-        "Reference UP": currentSettings["Reference UP"] !== undefined ? currentSettings["Reference UP"] : 0.30,
-        "Reference OP": currentSettings["Reference OP"] !== undefined ? currentSettings["Reference OP"] : 0.60,
+        "Reference Fail": formatRefValueForDevice(currentSettings["Reference Fail"]) || 3000,
+        "Reference UP": formatRefValueForDevice(currentSettings["Reference UP"]) || 30,
+        "Reference OP": formatRefValueForDevice(currentSettings["Reference OP"]) || 60,
         "Interrupt ON Time": currentSettings["Interrupt ON Time"] || 86400,
         "Interrupt OFF Time": currentSettings["Interrupt OFF Time"] || 86400,
         "Interrupt Start TimeStamp": currentSettings["Interrupt Start TimeStamp"] || "2025-02-20 19:04:00",
@@ -1414,6 +1624,8 @@ class MQTTService {
         "Instant Start TimeStamp": currentSettings["Instant Start TimeStamp"] || "19:04:00",
         "Instant End TimeStamp": currentSettings["Instant End TimeStamp"] || "00:00:00",
         "logging_interval": currentSettings["logging_interval_format"] || secondsToHHMMSS(currentSettings["logging_interval"] || 600)
+        // NOTE: Do NOT include "Set UP", "Set OP", "Set Fail" - these are display-only aliases for frontend
+        // Only send "Reference UP", "Reference OP", "Reference Fail" to device
       };
       
       // Note: Set UP and Set OP were UI-only labels that map to Reference UP and Reference OP
@@ -1525,9 +1737,9 @@ class MQTTService {
               const params = payload.Parameters;
               const setValue = {};
               
-              if (params['Set UP'] !== undefined) setValue.setUP = params['Set UP'];
-              if (params['Set OP'] !== undefined) setValue.setOP = params['Set OP'];
-              if (params['Ref Fail'] !== undefined) setValue.refFail = params['Ref Fail'];
+              if (params['Reference UP'] !== undefined) setValue.setUP = params['Reference UP'];
+              if (params['Reference OP'] !== undefined) setValue.setOP = params['Reference OP'];
+              if (params['Reference Fail'] !== undefined) setValue.refFail = params['Reference Fail'];
               
               if (Object.keys(setValue).length > 0) {
                 commandSentData.setValues = setValue;
@@ -1605,7 +1817,7 @@ class MQTTService {
         "Shunt Current": settingsConfig["Shunt Current"] !== undefined ? settingsConfig["Shunt Current"] : (settingsConfig.shuntCurrent !== undefined ? settingsConfig.shuntCurrent : currentSettings["Shunt Current"]),
         "Reference Fail": settingsConfig["Reference Fail"] !== undefined ? settingsConfig["Reference Fail"] : (settingsConfig.referenceFail !== undefined ? settingsConfig.referenceFail : currentSettings["Reference Fail"]),
         "Reference UP": settingsConfig["Reference UP"] !== undefined ? settingsConfig["Reference UP"] : (settingsConfig.referenceUP !== undefined ? settingsConfig.referenceUP : currentSettings["Reference UP"]),
-        "Reference OV": settingsConfig["Reference OV"] !== undefined ? settingsConfig["Reference OV"] : (settingsConfig.referenceOV !== undefined ? settingsConfig.referenceOV : currentSettings["Reference OV"]),
+        "Reference OP": settingsConfig["Reference OP"] !== undefined ? settingsConfig["Reference OP"] : (settingsConfig["Reference OV"] !== undefined ? settingsConfig["Reference OV"] : (settingsConfig.referenceOP !== undefined ? settingsConfig.referenceOP : currentSettings["Reference OP"])),
         "Interrupt ON Time": settingsConfig["Interrupt ON Time"] !== undefined ? settingsConfig["Interrupt ON Time"] : (settingsConfig.interruptOnTime !== undefined ? settingsConfig.interruptOnTime : currentSettings["Interrupt ON Time"]),
         "Interrupt OFF Time": settingsConfig["Interrupt OFF Time"] !== undefined ? settingsConfig["Interrupt OFF Time"] : (settingsConfig.interruptOffTime !== undefined ? settingsConfig.interruptOffTime : currentSettings["Interrupt OFF Time"]),
         "Interrupt Start TimeStamp": settingsConfig["Interrupt Start TimeStamp"] !== undefined ? settingsConfig["Interrupt Start TimeStamp"] : (settingsConfig.interruptStartTimestamp !== undefined ? settingsConfig.interruptStartTimestamp : currentSettings["Interrupt Start TimeStamp"]),
@@ -1691,14 +1903,23 @@ class MQTTService {
     if (!lastActivity) return false;
     
     const timeSinceActivity = Date.now() - lastActivity;
-    return timeSinceActivity < this.DEVICE_TIMEOUT;
+    
+    // Use dynamic timeout based on device's logging interval if available
+    const deviceLoggingData = this.deviceLoggingIntervals.get(deviceId);
+    const timeout = deviceLoggingData ? deviceLoggingData.timeout : this.DEVICE_TIMEOUT;
+    
+    return timeSinceActivity < timeout;
   }
   
   // Check if any device is active
   isAnyDeviceActive() {
     const now = Date.now();
     for (const [deviceId, lastActivity] of this.deviceLastActivity.entries()) {
-      if (now - lastActivity < this.DEVICE_TIMEOUT) {
+      // Use dynamic timeout based on device's logging interval if available
+      const deviceLoggingData = this.deviceLoggingIntervals.get(deviceId);
+      const timeout = deviceLoggingData ? deviceLoggingData.timeout : this.DEVICE_TIMEOUT;
+      
+      if (now - lastActivity < timeout) {
         return true;
       }
     }
@@ -1847,7 +2068,7 @@ class MQTTService {
         setShunt: settingsPayload['Set Shunt'] !== undefined ? settingsPayload['Set Shunt'] : currentSettings.setShunt || 0,
         referenceFail: settingsPayload['Reference Fail'] !== undefined ? settingsPayload['Reference Fail'] : currentSettings.referenceFail || 0,
         referenceUP: settingsPayload['Reference UP'] !== undefined ? settingsPayload['Reference UP'] : currentSettings.referenceUP || 0,
-        referenceOV: settingsPayload['Reference OV'] !== undefined ? settingsPayload['Reference OV'] : currentSettings.referenceOV || 0,
+        referenceOP: settingsPayload['Reference OP'] !== undefined ? settingsPayload['Reference OP'] : (settingsPayload['Reference OV'] !== undefined ? settingsPayload['Reference OV'] : currentSettings.referenceOP || 0),
         // Digital inputs
         di1: settingsPayload.DI1 !== undefined ? settingsPayload.DI1 : currentSettings.di1 || 0,
         di2: settingsPayload.DI2 !== undefined ? settingsPayload.DI2 : currentSettings.di2 || 0,
@@ -1887,7 +2108,7 @@ class MQTTService {
         "Shunt Current": settingsPayload['Shunt Current'] !== undefined ? settingsPayload['Shunt Current'] : currentSettings.shuntCurrent || 999,
         "Reference Fail": settingsPayload['Reference Fail'] !== undefined ? settingsPayload['Reference Fail'] : currentSettings.referenceFail || 30,
         "Reference UP": settingsPayload['Reference UP'] !== undefined ? settingsPayload['Reference UP'] : currentSettings.referenceUP || 300,
-        "Reference OV": settingsPayload['Reference OV'] !== undefined ? settingsPayload['Reference OV'] : currentSettings.referenceOV || 60,
+        "Reference OP": settingsPayload['Reference OP'] !== undefined ? settingsPayload['Reference OP'] : (settingsPayload['Reference OV'] !== undefined ? settingsPayload['Reference OV'] : currentSettings.referenceOP || 60),
         "Interrupt ON Time": settingsPayload['Interrupt ON Time'] !== undefined ? settingsPayload['Interrupt ON Time'] : currentSettings.interruptOnTime || 86400,
         "Interrupt OFF Time": settingsPayload['Interrupt OFF Time'] !== undefined ? settingsPayload['Interrupt OFF Time'] : currentSettings.interruptOffTime || 86400,
         "Interrupt Start TimeStamp": settingsPayload['Interrupt Start TimeStamp'] !== undefined ? settingsPayload['Interrupt Start TimeStamp'] : currentSettings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
@@ -2030,7 +2251,7 @@ class MQTTService {
       // List of the 18+ device parameters to look for (including both MQTT format variations)
       const DEVICE_PARAMETERS = [
         'Electrode', 'Event', 'Manual Mode Action', 'Shunt Voltage', 'Shunt Current',
-        'Reference Fail', 'Reference UP', 'Reference OV', 'Interrupt ON Time', 'Interrupt OFF Time',
+        'Reference Fail', 'Reference UP', 'Reference OP', 'Reference OV', 'Interrupt ON Time', 'Interrupt OFF Time',
         'Interrupt Start TimeStamp', 'Interrupt Stop TimeStamp', 'DPOL Interval',
         'Depolarization_interval', 'logging_interval',  // Device sends these with underscores
         'Depolarization Start TimeStamp', 'Depolarization Stop TimeStamp', 'Instant Mode',
@@ -2039,21 +2260,74 @@ class MQTTService {
       
       console.log(`🔎 Looking for these parameters:`, DEVICE_PARAMETERS);
       
-      // Extract device parameters from payload (preserve original values)
+      // Extract device parameters from payload and convert Reference/Set values from integer to decimal format
       const deviceSettings = {};
       let foundParameters = 0;
       
+      // List of parameter name variations that need integer-to-decimal conversion
+      const REFERENCE_PARAMS = [
+        'Reference Fail', 'Reference UP', 'Reference OP',
+        'Set Fail', 'Set UP', 'Set OP',
+        'Ref Fail', 'RefFail', 'SetFail'
+      ];
+      
       for (const param of DEVICE_PARAMETERS) {
         if (payload[param] !== undefined) {
-          deviceSettings[param] = payload[param];
+          let value = payload[param];
+          
+          // Convert all Reference/Set values from integer format back to decimal format
+          // Examples: 380 → 3.80, 160 → 1.60, 030 → 0.30
+          // If value is already in decimal range (< 5), it's already decimal format - don't convert
+          if (REFERENCE_PARAMS.includes(param) && typeof value === 'number') {
+            // If already in decimal range (< 5), it's already formatted - just toFixed
+            if (value < 5) {
+              value = parseFloat(value).toFixed(2);
+              console.log(`🔄 ${param} already in decimal format: ${payload[param]} → ${value}`);
+            } else {
+              // Convert from integer to decimal: 380 → 3.80
+              value = (value / 100).toFixed(2);
+              console.log(`🔄 Converted ${param} from device format ${payload[param]} to ${value}`);
+            }
+          } else if (REFERENCE_PARAMS.includes(param) && typeof value === 'string') {
+            // If it's already a string, check if it needs conversion
+            const numVal = parseFloat(value);
+            if (!isNaN(numVal)) {
+              if (numVal < 5) {
+                // Already in decimal format
+                value = numVal.toFixed(2);
+                console.log(`🔄 ${param} already in decimal format: ${payload[param]} → ${value}`);
+              } else {
+                // Integer format - divide by 100
+                value = (numVal / 100).toFixed(2);
+                console.log(`🔄 Converted ${param} from device string format ${payload[param]} to ${value}`);
+              }
+            }
+          }
+          
+          deviceSettings[param] = value;
           foundParameters++;
-          console.log(`📋 Found parameter: ${param} = ${payload[param]}`);
+          console.log(`📋 Found parameter: ${param} = ${value}`);
         }
       }
       
       if (foundParameters > 0) {
         console.log(`✅ Found ${foundParameters} device parameters, storing in database`);
         console.log(`📋 Extracted settings object:`, JSON.stringify(deviceSettings, null, 2));
+        
+        // Map Reference/Set field names for frontend display consistency
+        // Frontend expects: 'Set UP', 'Set OP', 'Set Fail'
+        const displaySettings = { ...deviceSettings };
+        
+        // Add display names - explicitly check for null/undefined, not truthiness (0.70 is falsy in some contexts)
+        if ('Reference UP' in displaySettings && displaySettings['Reference UP'] !== null && displaySettings['Reference UP'] !== undefined) {
+          displaySettings['Set UP'] = displaySettings['Reference UP'];
+        }
+        if ('Reference OP' in displaySettings && displaySettings['Reference OP'] !== null && displaySettings['Reference OP'] !== undefined) {
+          displaySettings['Set OP'] = displaySettings['Reference OP'];
+        }
+        if ('Reference Fail' in displaySettings && displaySettings['Reference Fail'] !== null && displaySettings['Reference Fail'] !== undefined) {
+          displaySettings['Set Fail'] = displaySettings['Reference Fail'];
+        }
         
         // Store settings using device management service (preserving original timestamps)
         if (this.deviceManagementService) {
@@ -2063,18 +2337,18 @@ class MQTTService {
           await this.deviceManagementService.storeDeviceSettings(deviceId, mappedSettings, 'mqtt_incoming');
           console.log(`💾 Device settings stored in database for device ${deviceId}`);
           
-          // Store BOTH formats in memory - original parameter names for reference
+          // Store BOTH formats in memory - original parameter names AND display names for frontend
           const currentMemorySettings = this.deviceSettings.get(deviceId) || {};
-          const updatedMemorySettings = { ...currentMemorySettings, ...deviceSettings };
+          const updatedMemorySettings = { ...currentMemorySettings, ...displaySettings };
           this.deviceSettings.set(deviceId, updatedMemorySettings);
           console.log(`💾 Device settings stored in memory for device ${deviceId}`);
           console.log(`📝 Memory cache now contains:`, JSON.stringify(updatedMemorySettings, null, 2));
           
-          // Emit real-time update to frontend with original parameter names
+          // Emit real-time update to frontend with display names
           if (this.socketIO) {
             this.socketIO.emit('deviceSettingsUpdate', {
               deviceId,
-              settings: deviceSettings,
+              settings: displaySettings,
               source: 'device',
               timestamp: new Date().toISOString()
             });
@@ -2083,6 +2357,27 @@ class MQTTService {
         }
       } else {
         console.log(`ℹ️ No device parameters found in payload for device ${deviceId}`);
+      }
+
+      // Extract and store logging interval for dynamic timeout calculation
+      const loggingInterval = payload.logging_interval || payload.loggingInterval;
+      if (loggingInterval) {
+        let intervalSeconds = 0;
+        
+        if (typeof loggingInterval === 'number') {
+          // If it's already in seconds, use it directly
+          intervalSeconds = loggingInterval;
+        } else if (typeof loggingInterval === 'string' && loggingInterval.includes(':')) {
+          // If it's in HH:MM:SS format, convert to seconds
+          intervalSeconds = hhmmssToSeconds(loggingInterval);
+        }
+        
+        if (intervalSeconds > 0) {
+          // Store the interval with 4x multiplier for timeout (allows 3 missed messages)
+          const dynamicTimeout = intervalSeconds * 4 * 1000; // Convert to milliseconds
+          this.deviceLoggingIntervals.set(deviceId, { intervalSeconds, timeout: dynamicTimeout });
+          console.log(`⏱️ Device ${deviceId} logging interval: ${intervalSeconds}s → dynamic timeout: ${(dynamicTimeout / 1000).toFixed(1)}s`);
+        }
       }
       
     } catch (error) {

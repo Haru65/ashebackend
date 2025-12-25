@@ -62,7 +62,7 @@ const DeviceSchema = new Schema({
       // REF values that should reflect to webpage and save to server
       referenceFail: { type: Number, default: 0 },
       referenceUP: { type: Number, default: 0 },
-      referenceOV: { type: Number, default: 0 },
+      referenceOP: { type: Number, default: 0 },
       // Digital inputs that were missing from frame
       di1: { type: Number, default: 0 },
       di2: { type: Number, default: 0 },

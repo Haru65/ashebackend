@@ -92,6 +92,12 @@ class DeviceManagementService {
         ...settings
       };
 
+      // Clean up old field names to prevent confusion
+      // If we have the new referenceOP, remove the old referenceOV
+      if (updatedSettings.referenceOP !== undefined) {
+        delete updatedSettings.referenceOV;
+      }
+
       // Update device configuration
       device.configuration.deviceSettings = updatedSettings;
       device.configuration.lastConfigUpdate = new Date();
@@ -150,11 +156,12 @@ class DeviceManagementService {
           "Manual Mode Action": settings.manualModeAction !== undefined ? settings.manualModeAction : 0,
           "Shunt Voltage": settings.shuntVoltage !== undefined ? settings.shuntVoltage : 25.00,
           "Shunt Current": settings.shuntCurrent !== undefined ? settings.shuntCurrent : 99.00,
-          "Reference Fail": settings.referenceFail !== undefined ? settings.referenceFail : 30,
-          "Reference UP": settings.referenceUP !== undefined ? settings.referenceUP : 0.30,
-          "Reference OP": settings.referenceOV !== undefined ? settings.referenceOV : 0.60,
-          "Set UP": settings.referenceUP !== undefined ? settings.referenceUP : 0.30,
-          "Set OP": settings.referenceOV !== undefined ? settings.referenceOV : 0.60,
+          "Reference Fail": (settings.referenceFail !== undefined && settings.referenceFail !== null) ? settings.referenceFail : 0.90,
+          "Reference UP": (settings.referenceUP !== undefined && settings.referenceUP !== null) ? settings.referenceUP : 0.90,
+          "Reference OP": (settings.referenceOP !== undefined && settings.referenceOP !== null) ? settings.referenceOP : (settings.referenceOV !== undefined && settings.referenceOV !== null ? settings.referenceOV : 0.70),
+          "Set Fail": (settings.referenceFail !== undefined && settings.referenceFail !== null) ? settings.referenceFail : 0.90,
+          "Set UP": (settings.referenceUP !== undefined && settings.referenceUP !== null) ? settings.referenceUP : 0.90,
+          "Set OP": (settings.referenceOP !== undefined && settings.referenceOP !== null) ? settings.referenceOP : (settings.referenceOV !== undefined && settings.referenceOV !== null ? settings.referenceOV : 0.70),
           "Interrupt ON Time": settings.interruptOnTime !== undefined ? settings.interruptOnTime : 86400,
           "Interrupt OFF Time": settings.interruptOffTime !== undefined ? settings.interruptOffTime : 86400,
           "Interrupt Start TimeStamp": settings.interruptStartTimeStamp || settings.interruptStartTimestamp || "2025-02-20 19:04:00",
@@ -203,11 +210,12 @@ class DeviceManagementService {
           "Manual Mode Action": settings.manualModeAction || 0,
           "Shunt Voltage": settings.shuntVoltage || 25,
           "Shunt Current": settings.shuntCurrent || 999,
-          "Reference Fail": settings.referenceFail || 30,
-          "Reference UP": settings.referenceUP || 300,
-          "Reference OV": settings.referenceOV || 60,
-          "Set UP": settings.referenceUP || 300,
-          "Set OP": settings.referenceOV || 60,
+          "Reference Fail": (settings.referenceFail !== undefined && settings.referenceFail !== null) ? settings.referenceFail : 0.90,
+          "Reference UP": (settings.referenceUP !== undefined && settings.referenceUP !== null) ? settings.referenceUP : 0.90,
+          "Reference OP": (settings.referenceOP !== undefined && settings.referenceOP !== null) ? settings.referenceOP : (settings.referenceOV !== undefined && settings.referenceOV !== null ? settings.referenceOV : 0.70),
+          "Set Fail": (settings.referenceFail !== undefined && settings.referenceFail !== null) ? settings.referenceFail : 0.90,
+          "Set UP": (settings.referenceUP !== undefined && settings.referenceUP !== null) ? settings.referenceUP : 0.90,
+          "Set OP": (settings.referenceOP !== undefined && settings.referenceOP !== null) ? settings.referenceOP : (settings.referenceOV !== undefined && settings.referenceOV !== null ? settings.referenceOV : 0.70),
           "Interrupt ON Time": settings.interruptOnTime || 86400,
           "Interrupt OFF Time": settings.interruptOffTime || 86400,
           "Interrupt Start TimeStamp": settings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
@@ -403,9 +411,9 @@ class DeviceManagementService {
       manualModeAction: 0,
       shuntVoltage: 25,
       shuntCurrent: 999,
-      referenceFail: 30,
-      referenceUP: 300,
-      referenceOV: 60,
+      referenceFail: 0.90,
+      referenceUP: 0.90,
+      referenceOP: 0.70,
       interruptOnTime: 86400,
       interruptOffTime: 86400,
       interruptStartTimeStamp: defaultTimestamp,
@@ -433,7 +441,8 @@ class DeviceManagementService {
       "Shunt Current": "shuntCurrent",
       "Reference Fail": "referenceFail",
       "Reference UP": "referenceUP",
-      "Reference OV": "referenceOV",
+      "Reference OV": "referenceOP",
+      "Reference OP": "referenceOP",  // Device sends as 'Reference OP'
       "Interrupt ON Time": "interruptOnTime",
       "Interrupt OFF Time": "interruptOffTime",
       "Interrupt Start TimeStamp": "interruptStartTimeStamp",
@@ -566,7 +575,7 @@ class DeviceManagementService {
       'shuntCurrent': 'Shunt Current',
       'referenceFail': 'Reference Fail',
       'referenceUP': 'Reference UP',
-      'referenceOV': 'Reference OV',
+      'referenceOP': 'Reference OP',
       'interruptOnTime': 'Interrupt ON Time',
       'interruptOffTime': 'Interrupt OFF Time',
       'interruptStartTimeStamp': 'Interrupt Start TimeStamp',
@@ -605,7 +614,8 @@ class DeviceManagementService {
       'Shunt Current': 'shuntCurrent',
       'Reference Fail': 'referenceFail',
       'Reference UP': 'referenceUP',
-      'Reference OV': 'referenceOV',
+      'Reference OP': 'referenceOP',
+      'Reference OV': 'referenceOP',  // Support both names for backwards compatibility
       'Interrupt ON Time': 'interruptOnTime',
       'Interrupt OFF Time': 'interruptOffTime',
       'Interrupt Start TimeStamp': 'interruptStartTimeStamp',

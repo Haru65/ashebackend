@@ -972,7 +972,7 @@ class DeviceController {
         device_params: {
           ref_1: device.configuration?.deviceSettings?.referenceFail || 0,
           ref_2: device.configuration?.deviceSettings?.referenceUP || 0,
-          ref_3: device.configuration?.deviceSettings?.referenceOV || 0,
+          ref_3: device.configuration?.deviceSettings?.referenceOP || 0,
           dcv: device.sensors?.voltage || 0, // DC Voltage from sensors
           dci: device.sensors?.current || 0, // DC Current from sensors
           acv: device.sensors?.acVoltage || 0  // AC Voltage from sensors

@@ -55,7 +55,7 @@ async function testDeviceManagement() {
       shuntCurrent: 1000,
       referenceFail: 35,
       referenceUP: 320,
-      referenceOV: 65
+      referenceOP: 65
     };
 
     await deviceManagementService.storeDeviceSettings("CORE_TEST_001", settings, "test_system");

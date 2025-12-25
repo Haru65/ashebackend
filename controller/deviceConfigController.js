@@ -246,33 +246,6 @@ class DeviceConfigController {
     }
   }
 
-  // Configure alarms
-  async configureAlarm(req, res) {
-    try {
-      const { deviceId } = req.params;
-      const alarmConfig = req.body;
-
-      console.log(`🔧 Configuring alarm for device ${deviceId}:`, alarmConfig);
-
-      // Publish command and respond immediately (don't wait for device ack)
-      mqttService.setAlarmConfiguration(deviceId, alarmConfig).catch(err => {
-        console.error('Background alarm configuration command failed:', err);
-      });
-      
-      res.json({
-        success: true,
-        message: 'Alarm configuration sent to device'
-      });
-
-    } catch (error) {
-      console.error('Error configuring alarm:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message || 'Failed to configure alarm'
-      });
-    }
-  }
-
   // Get device status
   async getDeviceStatus(req, res) {
     try {
@@ -303,56 +276,19 @@ class DeviceConfigController {
     try {
       const { deviceId } = req.params;
       
-      // Get current settings from MQTT service memory store
-      const currentSettings = mqttService.getDeviceSettings(deviceId);
+      // ALWAYS get from database service, not memory cache
+      // This ensures we have the persistent, authoritative values
+      const deviceManagementService = require('../services/deviceManagementService');
+      const settings = await deviceManagementService.getDeviceSettings(deviceId);
       
-      if (!currentSettings) {
-        // Return default settings if none exist
-        const defaultSettings = {
-          "Device ID": deviceId,
-          "Message Type": "settings",
-          "sender": "Server",
-          "Parameters": {
-            "Electrode": 0,
-            "Shunt Voltage": "25.00",
-            "Shunt Current": "99.99",
-            "Reference Fail": 30,
-            "Reference UP": 300,
-            "Reference OV": 60,
-            "Interrupt ON Time": 86400,
-            "Interrupt OFF Time": 86400,
-            "Interrupt Start TimeStamp": "2025-02-20 19:04:00",
-            "Interrupt Stop TimeStamp": "2025-02-20 19:05:00",
-            "Depolarization Start TimeStamp": "2025-02-20 19:04:00",
-            "Depolarization Stop TimeStamp": "2025-02-20 19:05:00",
-            "Instant Mode": 0,
-            "Instant Start TimeStamp": "19:04:00",
-            "Instant End TimeStamp": "00:00:00"
-          }
-        };
-
-        return res.json({
-          success: true,
-          data: defaultSettings
-        });
-      }
-
-      // Format current settings in the requested format
-      const formattedSettings = {
-        "Device ID": deviceId,
-        "Message Type": "settings",
-        "sender": "Server",
-        "Parameters": currentSettings
-      };
-
       res.json({
         success: true,
-        data: formattedSettings
+        data: settings
       });
 
     } catch (error) {
       console.error('Error getting device settings:', error);
-      res.status(500).json({
+      res.status(error.message?.includes('not found') ? 404 : 500).json({
         success: false,
         message: error.message || 'Failed to get device settings'
       });
@@ -586,6 +522,16 @@ class DeviceConfigController {
 
       // Send command with acknowledgment tracking
       const result = await mqttService.setAlarmConfiguration(deviceId, config);
+      
+      // Check if validation failed
+      if (!result.success) {
+        return res.status(400).json({
+          success: false,
+          error: result.error,
+          validation: result.validation,
+          message: result.error
+        });
+      }
       
       res.json({
         success: true,

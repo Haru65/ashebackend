@@ -192,7 +192,7 @@ class MqttClientService {
           'configuration.deviceSettings.shuntCurrent': payload.Parameters?.["Shunt Current"] !== undefined ? payload.Parameters["Shunt Current"] : undefined,
           'configuration.deviceSettings.referenceFail': payload.Parameters?.["Reference Fail"] !== undefined ? payload.Parameters["Reference Fail"] : undefined,
           'configuration.deviceSettings.referenceUP': payload.Parameters?.["Reference UP"] !== undefined ? payload.Parameters["Reference UP"] : undefined,
-          'configuration.deviceSettings.referenceOV': payload.Parameters?.["Reference OV"] !== undefined ? payload.Parameters["Reference OV"] : undefined,
+          'configuration.deviceSettings.referenceOP': payload.Parameters?.["Reference OP"] !== undefined ? payload.Parameters["Reference OP"] : (payload.Parameters?.["Reference OV"] !== undefined ? payload.Parameters["Reference OV"] : undefined),
           'configuration.deviceSettings.di1': payload.Parameters?.["DI1"] !== undefined ? payload.Parameters["DI1"] : undefined,
           'configuration.deviceSettings.di2': payload.Parameters?.["DI2"] !== undefined ? payload.Parameters["DI2"] : undefined,
           'configuration.deviceSettings.di3': payload.Parameters?.["DI3"] !== undefined ? payload.Parameters["DI3"] : undefined,

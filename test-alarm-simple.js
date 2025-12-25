@@ -40,7 +40,7 @@ async function testAlarmClient() {
         deviceSettings: {
           referenceFail: 5,
           referenceUP: 50,
-          referenceOV: 100
+          referenceOP: 100
         }
       }
     });

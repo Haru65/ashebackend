@@ -12,6 +12,45 @@ function mapEventCode(eventCode) {
   return eventMappings[numericCode] || `Unknown (${eventCode})`;
 }
 
+// Digital Input/Output mapping helper
+function mapDigitalIOValue(value) {
+  const numericValue = parseInt(value);
+  const displayMap = {
+    0: 'OPEN',
+    1: 'CLOSE'
+  };
+  return displayMap[numericValue] !== undefined ? displayMap[numericValue] : `Unknown (${value})`;
+}
+
+// Helper function to normalize device parameter names
+function normalizeDeviceParams(params) {
+  const normalized = { ...params };
+  
+  // Map "Digital Input X" to "DIX"
+  if (params['Digital Input 1'] !== undefined) normalized.DI1 = params['Digital Input 1'];
+  if (params['Digital Input 2'] !== undefined) normalized.DI2 = params['Digital Input 2'];
+  if (params['Digital Input 3'] !== undefined) normalized.DI3 = params['Digital Input 3'];
+  if (params['Digital Input 4'] !== undefined) normalized.DI4 = params['Digital Input 4'];
+  
+  // Map "Digital Output" to "DO1" (assuming single output or primary output)
+  if (params['Digital Output'] !== undefined) {
+    normalized.DO1 = params['Digital Output'];
+  }
+  
+  return normalized;
+}
+
+// Helper function to convert text values to numeric (OPEN/CLOSE -> 0/1 or OFF/ON -> 0/1)
+function normalizeDigitalIOValue(value) {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const lower = value.toUpperCase();
+    if (lower === 'CLOSE' || lower === 'ON') return 1;
+    if (lower === 'OPEN' || lower === 'OFF') return 0;
+  }
+  return value;
+}
+
 // Basic data transform helper
 function transformDeviceData(payload, topic) {
   // Extract device ID from MQTT topic (e.g., 'devices/123/data' -> '123')
@@ -27,7 +66,10 @@ function transformDeviceData(payload, topic) {
   const deviceId = deviceIdFromTopic;
   
   // Extract parameters from payload (could be in 'Parameters' key or at root level)
-  const params = payload.Parameters || payload;
+  let params = payload.Parameters || payload;
+  
+  // Normalize parameter names from device format to standard format
+  params = normalizeDeviceParams(params);
   
   // Build metrics array with individual values
   const metrics = [];
@@ -104,31 +146,85 @@ function transformDeviceData(payload, topic) {
   
   // Add Digital Inputs (DI1, DI2, DI3, DI4)
   if (params.DI1 !== undefined) {
+    const normalizedValue = normalizeDigitalIOValue(params.DI1);
     metrics.push({
       type: 'DI1',
-      value: params.DI1,
-      icon: 'bi-toggles'
+      value: mapDigitalIOValue(normalizedValue),
+      rawValue: normalizedValue,
+      icon: 'bi-toggles',
+      category: 'Digital Input'
     });
   }
   if (params.DI2 !== undefined) {
+    const normalizedValue = normalizeDigitalIOValue(params.DI2);
     metrics.push({
       type: 'DI2',
-      value: params.DI2,
-      icon: 'bi-toggles'
+      value: mapDigitalIOValue(normalizedValue),
+      rawValue: normalizedValue,
+      icon: 'bi-toggles',
+      category: 'Digital Input'
     });
   }
   if (params.DI3 !== undefined) {
+    const normalizedValue = normalizeDigitalIOValue(params.DI3);
     metrics.push({
       type: 'DI3',
-      value: params.DI3,
-      icon: 'bi-toggles'
+      value: mapDigitalIOValue(normalizedValue),
+      rawValue: normalizedValue,
+      icon: 'bi-toggles',
+      category: 'Digital Input'
     });
   }
   if (params.DI4 !== undefined) {
+    const normalizedValue = normalizeDigitalIOValue(params.DI4);
     metrics.push({
       type: 'DI4',
-      value: params.DI4,
-      icon: 'bi-toggles'
+      value: mapDigitalIOValue(normalizedValue),
+      rawValue: normalizedValue,
+      icon: 'bi-toggles',
+      category: 'Digital Input'
+    });
+  }
+  
+  // Add Digital Outputs (DO1, DO2, DO3, DO4)
+  if (params.DO1 !== undefined) {
+    const normalizedValue = normalizeDigitalIOValue(params.DO1);
+    metrics.push({
+      type: 'DO1',
+      value: mapDigitalIOValue(normalizedValue),
+      rawValue: normalizedValue,
+      icon: 'bi-arrow-right-square',
+      category: 'Digital Output'
+    });
+  }
+  if (params.DO2 !== undefined) {
+    const normalizedValue = normalizeDigitalIOValue(params.DO2);
+    metrics.push({
+      type: 'DO2',
+      value: mapDigitalIOValue(normalizedValue),
+      rawValue: normalizedValue,
+      icon: 'bi-arrow-right-square',
+      category: 'Digital Output'
+    });
+  }
+  if (params.DO3 !== undefined) {
+    const normalizedValue = normalizeDigitalIOValue(params.DO3);
+    metrics.push({
+      type: 'DO3',
+      value: mapDigitalIOValue(normalizedValue),
+      rawValue: normalizedValue,
+      icon: 'bi-arrow-right-square',
+      category: 'Digital Output'
+    });
+  }
+  if (params.DO4 !== undefined) {
+    const normalizedValue = normalizeDigitalIOValue(params.DO4);
+    metrics.push({
+      type: 'DO4',
+      value: mapDigitalIOValue(normalizedValue),
+      rawValue: normalizedValue,
+      icon: 'bi-arrow-right-square',
+      category: 'Digital Output'
     });
   }
   

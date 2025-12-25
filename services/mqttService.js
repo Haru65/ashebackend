@@ -897,8 +897,8 @@ class MQTTService {
 
     const updatedSettings = {
       ...currentSettings,
-      // Handle old reference parameter names
-      "Reference Fail": alarmConfig.referenceFail || alarmConfig["Reference Fail"] || currentSettings["Reference Fail"],
+      // Only update Reference Fail if explicitly provided
+      "Reference Fail": reffailValue !== null ? reffailValue : currentSettings["Reference Fail"],
       // Set UP maps to Reference UP
       "Reference UP": setupValue !== null ? setupValue : (alarmConfig.referenceUP || alarmConfig["Reference UP"] || currentSettings["Reference UP"]),
       // Set OP maps to Reference OP
@@ -910,23 +910,23 @@ class MQTTService {
     console.log(`🔧 Set UP (${setupValue}) → Reference UP (${updatedSettings["Reference UP"]})`);
     console.log(`🔧 Set OP (${setopValue}) → Reference OP (${updatedSettings["Reference OP"]})`);
     
-    // Validate voltage ranges for Reference UP, Reference OP, Reference Fail (-4.00V to +4.00V)
+    // Validate voltage ranges for Reference UP, Reference OP, Reference Fail (-4.0V to +4.0V)
     const refUP = updatedSettings["Reference UP"];
     const refOP = updatedSettings["Reference OP"];
-    const refFail = updatedSettings["Reference Fail"];
+    const refFail = reffailValue !== null ? reffailValue : null;  // Only validate if explicitly set
     
     console.log(`🔍 Validating Reference UP: ${refUP} (type: ${typeof refUP}, isNaN: ${isNaN(refUP)})`);
     console.log(`🔍 Validating Reference OP: ${refOP} (type: ${typeof refOP}, isNaN: ${isNaN(refOP)})`);
     console.log(`🔍 Validating Reference Fail: ${refFail} (type: ${typeof refFail}, isNaN: ${isNaN(refFail)})`);
     
-    if (refUP !== undefined && refUP !== null && !isNaN(refUP) && (refUP < -4.00 || refUP > 4.00)) {
-      throw new Error('Reference UP voltage must be between -4.00V and +4.00V');
+    if (refUP !== undefined && refUP !== null && !isNaN(refUP) && (refUP < -4.0 || refUP > 4.0)) {
+      throw new Error('Reference UP voltage must be between -4.0V and +4.0V');
     }
-    if (refOP !== undefined && refOP !== null && !isNaN(refOP) && (refOP < -4.00 || refOP > 4.00)) {
-      throw new Error('Reference OP voltage must be between -4.00V and +4.00V');
+    if (refOP !== undefined && refOP !== null && !isNaN(refOP) && (refOP < -4.0 || refOP > 4.0)) {
+      throw new Error('Reference OP voltage must be between -4.0V and +4.0V');
     }
-    if (refFail !== undefined && refFail !== null && !isNaN(refFail) && (refFail < -4.00 || refFail > 4.00)) {
-      throw new Error('Reference Fail voltage must be between -4.00V and +4.00V');
+    if (refFail !== undefined && refFail !== null && !isNaN(refFail) && (refFail < -4.0 || refFail > 4.0)) {
+      throw new Error('Reference Fail voltage must be between -4.0V and +4.0V');
     }
     
     console.log('💾 Updated settings:', JSON.stringify(updatedSettings, null, 2));
@@ -1167,14 +1167,14 @@ class MQTTService {
     return await this.sendCompleteSettingsPayload(deviceId, commandId);
   }
 
-  // Configure Set UP (alarm set value - range: -4.00V to +4.00V)
+  // Configure Set UP (alarm set value - range: -4.0V to +4.0V)
   async setAlarmSetUP(deviceId, config) {
     console.log('🔧 Setting Set UP alarm configuration - will send complete settings...');
     
-    // Validate voltage range (-4.00V to +4.00V)
+    // Validate voltage range (-4.0V to +4.0V)
     const voltage = parseFloat(config.setUP || 0);
-    if (voltage < -4.00 || voltage > 4.00) {
-      throw new Error('Set UP voltage must be between -4.00V and +4.00V');
+    if (voltage < -4.0 || voltage > 4.0) {
+      throw new Error('Set UP voltage must be between -4.0V and +4.0V');
     }
     
     // Get current settings and update Set UP field
@@ -1196,14 +1196,14 @@ class MQTTService {
     return await this.sendCompleteSettingsPayload(deviceId, commandId);
   }
 
-  // Configure Set OP (alarm set value - range: -4.00V to +4.00V)
+  // Configure Set OP (alarm set value - range: -4.0V to +4.0V)
   async setAlarmSetOP(deviceId, config) {
     console.log('🔧 Setting Set OP alarm configuration - will send complete settings...');
     
-    // Validate voltage range (-4.00V to +4.00V)
+    // Validate voltage range (-4.0V to +4.0V)
     const voltage = parseFloat(config.setOP || 0);
-    if (voltage < -4.00 || voltage > 4.00) {
-      throw new Error('Set OP voltage must be between -4.00V and +4.00V');
+    if (voltage < -4.0 || voltage > 4.0) {
+      throw new Error('Set OP voltage must be between -4.0V and +4.0V');
     }
     
     // Get current settings and update Set OP field
@@ -1225,14 +1225,14 @@ class MQTTService {
     return await this.sendCompleteSettingsPayload(deviceId, commandId);
   }
 
-  // Configure Reference Fail (reference calibration - range: -4.00V to +4.00V)
+  // Configure Reference Fail (reference calibration - range: -4.0V to +4.0V)
   async setRefFail(deviceId, config) {
     console.log('🔧 Setting Reference Fail configuration - will send complete settings...');
     
     // Validate voltage range (-4.00V to +4.00V)
     const voltage = parseFloat(config.refFail || 0);
-    if (voltage < -4.00 || voltage > 4.00) {
-      throw new Error('Reference Fail voltage must be between -4.00V and +4.00V');
+    if (voltage < -4.0 || voltage > 4.0) {
+      throw new Error('Reference Fail voltage must be between -4.0V and +4.0V');
     }
     
     // Get current settings and update Reference Fail field
@@ -1817,6 +1817,8 @@ class MQTTService {
                          settingsPayload['SET mV'] !== undefined ||
                          settingsPayload['Set Shunt'] !== undefined ||
                          settingsPayload['Logging Interval'] !== undefined ||
+                         settingsPayload['logging_interval'] !== undefined ||
+                         settingsPayload['Depolarization_interval'] !== undefined ||
                          settingsPayload.DI1 !== undefined ||
                          settingsPayload.DI2 !== undefined ||
                          settingsPayload.DI3 !== undefined ||
@@ -1860,8 +1862,9 @@ class MQTTService {
         instantMode: settingsPayload['Instant Mode'] !== undefined ? settingsPayload['Instant Mode'] : currentSettings.instantMode || 0,
         instantStartTimestamp: settingsPayload['Instant Start TimeStamp'] !== undefined ? settingsPayload['Instant Start TimeStamp'] : currentSettings.instantStartTimestamp || '',
         instantEndTimestamp: settingsPayload['Instant End TimeStamp'] !== undefined ? settingsPayload['Instant End TimeStamp'] : currentSettings.instantEndTimestamp || '',
-        // Logging configuration
-        loggingInterval: settingsPayload['Logging Interval'] !== undefined ? settingsPayload['Logging Interval'] : currentSettings.loggingInterval || '00:00:10'
+        // Logging and Depolarization configuration
+        loggingInterval: settingsPayload['logging_interval'] !== undefined ? settingsPayload['logging_interval'] : (settingsPayload['Logging Interval'] !== undefined ? settingsPayload['Logging Interval'] : currentSettings.loggingInterval || '00:00:10'),
+        dpolInterval: settingsPayload['Depolarization_interval'] !== undefined ? settingsPayload['Depolarization_interval'] : currentSettings.dpolInterval || '00:00:00'
       };
 
       // Update device configuration in database
@@ -1889,6 +1892,8 @@ class MQTTService {
         "Interrupt OFF Time": settingsPayload['Interrupt OFF Time'] !== undefined ? settingsPayload['Interrupt OFF Time'] : currentSettings.interruptOffTime || 86400,
         "Interrupt Start TimeStamp": settingsPayload['Interrupt Start TimeStamp'] !== undefined ? settingsPayload['Interrupt Start TimeStamp'] : currentSettings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
         "Interrupt Stop TimeStamp": settingsPayload['Interrupt Stop TimeStamp'] !== undefined ? settingsPayload['Interrupt Stop TimeStamp'] : currentSettings.interruptStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+        "Depolarization_interval": settingsPayload['Depolarization_interval'] !== undefined ? settingsPayload['Depolarization_interval'] : currentSettings.dpolInterval || "00:00:00",
+        "logging_interval": settingsPayload['logging_interval'] !== undefined ? settingsPayload['logging_interval'] : currentSettings.loggingInterval || "00:10:00",
         "Depolarization Start TimeStamp": settingsPayload['Depolarization Start TimeStamp'] !== undefined ? settingsPayload['Depolarization Start TimeStamp'] : currentSettings.depolarizationStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
         "Depolarization Stop TimeStamp": settingsPayload['Depolarization Stop TimeStamp'] !== undefined ? settingsPayload['Depolarization Stop TimeStamp'] : currentSettings.depolarizationStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
         "Instant Mode": settingsPayload['Instant Mode'] !== undefined ? settingsPayload['Instant Mode'] : currentSettings.instantMode || 0,
@@ -2020,15 +2025,19 @@ class MQTTService {
   async extractAndStoreDeviceSettings(deviceId, payload) {
     try {
       console.log(`🔍 Extracting device settings for device ${deviceId}`);
+      console.log(`📦 Full payload keys:`, Object.keys(payload));
       
-      // List of the 18 device parameters to look for
+      // List of the 18+ device parameters to look for (including both MQTT format variations)
       const DEVICE_PARAMETERS = [
         'Electrode', 'Event', 'Manual Mode Action', 'Shunt Voltage', 'Shunt Current',
         'Reference Fail', 'Reference UP', 'Reference OV', 'Interrupt ON Time', 'Interrupt OFF Time',
         'Interrupt Start TimeStamp', 'Interrupt Stop TimeStamp', 'DPOL Interval',
+        'Depolarization_interval', 'logging_interval',  // Device sends these with underscores
         'Depolarization Start TimeStamp', 'Depolarization Stop TimeStamp', 'Instant Mode',
         'Instant Start TimeStamp', 'Instant End TimeStamp'
       ];
+      
+      console.log(`🔎 Looking for these parameters:`, DEVICE_PARAMETERS);
       
       // Extract device parameters from payload (preserve original values)
       const deviceSettings = {};
@@ -2044,19 +2053,22 @@ class MQTTService {
       
       if (foundParameters > 0) {
         console.log(`✅ Found ${foundParameters} device parameters, storing in database`);
+        console.log(`📋 Extracted settings object:`, JSON.stringify(deviceSettings, null, 2));
         
         // Store settings using device management service (preserving original timestamps)
         if (this.deviceManagementService) {
           // Map to internal field names for database storage
           const mappedSettings = this.deviceManagementService.mapParametersToInternalFields(deviceSettings);
+          console.log(`🗺️ Mapped settings for database:`, JSON.stringify(mappedSettings, null, 2));
           await this.deviceManagementService.storeDeviceSettings(deviceId, mappedSettings, 'mqtt_incoming');
           console.log(`💾 Device settings stored in database for device ${deviceId}`);
           
-          // Store BOTH formats in memory - mapped for backend use, original for MQTT
+          // Store BOTH formats in memory - original parameter names for reference
           const currentMemorySettings = this.deviceSettings.get(deviceId) || {};
           const updatedMemorySettings = { ...currentMemorySettings, ...deviceSettings };
           this.deviceSettings.set(deviceId, updatedMemorySettings);
           console.log(`💾 Device settings stored in memory for device ${deviceId}`);
+          console.log(`📝 Memory cache now contains:`, JSON.stringify(updatedMemorySettings, null, 2));
           
           // Emit real-time update to frontend with original parameter names
           if (this.socketIO) {

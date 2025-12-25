@@ -555,19 +555,19 @@ class DeviceConfigController {
 
       // Validate input ranges for UP and OP
       if (setup && setup.value !== undefined && setup.value !== null) {
-        if (setup.value < -4.00 || setup.value > 4.00) {
+        if (setup.value < -4.0 || setup.value > 4.0) {
           return res.status(400).json({
             success: false,
-            message: 'SET UP value must be between -4.00 and 4.00V'
+            message: 'SET UP value must be between -4.0 and 4.0V'
           });
         }
       }
 
       if (setop && setop.value !== undefined && setop.value !== null) {
-        if (setop.value < -4.00 || setop.value > 4.00) {
+        if (setop.value < -4.0 || setop.value > 4.0) {
           return res.status(400).json({
             success: false,
-            message: 'SET OP value must be between -4.00 and 4.00V'
+            message: 'SET OP value must be between -4.0 and 4.0V'
           });
         }
       }
@@ -621,7 +621,7 @@ class DeviceConfigController {
       if (setUP < -4.00 || setUP > 4.00) {
         return res.status(400).json({
           success: false,
-          message: 'Set UP voltage must be between -4.00V and +4.00V'
+          message: 'Set UP voltage must be between -4.0V and +4.0V'
         });
       }
 
@@ -665,7 +665,7 @@ class DeviceConfigController {
       if (setOP < -4.00 || setOP > 4.00) {
         return res.status(400).json({
           success: false,
-          message: 'Set OP voltage must be between -4.00V and +4.00V'
+          message: 'Set OP voltage must be between -4.0V and +4.0V'
         });
       }
 
@@ -709,7 +709,7 @@ class DeviceConfigController {
       if (refFail < -4.00 || refFail > 4.00) {
         return res.status(400).json({
           success: false,
-          message: 'Ref Fail voltage must be between -4.00V and +4.00V'
+          message: 'Ref Fail voltage must be between -4.0V and +4.0V'
         });
       }
 
@@ -749,18 +749,19 @@ class DeviceConfigController {
 
       console.log(`🔧 Configuring Shunt Voltage for device ${deviceId}:`, shuntVoltage);
 
-      // Parse and validate voltage range (0.00 to 99.99)
+      // Parse voltage value
       const voltage = parseFloat(shuntVoltage);
-      if (voltage < 0.00 || voltage > 99.99) {
+      
+      // Validate voltage value - for dropdown it will be 25, 50, 75, or 100
+      if (isNaN(voltage) || voltage < 0 || voltage > 100) {
         return res.status(400).json({
           success: false,
-          message: 'Shunt voltage must be between 0.00 and 99.99'
+          message: 'Shunt voltage must be a valid number (25, 50, 75, or 100)'
         });
       }
 
-      // Format to preserve leading zeros (e.g., 00.97 stays as "00.97")
-      const formattedVoltage = voltage.toFixed(2).padStart(5, '0');
-      const config = { shuntVoltage: formattedVoltage };
+      // Store the value as-is (no formatting for dropdown values)
+      const config = { shuntVoltage: voltage.toString() };
 
       // Send command with acknowledgment tracking
       const result = await mqttService.setShuntVoltage(deviceId, config);

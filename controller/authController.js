@@ -1,6 +1,7 @@
 const User = require('../models/user');
 const jwt = require('jsonwebtoken');
 const Joi = require('joi');
+const UserLifecycleMonitor = require('../middleware/userLifecycleMonitor');
 
 // Rate limiting for failed login attempts
 const loginAttempts = new Map();
@@ -82,6 +83,9 @@ class AuthController {
       // Create new user
       const user = new User({ username, email, password, role });
       await user.save();
+
+      // Log user creation for lifecycle monitoring
+      UserLifecycleMonitor.logUserCreation(user);
 
       // Generate tokens
       const { accessToken, refreshToken } = user.generateTokens();
@@ -196,6 +200,9 @@ class AuthController {
 
       // Clear login attempts on successful login
       clearLoginAttempts(identifier);
+      
+      // Log successful login for lifecycle monitoring
+      UserLifecycleMonitor.logUserLogin(user._id, user.email);
       
       // Reset user's failed login attempts
       if (user.failedLoginAttempts > 0) {

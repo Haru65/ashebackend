@@ -41,7 +41,7 @@ const userSchema = new mongoose.Schema({
   },
   refreshTokens: [{
     token: String,
-    createdAt: { type: Date, default: Date.now, expires: '7d' }
+    createdAt: { type: Date, default: Date.now }
   }],
   failedLoginAttempts: {
     type: Number,
@@ -60,6 +60,10 @@ const userSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+// Remove any TTL index on this collection to prevent auto-deletion
+userSchema.index({ createdAt: 1 }, { sparse: true }); // Regular index, not TTL
+userSchema.index({ email: 1 }, { unique: true });
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {

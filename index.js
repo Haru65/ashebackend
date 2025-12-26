@@ -11,6 +11,7 @@ const { initializeSocket } = require('./config/socket');
 const mqttService = require('./services/mqttService');
 const socketService = require('./services/socketService');
 const { initializeServices, shutdownServices } = require('./initIoTServices');
+const UserLifecycleMonitor = require('./middleware/userLifecycleMonitor');
 
 // Import routes
 const routes = require('./routes');
@@ -61,6 +62,14 @@ const startStatusReporting = () => {
   }, 30000); // Report every 30 seconds
 };
 
+// Start user lifecycle monitoring
+const startUserMonitoring = () => {
+  // Log user count and check for unexpected deletions every hour
+  if (process.env.ENABLE_USER_LIFECYCLE_LOGS !== 'false') {
+    UserLifecycleMonitor.startPeriodicMonitoring(60); // Check every 60 minutes
+  }
+};
+
 // Start the server
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
@@ -79,6 +88,9 @@ server.listen(PORT, () => {
   
   // Start periodic status reporting
   startStatusReporting();
+  
+  // Start user lifecycle monitoring
+  startUserMonitoring();
 });
 
 // Graceful shutdown

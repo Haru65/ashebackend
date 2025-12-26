@@ -1,3 +1,33 @@
+// Helper function to convert DMS format coordinates to decimal
+function convertDMSToDecimal(dmsString) {
+  if (!dmsString) return null;
+  
+  try {
+    const dmsStr = String(dmsString).trim();
+    
+    // Pattern: 19°03'N or 072°52'E
+    const pattern = /(\d+)°(\d+)'([NSEW])/i;
+    const match = dmsStr.match(pattern);
+    
+    if (!match) return null;
+    
+    const degrees = parseInt(match[1]);
+    const minutes = parseInt(match[2]);
+    const direction = match[3].toUpperCase();
+    
+    let decimal = degrees + (minutes / 60);
+    
+    // Apply direction (S and W are negative)
+    if (direction === 'S' || direction === 'W') {
+      decimal = -decimal;
+    }
+    
+    return parseFloat(decimal.toFixed(4));
+  } catch (error) {
+    return null;
+  }
+}
+
 // Event/Mode mapping helper
 function mapEventCode(eventCode) {
   const eventMappings = {
@@ -304,10 +334,37 @@ function transformDeviceData(payload, topic) {
     name: payload.API ?? `Device-${deviceId}`,
     icon: 'bi-device',
     type: 'IoT Sensor',
-    location: (params.LATITUDE && params.LONGITUDE && 
-               params.LATITUDE !== '' && params.LONGITUDE !== '' &&
-               params.LATITUDE !== '00°00\'' && params.LONGITUDE !== '000°00\'')
-      ? `${params.LATITUDE}, ${params.LONGITUDE}` : "Mumbai, India",
+    location: (() => {
+      if (!params.LATITUDE || !params.LONGITUDE || 
+          params.LATITUDE === '' || params.LONGITUDE === '' ||
+          params.LATITUDE === '00°00\'' || params.LONGITUDE === '000°00\'') {
+        return "Mumbai, India";
+      }
+      
+      // Convert DMS format to decimal if needed
+      let lat = params.LATITUDE;
+      let lon = params.LONGITUDE;
+      
+      // Check if coordinates are in degree format (contain °)
+      if (typeof lat === 'string' && lat.includes('°')) {
+        lat = convertDMSToDecimal(lat);
+      } else {
+        lat = parseFloat(lat);
+      }
+      
+      if (typeof lon === 'string' && lon.includes('°')) {
+        lon = convertDMSToDecimal(lon);
+      } else {
+        lon = parseFloat(lon);
+      }
+      
+      // Return decimal format if both are valid
+      if (!isNaN(lat) && !isNaN(lon)) {
+        return `${lat}, ${lon}`;
+      }
+      
+      return "Mumbai, India";
+    })(),
     status: params.EVENT ?? "NORMAL",
     lastSeen: params.TimeStamp ?? new Date().toISOString(),
     timestamp: Date.now(),

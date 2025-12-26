@@ -6,6 +6,35 @@ const { v4: uuidv4 } = require('uuid');
 const Device = require('../models/Device');
 const alarmMonitoringService = require('./alarmMonitoringService');
 
+// Helper function to convert degree format coordinates to decimal
+// Format: "19°03'N" or "072°52'E" -> 19.05 or -72.87
+function convertDegreesToDecimal(degreeStr) {
+  try {
+    if (!degreeStr || typeof degreeStr !== 'string') return null;
+    
+    // Match pattern: degrees°minutes'[seconds"]direction
+    const match = degreeStr.match(/(\d+)°(\d+)['′](\d+)?["″]?([NSEW])/i);
+    if (!match) return null;
+    
+    const degrees = parseInt(match[1]);
+    const minutes = parseInt(match[2]);
+    const seconds = match[3] ? parseInt(match[3]) : 0;
+    const direction = match[4].toUpperCase();
+    
+    // Convert to decimal: degrees + minutes/60 + seconds/3600
+    let decimal = degrees + (minutes / 60) + (seconds / 3600);
+    
+    // Apply direction (S and W are negative)
+    if (direction === 'S' || direction === 'W') {
+      decimal = -decimal;
+    }
+    
+    return decimal;
+  } catch (e) {
+    return null;
+  }
+}
+
 class MQTTService {
   constructor() {
     this.client = null;

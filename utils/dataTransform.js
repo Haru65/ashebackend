@@ -8,8 +8,43 @@ function mapEventCode(eventCode) {
     4: 'Instant'
   };
   
+  const stringMappings = {
+    'NORMAL': 'Normal',
+    'Normal': 'Normal',
+    'INTERRUPT': 'Interrupt',
+    'Interrupt': 'Interrupt',
+    'INT': 'Interrupt',
+    'INT ON': 'Interrupt',
+    'INT OFF': 'Interrupt',
+    'MANUAL': 'Manual',
+    'Manual': 'Manual',
+    'DPOL': 'DEPOL',
+    'DEPOL': 'DEPOL',
+    'INSTANT': 'Instant',
+    'Instant': 'Instant',
+    'INST': 'Instant'
+  };
+  
+  // Try numeric code first
   const numericCode = parseInt(eventCode);
-  return eventMappings[numericCode] || `Unknown (${eventCode})`;
+  if (!isNaN(numericCode) && eventMappings[numericCode]) {
+    return eventMappings[numericCode];
+  }
+  
+  // Try string mapping
+  const stringCode = String(eventCode).trim();
+  if (stringMappings[stringCode]) {
+    return stringMappings[stringCode];
+  }
+  
+  // Fallback: return just the first word if it's a compound string
+  const firstWord = stringCode.split(/[\s(]/)[0];
+  if (stringMappings[firstWord]) {
+    return stringMappings[firstWord];
+  }
+  
+  // Last resort: return the code as-is without "Unknown" wrapper
+  return stringCode || 'Unknown';
 }
 
 // Digital Input/Output mapping helper
@@ -88,7 +123,7 @@ function transformDeviceData(payload, topic) {
     const eventText = mapEventCode(params.EVENT);
     metrics.push({
       type: 'EVENT',
-      value: `${eventText} (${params.EVENT})`,
+      value: eventText,
       rawValue: params.EVENT,
       displayValue: eventText,
       icon: 'bi-exclamation-circle'
@@ -269,7 +304,9 @@ function transformDeviceData(payload, topic) {
     name: payload.API ?? `Device-${deviceId}`,
     icon: 'bi-device',
     type: 'IoT Sensor',
-    location: params.LATITUDE && params.LONGITUDE && (params.LATITUDE !== '00°00\'' && params.LONGITUDE !== '000°00\'')
+    location: (params.LATITUDE && params.LONGITUDE && 
+               params.LATITUDE !== '' && params.LONGITUDE !== '' &&
+               params.LATITUDE !== '00°00\'' && params.LONGITUDE !== '000°00\'')
       ? `${params.LATITUDE}, ${params.LONGITUDE}` : "Mumbai, India",
     status: params.EVENT ?? "NORMAL",
     lastSeen: params.TimeStamp ?? new Date().toISOString(),

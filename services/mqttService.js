@@ -1957,6 +1957,39 @@ class MQTTService {
     }
   }
 
+  // Helper function to convert DMS (Degrees Minutes Seconds) to decimal format
+  // Input: "19°03'N" or "072°52'E"
+  // Output: "19.05" or "72.87"
+  convertDMSToDecimal(dmsString) {
+    if (!dmsString) return null;
+    
+    try {
+      const dmsStr = String(dmsString).trim();
+      
+      // Pattern: 19°03'N or 072°52'E
+      const pattern = /(\d+)°(\d+)'([NSEW])/i;
+      const match = dmsStr.match(pattern);
+      
+      if (!match) return null;
+      
+      const degrees = parseInt(match[1]);
+      const minutes = parseInt(match[2]);
+      const direction = match[3].toUpperCase();
+      
+      let decimal = degrees + (minutes / 60);
+      
+      // Apply direction (S and W are negative)
+      if (direction === 'S' || direction === 'W') {
+        decimal = -decimal;
+      }
+      
+      return parseFloat(decimal.toFixed(4));
+    } catch (error) {
+      console.warn(`⚠️ Could not parse DMS coordinate: ${dmsString}`);
+      return null;
+    }
+  }
+
   async saveTelemetryData(deviceId, payload) {
     try {
       const Telemetry = require('../models/telemetry');
@@ -1982,7 +2015,7 @@ class MQTTService {
 
       // Ensure critical REF values are properly captured
       ['REF/OP', 'REF/UP', 'REF FAIL', 'REF_OP', 'REF_UP', 'REF_FAIL', 
-       'DI1', 'DI2', 'DI3', 'DI4', 'REF1', 'REF2', 'REF3'].forEach(field => {
+       'DI1', 'DI2', 'DI3', 'DI4', 'REF1', 'REF2', 'REF3', 'LATITUDE', 'LONGITUDE'].forEach(field => {
         if (payload[field] !== undefined) {
           dataFields[field] = payload[field];
         }
@@ -1991,17 +2024,42 @@ class MQTTService {
         }
       });
 
+      // Format location field if latitude and longitude are present
+      let location = null;
+      if (dataFields.LATITUDE && dataFields.LONGITUDE && 
+          dataFields.LATITUDE !== '' && dataFields.LONGITUDE !== '') {
+        
+        // Convert DMS format to decimal if needed
+        const lat = typeof dataFields.LATITUDE === 'string' && dataFields.LATITUDE.includes('°') 
+          ? this.convertDMSToDecimal(dataFields.LATITUDE)
+          : parseFloat(dataFields.LATITUDE);
+        
+        const lon = typeof dataFields.LONGITUDE === 'string' && dataFields.LONGITUDE.includes('°')
+          ? this.convertDMSToDecimal(dataFields.LONGITUDE)
+          : parseFloat(dataFields.LONGITUDE);
+        
+        // Only set location if both are valid decimal numbers
+        if (!isNaN(lat) && !isNaN(lon)) {
+          location = `${lat}, ${lon}`;
+          console.log(`📍 Converted coordinates - Original: ${dataFields.LATITUDE}, ${dataFields.LONGITUDE} → Decimal: ${location}`);
+        }
+      }
+
       // Create telemetry record
       const telemetryRecord = new Telemetry({
         deviceId: deviceId,
         timestamp: new Date(),
         event: payload.EVENT || payload.Event || 'NORMAL',
-        data: dataFields
+        data: dataFields,
+        location: location  // Add location field for easy access in frontend
       });
 
       await telemetryRecord.save();
       console.log(`✅ Saved telemetry data for device ${deviceId} with ${Object.keys(dataFields).length} data fields`);
       console.log('📊 Saved fields:', Object.keys(dataFields).join(', '));
+      if (location) {
+        console.log(`📍 Saved location: ${location}`);
+      }
       
       // Check alarms for this device data
       const event = payload.EVENT || payload.Event || 'NORMAL';

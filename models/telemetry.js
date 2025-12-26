@@ -17,6 +17,10 @@ const telemetrySchema = new mongoose.Schema({
     type: String,
     default: "NORMAL"
   },
+  location: {
+    type: String,
+    default: null  // Format: "latitude, longitude"
+  },
 
   // 🔹 Flexible fields (payload can vary per device/model)
   data: {

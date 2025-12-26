@@ -35,6 +35,44 @@ function convertDegreesToDecimal(degreeStr) {
   }
 }
 
+// Helper function to parse location string and extract latitude/longitude
+// Supports formats: "12.34, 56.78" or "19°03'N, 072°52'E"
+function parseLocationString(locationStr) {
+  try {
+    if (!locationStr || typeof locationStr !== 'string') return null;
+    
+    let lat = null;
+    let lon = null;
+    
+    // Check if location is in decimal format (e.g., "12.34, 56.78")
+    if (/^-?\d+\.?\d*,\s*-?\d+\.?\d*$/.test(locationStr.trim())) {
+      const parts = locationStr.split(',').map(s => parseFloat(s.trim()));
+      if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        lat = parts[0];
+        lon = parts[1];
+      }
+    }
+    // Check if location is in degree format (e.g., "19°03'N, 072°52'E")
+    else if (/^\d+°\d+['′][NSEW],\s*\d+°\d+['′][NSEW]/i.test(locationStr.trim())) {
+      const parts = locationStr.split(',').map(s => s.trim());
+      if (parts.length === 2) {
+        lat = convertDegreesToDecimal(parts[0]);
+        lon = convertDegreesToDecimal(parts[1]);
+      }
+    }
+    
+    // Return null if coordinates are 0,0 or invalid
+    if (lat !== null && lon !== null && (lat !== 0 || lon !== 0)) {
+      return { latitude: lat, longitude: lon };
+    }
+    
+    return null;
+  } catch (e) {
+    console.warn('Error parsing location string:', e.message);
+    return null;
+  }
+}
+
 class MQTTService {
   constructor() {
     this.client = null;
@@ -157,7 +195,7 @@ class MQTTService {
           await this.extractAndStoreDeviceSettings(deviceId, payload);
           
           // DEVICE LOCATION MAPPING: Emit active device locations for map display
-          this.emitActiveDeviceLocations(deviceId, payload);
+          await this.emitActiveDeviceLocations(deviceId, payload);
           
           // Update device status in MongoDB
           await this.updateDeviceStatus(deviceId, payload); // ✅ RE-ENABLED - Keep MongoDB in sync with current status
@@ -2472,20 +2510,75 @@ class MQTTService {
     }
   }
 
-  // Function to emit active device locations for map display
-  emitActiveDeviceLocations(deviceId, payload) {
+  // Function to reverse geocode coordinates to location name
+  async reverseGeocodeLocation(lat, lon) {
     try {
-      // Check if device has valid latitude and longitude data
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`,
+        {
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'ASHECONTROL-Device-Service'
+          },
+        }
+      );
+      if (!response.ok) throw new Error('Network response was not ok');
+      const data = await response.json();
+      
+      // Extract location parts
+      if (data && data.address) {
+        const parts = [];
+        if (data.address.city) parts.push(data.address.city);
+        if (data.address.town) parts.push(data.address.town);
+        if (data.address.village) parts.push(data.address.village);
+        if (data.address.state) parts.push(data.address.state);
+        if (data.address.country) parts.push(data.address.country);
+        
+        // Return first meaningful location
+        if (parts.length > 0) {
+          return Array.from(new Set(parts)).join(', ');
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.warn(`⚠️ Reverse geocoding failed for ${lat}, ${lon}:`, error.message);
+      return null;
+    }
+  }
+
+  // Function to emit active device locations for map display
+  async emitActiveDeviceLocations(deviceId, payload) {
+    try {
+      let latitude = null;
+      let longitude = null;
+      let deviceName = payload.API || `Device ${deviceId}`;
+      let locationName = null;
+      
+      // Get latitude/longitude from MQTT payload
       if (payload.LATITUDE && payload.LONGITUDE && 
           (payload.LATITUDE !== 0 || payload.LONGITUDE !== 0) &&
           typeof payload.LATITUDE === 'number' && 
           typeof payload.LONGITUDE === 'number') {
+        latitude = payload.LATITUDE;
+        longitude = payload.LONGITUDE;
         
+        // Perform reverse geocoding to get location name
+        locationName = await this.reverseGeocodeLocation(latitude, longitude);
+        console.log(`📍 Device ${deviceId} coordinates: ${latitude}, ${longitude} → ${locationName || 'Unknown'}`);
+      } else {
+        console.log(`⚠️ Device ${deviceId} has invalid or missing LATITUDE/LONGITUDE in payload`);
+        return;
+      }
+      
+      // Only emit if we have valid coordinates
+      if (latitude !== null && longitude !== null) {
         const deviceLocationData = {
           deviceId: deviceId,
-          name: payload.API || `Device ${deviceId}`,
-          latitude: payload.LATITUDE,
-          longitude: payload.LONGITUDE,
+          name: deviceName,
+          latitude: latitude,
+          longitude: longitude,
+          location: locationName,
           timestamp: payload.TimeStamp || new Date().toISOString(),
           isActive: true,
           lastSeen: Date.now()
@@ -2495,10 +2588,11 @@ class MQTTService {
         this.deviceLocations.set(deviceId, {
           name: deviceLocationData.name,
           latitude: deviceLocationData.latitude,
-          longitude: deviceLocationData.longitude
+          longitude: deviceLocationData.longitude,
+          location: locationName
         });
         
-        console.log(`📍 Device ${deviceId} location update:`, deviceLocationData);
+        console.log(`📍 Device ${deviceId} location data:`, deviceLocationData);
         
         // Emit to frontend for real-time map updates
         if (this.socketIO) {
@@ -2508,9 +2602,6 @@ class MQTTService {
         
         // Emit consolidated active devices locations periodically (every 10 seconds)
         this.emitActiveDevicesLocationsSummary();
-        
-      } else {
-        console.log(`⚠️ Device ${deviceId} has invalid or missing location data`);
       }
     } catch (error) {
       console.error(`❌ Error processing device location for device ${deviceId}:`, error.message);

@@ -230,21 +230,16 @@ class MQTTService {
 
     this.client.on('close', () => {
       const connectionDuration = Date.now() - lastConnectionTime;
-      // Only log if connection was stable for less than 30 seconds (indicates instability)
-      if (reconnectAttempts < MAX_RECONNECT_LOGS && connectionDuration < 30000) {
-        console.log(`⚠️ MQTT broker connection closed after ${(connectionDuration/1000).toFixed(1)}s, will auto-reconnect...`);
-      }
+      // Log all closure events to understand pattern
+      console.log(`⚠️ MQTT broker connection closed after ${(connectionDuration/1000).toFixed(1)}s (reconnect attempt: ${reconnectAttempts})`);
+      // This is normal behavior - mqtt.js will auto-reconnect based on reconnectPeriod
     });
 
     this.client.on('error', err => {
-      // Only log meaningful errors
-      if (reconnectAttempts < MAX_RECONNECT_LOGS) {
-        const errorMsg = err.message || err.toString();
-        // Skip logging common reconnection errors
-        if (!errorMsg.includes('ECONNREFUSED') && !errorMsg.includes('ENOTFOUND')) {
-          console.error('❌ MQTT client error:', errorMsg);
-        }
-      }
+      // Log all errors to understand what's happening
+      const errorMsg = err.message || err.toString();
+      console.error('❌ MQTT client error:', errorMsg);
+      if (err.code) console.error('   Error code:', err.code);
     });
 
     this.client.on('offline', () => {
@@ -932,9 +927,22 @@ class MQTTService {
     
     // Get current settings and update electrode field
     const currentSettings = await this.ensureDeviceSettings(deviceId);
+    
+    // Determine Reference Fail default value based on electrode type
+    let refFailValue = 0.30;  // Default for Cu/CuSO4 (0) and Ag/AgCl (2)
+    if (electrodeType === 1) {  // Zinc
+      refFailValue = -0.80;
+      console.log('⚡ Zinc electrode detected - auto-setting Reference Fail to -0.80V');
+    } else if (electrodeType === 2) {  // Ag/AgCl
+      refFailValue = 0.30;
+    } else {  // Cu/CuSO4 (0)
+      refFailValue = 0.30;
+    }
+    
     const updatedSettings = {
       ...currentSettings,
-      "Electrode": electrodeType
+      "Electrode": electrodeType,
+      "Reference Fail": refFailValue
     };
     
     // Store updated settings in memory
@@ -943,9 +951,12 @@ class MQTTService {
     // Save to database immediately to persist the change
     if (this.deviceManagementService) {
       try {
-        const mappedSettings = this.deviceManagementService.mapParametersToInternalFields({ "Electrode": electrodeType });
+        const mappedSettings = this.deviceManagementService.mapParametersToInternalFields({ 
+          "Electrode": electrodeType,
+          "Reference Fail": refFailValue.toString()
+        });
         await this.deviceManagementService.storeDeviceSettings(deviceId, mappedSettings, 'user_config');
-        console.log('💾 Electrode configuration saved to database immediately');
+        console.log('💾 Electrode configuration and Reference Fail saved to database immediately');
       } catch (e) {
         console.warn('⚠️ Database save failed (non-critical):', e.message);
       }
@@ -953,7 +964,7 @@ class MQTTService {
 
     // Create commandId and track then send complete payload
     const commandId = uuidv4();
-    const changedElectrode = { "Electrode": electrodeType };
+    const changedElectrode = { "Electrode": electrodeType, "Reference Fail": refFailValue };
     if (this.deviceManagementService) {
       try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedElectrode); } catch (e) { /* ignore */ }
     }

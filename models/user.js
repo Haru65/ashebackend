@@ -94,7 +94,7 @@ userSchema.methods.generateTokens = function() {
   };
 
   const accessToken = jwt.sign(payload, process.env.JWT_SECRET || 'your-secret-key', {
-    expiresIn: '15m'
+    expiresIn: '24h'
   });
 
   const refreshToken = jwt.sign(

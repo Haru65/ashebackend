@@ -7,12 +7,18 @@ const { Schema } = mongoose;
  */
 
 const DeviceParamsSchema = new Schema({
-  ref_1: { type: Number, default: 0 },
-  ref_2: { type: Number, default: 0 },
-  ref_3: { type: Number, default: 0 },
-  dcv: { type: Number, default: 0 },
-  dci: { type: Number, default: 0 },
-  acv: { type: Number, default: 0 }
+  ref_1_upper: { type: Number, default: 0 },
+  ref_1_lower: { type: Number, default: 0 },
+  ref_2_upper: { type: Number, default: 0 },
+  ref_2_lower: { type: Number, default: 0 },
+  ref_3_upper: { type: Number, default: 0 },
+  ref_3_lower: { type: Number, default: 0 },
+  dcv_upper: { type: Number, default: 0 },
+  dcv_lower: { type: Number, default: 0 },
+  dci_upper: { type: Number, default: 0 },
+  dci_lower: { type: Number, default: 0 },
+  acv_upper: { type: Number, default: 0 },
+  acv_lower: { type: Number, default: 0 }
 }, { _id: false });
 
 const NotificationConfigSchema = new Schema({

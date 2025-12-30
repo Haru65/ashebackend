@@ -146,6 +146,15 @@ class DeviceManagementService {
       
       console.log(`📖 Loading device settings from database for device ${deviceId}:`, settings);
       
+      // Helper function to ensure numeric values are properly formatted
+      const parseNumericSetting = (value, defaultValue) => {
+        if (value !== undefined && value !== null) {
+          const numValue = parseFloat(value);
+          return isNaN(numValue) ? defaultValue : numValue;
+        }
+        return defaultValue;
+      };
+      
       return {
         "Device ID": deviceId,
         "Message Type": "settings",
@@ -156,12 +165,12 @@ class DeviceManagementService {
           "Manual Mode Action": settings.manualModeAction !== undefined ? settings.manualModeAction : 0,
           "Shunt Voltage": settings.shuntVoltage !== undefined ? settings.shuntVoltage : 25.00,
           "Shunt Current": settings.shuntCurrent !== undefined ? settings.shuntCurrent : 99.00,
-          "Reference Fail": (settings.referenceFail !== undefined && settings.referenceFail !== null) ? settings.referenceFail : 0.90,
-          "Reference UP": (settings.referenceUP !== undefined && settings.referenceUP !== null) ? settings.referenceUP : 0.90,
-          "Reference OP": (settings.referenceOP !== undefined && settings.referenceOP !== null) ? settings.referenceOP : (settings.referenceOV !== undefined && settings.referenceOV !== null ? settings.referenceOV : 0.70),
-          "Set Fail": (settings.referenceFail !== undefined && settings.referenceFail !== null) ? settings.referenceFail : 0.90,
-          "Set UP": (settings.referenceUP !== undefined && settings.referenceUP !== null) ? settings.referenceUP : 0.90,
-          "Set OP": (settings.referenceOP !== undefined && settings.referenceOP !== null) ? settings.referenceOP : (settings.referenceOV !== undefined && settings.referenceOV !== null ? settings.referenceOV : 0.70),
+          "Reference Fail": parseNumericSetting(settings.referenceFail, 0.90),
+          "Reference UP": parseNumericSetting(settings.referenceUP, 0.90),
+          "Reference OP": parseNumericSetting(settings.referenceOP, parseNumericSetting(settings.referenceOV, 0.70)),
+          "Set Fail": parseNumericSetting(settings.referenceFail, 0.90),
+          "Set UP": parseNumericSetting(settings.referenceUP, 0.90),
+          "Set OP": parseNumericSetting(settings.referenceOP, parseNumericSetting(settings.referenceOV, 0.70)),
           "Interrupt ON Time": settings.interruptOnTime !== undefined ? settings.interruptOnTime : 86400,
           "Interrupt OFF Time": settings.interruptOffTime !== undefined ? settings.interruptOffTime : 86400,
           "Interrupt Start TimeStamp": settings.interruptStartTimeStamp || settings.interruptStartTimestamp || "2025-02-20 19:04:00",

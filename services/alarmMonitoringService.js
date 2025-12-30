@@ -67,8 +67,8 @@ class AlarmMonitoringService {
       }
 
       // Check 2: Check device parameters against alarm thresholds (INDEPENDENT)
-      // Each parameter has its own user-set threshold
-      // Incoming value > threshold = TRIGGER
+      // Each parameter has its own user-set threshold with upper and lower bounds
+      // Alarm triggers if value exceeds upper bound or falls below lower bound
       if (!shouldTrigger && alarm.device_params) {
         // Handle nested Parameters structure from MQTT payload
         const params = deviceData.Parameters || deviceData;
@@ -78,43 +78,70 @@ class AlarmMonitoringService {
         const ref1 = parseFloat(params.REF1 || params.ref1 || params.DCV || params.dcv || 0);
         const ref2 = parseFloat(params.REF2 || params.ref2 || params.DCI || params.dci || 0);
         const ref3 = parseFloat(params.REF3 || params.ref3 || params.ACV || params.acv || 0);
+        const dcv = parseFloat(params.DCV || params.dcv || 0);
+        const dci = parseFloat(params.DCI || params.dci || 0);
+        const acv = parseFloat(params.ACV || params.acv || 0);
 
-        // Get user-set thresholds from alarm (stored as dcv, dci, acv but apply to ref1, ref2, ref3)
-        const ref1_threshold = alarm.device_params.dcv;  // Use dcv threshold for REF1
-        const ref2_threshold = alarm.device_params.dci;  // Use dci threshold for REF2
-        const ref3_threshold = alarm.device_params.acv;  // Use acv threshold for REF3
+        // Get user-set thresholds from alarm with upper and lower bounds
+        const ref1_upper = alarm.device_params.ref_1_upper || 0;
+        const ref1_lower = alarm.device_params.ref_1_lower || 0;
+        const ref2_upper = alarm.device_params.ref_2_upper || 0;
+        const ref2_lower = alarm.device_params.ref_2_lower || 0;
+        const ref3_upper = alarm.device_params.ref_3_upper || 0;
+        const ref3_lower = alarm.device_params.ref_3_lower || 0;
+        const dcv_upper = alarm.device_params.dcv_upper || 0;
+        const dcv_lower = alarm.device_params.dcv_lower || 0;
+        const dci_upper = alarm.device_params.dci_upper || 0;
+        const dci_lower = alarm.device_params.dci_lower || 0;
+        const acv_upper = alarm.device_params.acv_upper || 0;
+        const acv_lower = alarm.device_params.acv_lower || 0;
 
-        console.log(`[Alarm Monitor] 📊 Checking alarm '${alarm.name}' independent thresholds:`, {
-          'Incoming REF1': ref1,
-          'REF1 Threshold': ref1_threshold,
-          'Trigger REF1?': `${ref1} > ${ref1_threshold} = ${ref1_threshold !== 0 && ref1 > ref1_threshold}`,
-          'Incoming REF2': ref2,
-          'REF2 Threshold': ref2_threshold,
-          'Trigger REF2?': `${ref2} > ${ref2_threshold} = ${ref2_threshold !== 0 && ref2 > ref2_threshold}`,
-          'Incoming REF3': ref3,
-          'REF3 Threshold': ref3_threshold,
-          'Trigger REF3?': `${ref3} > ${ref3_threshold} = ${ref3_threshold !== 0 && ref3 > ref3_threshold}`
+        console.log(`[Alarm Monitor] 📊 Checking alarm '${alarm.name}' with upper/lower bounds:`, {
+          'REF1': { value: ref1, upper: ref1_upper, lower: ref1_lower },
+          'REF2': { value: ref2, upper: ref2_upper, lower: ref2_lower },
+          'REF3': { value: ref3, upper: ref3_upper, lower: ref3_lower },
+          'DCV': { value: dcv, upper: dcv_upper, lower: dcv_lower },
+          'DCI': { value: dci, upper: dci_upper, lower: dci_lower },
+          'ACV': { value: acv, upper: acv_upper, lower: acv_lower }
         });
 
-        // INDEPENDENT CHECK 1: REF1 threshold
-        // Trigger if: threshold is set (not 0) AND incoming REF1 > threshold
-        if (ref1_threshold && ref1_threshold > 0 && ref1 > ref1_threshold) {
+        // INDEPENDENT CHECK 1: REF1 bounds
+        // Trigger if: value > upper bound OR value < lower bound
+        if ((ref1_upper && ref1 > ref1_upper) || (ref1_lower && ref1 < ref1_lower)) {
           shouldTrigger = true;
-          triggerReason = `REF1 (${ref1}) exceeded threshold (${ref1_threshold})`;
+          triggerReason = `REF1 (${ref1}) out of bounds [${ref1_lower}, ${ref1_upper}]`;
         }
 
-        // INDEPENDENT CHECK 2: REF2 threshold
-        // Trigger if: threshold is set (not 0) AND incoming REF2 > threshold
-        if (!shouldTrigger && ref2_threshold && ref2_threshold > 0 && ref2 > ref2_threshold) {
+        // INDEPENDENT CHECK 2: REF2 bounds
+        // Trigger if: value > upper bound OR value < lower bound
+        if (!shouldTrigger && ((ref2_upper && ref2 > ref2_upper) || (ref2_lower && ref2 < ref2_lower))) {
           shouldTrigger = true;
-          triggerReason = `REF2 (${ref2}) exceeded threshold (${ref2_threshold})`;
+          triggerReason = `REF2 (${ref2}) out of bounds [${ref2_lower}, ${ref2_upper}]`;
         }
 
-        // INDEPENDENT CHECK 3: REF3 threshold
-        // Trigger if: threshold is set (not 0) AND incoming REF3 > threshold
-        if (!shouldTrigger && ref3_threshold && ref3_threshold > 0 && ref3 > ref3_threshold) {
+        // INDEPENDENT CHECK 3: REF3 bounds
+        // Trigger if: value > upper bound OR value < lower bound
+        if (!shouldTrigger && ((ref3_upper && ref3 > ref3_upper) || (ref3_lower && ref3 < ref3_lower))) {
           shouldTrigger = true;
-          triggerReason = `REF3 (${ref3}) exceeded threshold (${ref3_threshold})`;
+          triggerReason = `REF3 (${ref3}) out of bounds [${ref3_lower}, ${ref3_upper}]`;
+        }
+
+        // INDEPENDENT CHECK 4: DCV bounds
+        if (!shouldTrigger && ((dcv_upper && dcv > dcv_upper) || (dcv_lower && dcv < dcv_lower))) {
+          shouldTrigger = true;
+          triggerReason = `DCV (${dcv}) out of bounds [${dcv_lower}, ${dcv_upper}]`;
+        }
+
+        // INDEPENDENT CHECK 5: DCI bounds
+        if (!shouldTrigger && ((dci_upper && dci > dci_upper) || (dci_lower && dci < dci_lower))) {
+          shouldTrigger = true;
+          triggerReason = `DCI (${dci}) out of bounds [${dci_lower}, ${dci_upper}]`;
+        }
+
+        // INDEPENDENT CHECK 6: ACV bounds
+        if (!shouldTrigger && ((acv_upper && acv > acv_upper) || (acv_lower && acv < acv_lower))) {
+          shouldTrigger = true;
+          triggerReason = `ACV (${acv}) out of bounds [${acv_lower}, ${acv_upper}]`;
         }
       }
 
@@ -179,12 +206,12 @@ class AlarmMonitoringService {
         reason: reason,
         timestamp: new Date().toLocaleString(),
         device_params: {
-          ref_1: alarm.device_params?.ref_1 || 0,
-          ref_2: alarm.device_params?.ref_2 || 0,
-          ref_3: alarm.device_params?.ref_3 || 0,
-          dcv: deviceData.dcv || deviceData.voltage || 0,
-          dci: deviceData.dci || deviceData.current || 0,
-          acv: deviceData.acv || deviceData.acVoltage || 0
+          ref_1: { upper: alarm.device_params?.ref_1_upper || 0, lower: alarm.device_params?.ref_1_lower || 0 },
+          ref_2: { upper: alarm.device_params?.ref_2_upper || 0, lower: alarm.device_params?.ref_2_lower || 0 },
+          ref_3: { upper: alarm.device_params?.ref_3_upper || 0, lower: alarm.device_params?.ref_3_lower || 0 },
+          dcv: { upper: alarm.device_params?.dcv_upper || 0, lower: alarm.device_params?.dcv_lower || 0, value: deviceData.dcv || deviceData.voltage || 0 },
+          dci: { upper: alarm.device_params?.dci_upper || 0, lower: alarm.device_params?.dci_lower || 0, value: deviceData.dci || deviceData.current || 0 },
+          acv: { upper: alarm.device_params?.acv_upper || 0, lower: alarm.device_params?.acv_lower || 0, value: deviceData.acv || deviceData.acVoltage || 0 }
         }
       };
 

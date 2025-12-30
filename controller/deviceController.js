@@ -5,6 +5,28 @@ const { secondsToHHMMSS, hhmmssToSeconds, ensureLoggingIntervalFormat } = requir
 const Device = require('../models/Device');
 const DeviceHistory = require('../models/DeviceHistory');
 
+// Helper function to parse event type from event string
+function parseEventType(eventString) {
+  if (!eventString) return { type: 'NORMAL', state: '', raw: 'NORMAL' };
+  const eventLower = String(eventString).toLowerCase();
+  
+  let type = 'NORMAL';
+  if (eventLower.includes('dpol')) type = 'DPOL';
+  else if (eventLower.includes('int')) type = 'INT';
+  else if (eventLower.includes('inst')) type = 'INST';
+  
+  // Extract state (ON/OFF/OPEN/CLOSE etc)
+  const state = eventString.replace(/[a-zA-Z:\/\s]/g, '').length > 0 
+    ? eventString.split(/\s+/).pop() 
+    : '';
+  
+  return {
+    type: type,
+    state: state,
+    raw: String(eventString).toUpperCase()
+  };
+}
+
 class DeviceController {
   // Get specific device by deviceId with historical data
   static async getDeviceById(req, res) {
@@ -33,12 +55,26 @@ class DeviceController {
       .lean();
 
       // Transform device data
+      // Handle both old string status and new object status format
+      let statusValue = 'offline';
+      let lastSeenValue = null;
+      
+      if (typeof device.status === 'object' && device.status?.state) {
+        statusValue = device.status.state;
+        lastSeenValue = device.status.lastSeen || null;
+      } else if (typeof device.status === 'string') {
+        // Old format: status was a string, migrate to offline
+        statusValue = 'offline';
+        lastSeenValue = null;
+      }
+      
       const deviceData = {
         deviceId: device.deviceId,
         name: device.deviceName || device.deviceId,
         location: device.location || 'N/A',
-        status: device.status?.state || 'offline',
-        lastSeen: device.status?.lastSeen || null,
+        status: statusValue,
+        lastSeen: lastSeenValue,
+        currentEvent: device.currentEvent || 'NORMAL',
         currentData: device.sensors || {},
         mqttConfig: {
           brokerUrl: device.mqtt?.brokerUrl || null,
@@ -129,6 +165,10 @@ class DeviceController {
         lastSeen: new Date()
       };
 
+      // Extract and store event type from incoming data
+      const eventString = sensorData.event || sensorData.EVENT || 'NORMAL';
+      device.currentEvent = parseEventType(eventString);
+
       // Save device
       await device.save();
 
@@ -184,19 +224,34 @@ class DeviceController {
         .lean();
 
       // Transform the data to match the expected frontend format
-      const transformedDevices = devices.map(device => ({
-        deviceId: device.deviceId,
-        name: device.deviceName || device.deviceId,
-        location: device.location || 'N/A',
-        status: device.status?.state || 'offline',
-        lastSeen: device.status?.lastSeen || null,
-        currentData: device.sensors || {},
-        mqttTopic: device.mqtt?.topics?.data || `devices/${device.deviceId}/data`,
-        icon: device.metadata?.icon || null,
-        color: device.metadata?.color || null,
-        description: device.metadata?.description || null,
-        configuration: device.configuration || null
-      }));
+      const transformedDevices = devices.map(device => {
+        // Handle both old string status and new object status format
+        let statusValue = 'offline';
+        let lastSeenValue = null;
+        
+        if (typeof device.status === 'object' && device.status?.state) {
+          statusValue = device.status.state;
+          lastSeenValue = device.status.lastSeen || null;
+        } else if (typeof device.status === 'string') {
+          // Old format: status was a string, migrate to offline
+          statusValue = 'offline';
+          lastSeenValue = null;
+        }
+        
+        return {
+          deviceId: device.deviceId,
+          name: device.deviceName || device.deviceId,
+          location: device.location || 'N/A',
+          status: statusValue,
+          lastSeen: lastSeenValue,
+          currentData: device.sensors || {},
+          mqttTopic: device.mqtt?.topics?.data || `devices/${device.deviceId}/data`,
+          icon: device.metadata?.icon || null,
+          color: device.metadata?.color || null,
+          description: device.metadata?.description || null,
+          configuration: device.configuration || null
+        };
+      });
 
       res.json({
         success: true,

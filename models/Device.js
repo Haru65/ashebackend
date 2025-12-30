@@ -45,6 +45,11 @@ const DeviceSchema = new Schema({
     state: { type: String, enum: ['online', 'offline', 'warning'], default: 'offline', index: true },
     lastSeen: { type: Date, default: null, index: true }
   },
+  currentEvent: {
+    type: String,
+    default: 'NORMAL',
+    enum: ['NORMAL', 'DPOL', 'INT', 'INST']
+  },
   metadata: {
     icon: { type: String, default: null },
     color: { type: String, default: null },

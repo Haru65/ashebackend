@@ -129,6 +129,37 @@ class AlarmController {
         });
       }
 
+      // Validate that lower bounds don't exceed upper bounds
+      if (device_params) {
+        const boundErrors = [];
+        if (device_params.ref_1_lower && device_params.ref_1_upper && device_params.ref_1_lower > device_params.ref_1_upper) {
+          boundErrors.push("Ref 1: Lower bound cannot exceed upper bound");
+        }
+        if (device_params.ref_2_lower && device_params.ref_2_upper && device_params.ref_2_lower > device_params.ref_2_upper) {
+          boundErrors.push("Ref 2: Lower bound cannot exceed upper bound");
+        }
+        if (device_params.ref_3_lower && device_params.ref_3_upper && device_params.ref_3_lower > device_params.ref_3_upper) {
+          boundErrors.push("Ref 3: Lower bound cannot exceed upper bound");
+        }
+        if (device_params.dcv_lower && device_params.dcv_upper && device_params.dcv_lower > device_params.dcv_upper) {
+          boundErrors.push("DCV: Lower bound cannot exceed upper bound");
+        }
+        if (device_params.dci_lower && device_params.dci_upper && device_params.dci_lower > device_params.dci_upper) {
+          boundErrors.push("DCI: Lower bound cannot exceed upper bound");
+        }
+        if (device_params.acv_lower && device_params.acv_upper && device_params.acv_lower > device_params.acv_upper) {
+          boundErrors.push("ACV: Lower bound cannot exceed upper bound");
+        }
+
+        if (boundErrors.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'Bound validation failed',
+            errors: boundErrors
+          });
+        }
+      }
+
       // Create alarm in database
       const alarm = new Alarm({
         name,
@@ -138,12 +169,18 @@ class AlarmController {
         severity: severity || 'warning',
         status: status || 'Active',
         device_params: device_params || {
-          ref_1: 0,
-          ref_2: 0,
-          ref_3: 0,
-          dcv: 0,
-          dci: 0,
-          acv: 0
+          ref_1_upper: 0,
+          ref_1_lower: 0,
+          ref_2_upper: 0,
+          ref_2_lower: 0,
+          ref_3_upper: 0,
+          ref_3_lower: 0,
+          dcv_upper: 0,
+          dcv_lower: 0,
+          dci_upper: 0,
+          dci_lower: 0,
+          acv_upper: 0,
+          acv_lower: 0
         },
         notification_config: notification_config || {
           email_ids: [],

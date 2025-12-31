@@ -161,10 +161,12 @@ class DeviceManagementController {
       });
 
     } catch (error) {
-      console.error('Error merging device settings:', error);
+      console.error('Error merging device settings:', error.message);
+      console.error('Full error details:', JSON.stringify(error, null, 2));
       res.status(error.message.includes('not found') ? 404 : 500).json({
         success: false,
-        message: error.message
+        message: error.message,
+        details: error.errors || error.toString()
       });
     }
   }

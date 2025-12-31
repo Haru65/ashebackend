@@ -409,18 +409,18 @@ class DeviceConfigController {
     }
   }
 
-  // Configure Set Shunt (current setting in Amperes)
+  // Configure Set Shunt (current setting in A)
   async configureSetShunt(req, res) {
     try {
       const { deviceId } = req.params;
-      const { current } = req.body; // expects current in A (not mA)
+      const { current } = req.body; // expects current in A
 
       console.log(`🔧 Configuring Set Shunt for device ${deviceId}: ${current}A`);
 
       if (current === undefined || current === null) {
         return res.status(400).json({
           success: false,
-          message: 'Current value in A (Amperes) is required'
+          message: 'Current value in A is required'
         });
       }
 

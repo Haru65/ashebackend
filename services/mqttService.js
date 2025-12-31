@@ -1204,11 +1204,11 @@ class MQTTService {
     if (this.deviceManagementService) {
       try {
         const settingsToSave = {};
-        // Save Reference values as formatted strings (keep 2 decimal places for MQTT transmission)
-        // This ensures 3.80 stays as "3.80" not converted to 3.8
-        if (updatedSettings["Reference Fail"] !== undefined) settingsToSave["Reference Fail"] = updatedSettings["Reference Fail"].toString();
-        if (updatedSettings["Reference UP"] !== undefined) settingsToSave["Reference UP"] = updatedSettings["Reference UP"].toString();
-        if (updatedSettings["Reference OP"] !== undefined) settingsToSave["Reference OP"] = updatedSettings["Reference OP"].toString();
+        // ✅ CRITICAL: Save Reference values as NUMERIC values (parseFloat), not formatted strings
+        // The database should store 0.16 not "016", only format "016" for MQTT transmission
+        if (updatedSettings["Reference Fail"] !== undefined) settingsToSave["Reference Fail"] = parseFloat(updatedSettings["Reference Fail"]);
+        if (updatedSettings["Reference UP"] !== undefined) settingsToSave["Reference UP"] = parseFloat(updatedSettings["Reference UP"]);
+        if (updatedSettings["Reference OP"] !== undefined) settingsToSave["Reference OP"] = parseFloat(updatedSettings["Reference OP"]);
         // Save Shunt values if they're part of alarm config
         if (updatedSettings["Shunt Voltage"] !== undefined) settingsToSave["Shunt Voltage"] = updatedSettings["Shunt Voltage"];
         if (updatedSettings["Shunt Current"] !== undefined) settingsToSave["Shunt Current"] = updatedSettings["Shunt Current"];
@@ -1268,7 +1268,7 @@ class MQTTService {
     return await this.sendCompleteSettingsPayload(deviceId, commandId);
   }
 
-  // Configure Set Shunt (current setting in Amperes)
+  // Configure Set Shunt (current setting in A)
   async setShuntConfiguration(deviceId, config) {
     console.log('🔧 Setting shunt configuration - will send complete settings...');
     
@@ -1291,7 +1291,7 @@ class MQTTService {
     return await this.sendCompleteSettingsPayload(deviceId, commandId);
   }
 
-  // Configure Shunt Voltage (maps to "Shunt Voltage": 25 in data frame)
+  // Configure Shunt Voltage (maps to "Shunt Voltage": 25 mV in data frame)
   async setShuntVoltage(deviceId, config) {
     console.log('🔧 Setting shunt voltage - will send complete settings...');
     
@@ -1334,7 +1334,7 @@ class MQTTService {
     return result;
   }
 
-  // Configure Shunt Current (maps to "Shunt Current": 999 in data frame)
+  // Configure Shunt Current (maps to "Shunt Current": 999 A in data frame)
   async setShuntCurrent(deviceId, config) {
     console.log('🔧 Setting shunt current - will send complete settings...');
     
@@ -1444,19 +1444,34 @@ class MQTTService {
       throw new Error('Set UP voltage must be between -4.0V and +4.0V');
     }
     
-    // Get current settings and update Set UP field
+    // Get current settings and update both "Set UP" and "Reference UP" with the same value
     const currentSettings = await this.ensureDeviceSettings(deviceId);
     const updatedSettings = {
       ...currentSettings,
-      "Set UP": voltage
+      "Set UP": voltage,
+      "Reference UP": voltage  // ✅ CRITICAL: Also update Reference UP since device uses Reference UP
     };
     
     // Store updated settings
     this.deviceSettings.set(deviceId, updatedSettings);
 
+    // ✅ CRITICAL: Save to database immediately to persist the changes
+    // Only save "Reference UP" - "Set UP" is display-only alias
+    if (this.deviceManagementService) {
+      try {
+        const mappedSettings = this.deviceManagementService.mapParametersToInternalFields({
+          "Reference UP": voltage
+        });
+        await this.deviceManagementService.storeDeviceSettings(deviceId, mappedSettings, 'user_config');
+        console.log('💾 Set UP configuration saved to database - Reference UP:', voltage);
+      } catch (e) {
+        console.warn('⚠️ Database save failed (non-critical):', e.message);
+      }
+    }
+
     // Create commandId and track then send complete payload
     const commandId = uuidv4();
-    const changedSetUP = { "Set UP": voltage };
+    const changedSetUP = { "Set UP": voltage, "Reference UP": voltage };
     if (this.deviceManagementService) {
       try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedSetUP); } catch (e) { /* ignore */ }
     }
@@ -1473,19 +1488,34 @@ class MQTTService {
       throw new Error('Set OP voltage must be between -4.0V and +4.0V');
     }
     
-    // Get current settings and update Set OP field
+    // Get current settings and update both "Set OP" and "Reference OP" with the same value
     const currentSettings = await this.ensureDeviceSettings(deviceId);
     const updatedSettings = {
       ...currentSettings,
-      "Set OP": voltage
+      "Set OP": voltage,
+      "Reference OP": voltage  // ✅ CRITICAL: Also update Reference OP since device uses Reference OP
     };
     
     // Store updated settings
     this.deviceSettings.set(deviceId, updatedSettings);
 
+    // ✅ CRITICAL: Save to database immediately to persist the changes
+    // Only save "Reference OP" - "Set OP" is display-only alias
+    if (this.deviceManagementService) {
+      try {
+        const mappedSettings = this.deviceManagementService.mapParametersToInternalFields({
+          "Reference OP": voltage
+        });
+        await this.deviceManagementService.storeDeviceSettings(deviceId, mappedSettings, 'user_config');
+        console.log('💾 Set OP configuration saved to database - Reference OP:', voltage);
+      } catch (e) {
+        console.warn('⚠️ Database save failed (non-critical):', e.message);
+      }
+    }
+
     // Create commandId and track then send complete payload
     const commandId = uuidv4();
-    const changedSetOP = { "Set OP": voltage };
+    const changedSetOP = { "Set OP": voltage, "Reference OP": voltage };
     if (this.deviceManagementService) {
       try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedSetOP); } catch (e) { /* ignore */ }
     }
@@ -1682,12 +1712,32 @@ class MQTTService {
         return value;
       };
 
+      // Format Shunt values: pad with leading zeros for 3-digit format
+      // Example: 75 → "075", 100 → "100", 50 → "050"
+      const formatShuntValueForDevice = (value) => {
+        if (value === undefined || value === null) return undefined;
+        let numVal;
+        if (typeof value === 'string') {
+          numVal = parseFloat(value);
+        } else if (typeof value === 'number') {
+          numVal = value;
+        } else {
+          return value;
+        }
+        if (!isNaN(numVal)) {
+          // Pad with leading zeros to make it 3 digits (75 -> "075", 50 -> "050")
+          const intVal = Math.round(numVal);
+          return intVal.toString().padStart(3, '0');
+        }
+        return value;
+      };
+
       const parameters = {
         "Electrode": currentSettings["Electrode"] || 0,
         "Event": currentSettings["Event"] || 0,
         "Manual Mode Action": currentSettings["Manual Mode Action"] !== undefined ? currentSettings["Manual Mode Action"] : 0,
-        "Shunt Voltage": currentSettings["Shunt Voltage"] || 25.00,
-        "Shunt Current": currentSettings["Shunt Current"] || 99.00,
+        "Shunt Voltage": formatShuntValueForDevice(currentSettings["Shunt Voltage"]) || "025",
+        "Shunt Current": formatShuntValueForDevice(currentSettings["Shunt Current"]) || "099",
         "Reference Fail": formatRefValueForDevice(currentSettings["Reference Fail"]) || 3000,
         "Reference UP": formatRefValueForDevice(currentSettings["Reference UP"]) || 30,
         "Reference OP": formatRefValueForDevice(currentSettings["Reference OP"]) || 60,
@@ -2128,6 +2178,7 @@ class MQTTService {
         deviceId: deviceId,
         timestamp: new Date(),
         event: payload.EVENT || payload.Event || 'NORMAL',
+        status: 'online', // Device is online if it's sending data
         data: dataFields,
         location: location  // Add location field for easy access in frontend
       });
@@ -2285,12 +2336,67 @@ class MQTTService {
    * 3. Saves to database with tracking info
    * 4. Returns complete merged settings
    */
+  /**
+   * Normalize parameter keys from capitalized format (from device/frontend) to camelCase (for storage)
+   * Maps frontend keys like "Electrode", "Event" to backend keys like "electrode", "event"
+   */
+  normalizeParameterKeys(settings) {
+    const keyMapping = {
+      'Electrode': 'electrode',
+      'Event': 'event',
+      'Manual Mode Action': 'manualModeAction',
+      'Shunt Voltage': 'shuntVoltage',
+      'Shunt Current': 'shuntCurrent',
+      'Reference Fail': 'referenceFail',
+      'Reference UP': 'referenceUP',
+      'Reference OP': 'referenceOP',
+      'Reference OV': 'referenceOP', // Handle both OP and OV variants
+      'DI1': 'di1',
+      'DI2': 'di2',
+      'DI3': 'di3',
+      'DI4': 'di4',
+      'Interrupt ON Time': 'interruptOnTime',
+      'Interrupt OFF Time': 'interruptOffTime',
+      'Interrupt Start TimeStamp': 'interruptStartTimestamp',
+      'Interrupt Stop TimeStamp': 'interruptStopTimestamp',
+      'Depolarization Interval': 'dpolInterval',
+      'DPOL Interval': 'dpolInterval',
+      'Depolarization_interval': 'dpolInterval',
+      'Depolarization Start TimeStamp': 'depolarizationStartTimestamp',
+      'Depolarization Stop TimeStamp': 'depolarizationStopTimestamp',
+      'Instant Mode': 'instantMode',
+      'Instant Start TimeStamp': 'instantStartTimestamp',
+      'Instant End TimeStamp': 'instantEndTimestamp',
+      'logging_interval': 'loggingInterval'
+    };
+
+    const normalized = {};
+    
+    for (const [key, value] of Object.entries(settings)) {
+      // Check if this key needs mapping
+      const mappedKey = keyMapping[key];
+      if (mappedKey) {
+        normalized[mappedKey] = value;
+        console.log(`  📝 Mapped "${key}" → "${mappedKey}": ${value}`);
+      } else {
+        // Keep unmapped keys as-is (already camelCase or unknown)
+        normalized[key] = value;
+      }
+    }
+    
+    return normalized;
+  }
+
   async mergeAndSaveDeviceSettings(deviceId, newSettings, updatedBy = 'user') {
     try {
       const Device = require('../models/Device');
       
       console.log(`🔄 Merging settings for device ${deviceId}`);
-      console.log(`📥 New settings from ${updatedBy}:`, JSON.stringify(newSettings, null, 2));
+      console.log(`📥 New settings from ${updatedBy} (before normalization):`, JSON.stringify(newSettings, null, 2));
+
+      // Normalize parameter keys from capitalized to camelCase
+      const normalizedSettings = this.normalizeParameterKeys(newSettings);
+      console.log(`✅ Normalized settings:`, JSON.stringify(normalizedSettings, null, 2));
 
       // Find or create device
       let device = await Device.findOne({ deviceId });
@@ -2317,7 +2423,7 @@ class MQTTService {
         // Preserve all existing settings
         ...currentSettings,
         // Override with new settings (only the fields provided)
-        ...newSettings
+        ...normalizedSettings
       };
 
       console.log(`✅ Merged settings:`, JSON.stringify(mergedSettings, null, 2));
@@ -2343,6 +2449,10 @@ class MQTTService {
 
     } catch (error) {
       console.error(`❌ Error merging settings for device ${deviceId}:`, error.message);
+      console.error(`❌ Stack trace:`, error.stack);
+      if (error.errors) {
+        console.error(`❌ Validation errors:`, JSON.stringify(error.errors, null, 2));
+      }
       throw error;
     }
   }
@@ -2567,16 +2677,32 @@ class MQTTService {
       let locationName = null;
       
       // Get latitude/longitude from MQTT payload
-      if (payload.LATITUDE && payload.LONGITUDE && 
-          (payload.LATITUDE !== 0 || payload.LONGITUDE !== 0) &&
-          typeof payload.LATITUDE === 'number' && 
-          typeof payload.LONGITUDE === 'number') {
-        latitude = payload.LATITUDE;
-        longitude = payload.LONGITUDE;
+      if (payload.LATITUDE && payload.LONGITUDE) {
+        // Handle DMS format (string like "19°03'N")
+        if (typeof payload.LATITUDE === 'string' && payload.LATITUDE.includes('°')) {
+          latitude = this.convertDMSToDecimal(payload.LATITUDE);
+        } else {
+          latitude = parseFloat(payload.LATITUDE);
+        }
         
-        // Perform reverse geocoding to get location name
-        locationName = await this.reverseGeocodeLocation(latitude, longitude);
-        console.log(`📍 Device ${deviceId} coordinates: ${latitude}, ${longitude} → ${locationName || 'Unknown'}`);
+        if (typeof payload.LONGITUDE === 'string' && payload.LONGITUDE.includes('°')) {
+          longitude = this.convertDMSToDecimal(payload.LONGITUDE);
+        } else {
+          longitude = parseFloat(payload.LONGITUDE);
+        }
+        
+        // Only proceed if both coordinates are valid
+        if ((latitude !== 0 || longitude !== 0) && 
+            latitude !== null && longitude !== null && 
+            !isNaN(latitude) && !isNaN(longitude)) {
+          
+          // Perform reverse geocoding to get location name
+          locationName = await this.reverseGeocodeLocation(latitude, longitude);
+          console.log(`📍 Device ${deviceId} coordinates: ${payload.LATITUDE}, ${payload.LONGITUDE} → Decimal: ${latitude}, ${longitude} → ${locationName || 'Unknown'}`);
+        } else {
+          console.log(`⚠️ Device ${deviceId} has invalid coordinates after conversion - Lat: ${latitude}, Lon: ${longitude}`);
+          return;
+        }
       } else {
         console.log(`⚠️ Device ${deviceId} has invalid or missing LATITUDE/LONGITUDE in payload`);
         return;

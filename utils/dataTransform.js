@@ -365,7 +365,8 @@ function transformDeviceData(payload, topic) {
       
       return "Mumbai, India";
     })(),
-    status: params.EVENT ?? "NORMAL",
+    // NOTE: Do NOT set status here - it should come from telemetry database (online/offline/warning)
+    // The EVENT value (INT ON, NORMAL, etc.) is an operational state, not connection status
     lastSeen: params.TimeStamp ?? new Date().toISOString(),
     timestamp: Date.now(),
     source: `device-${deviceId}`,

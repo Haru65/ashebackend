@@ -15,7 +15,7 @@ const { Schema } = mongoose;
 
 const SensorSchema = new Schema({
   battery: { type: Number, min: 0, max: 100, default: null },
-  signal: { type: Number, min: 0, max: 100, default: null },
+  signal: { type: Number, min: 0, default: null }, // No max limit - can be raw MQTT signal values
   temperature: { type: Number, default: null },
   humidity: { type: Number, default: null },
   pressure: { type: Number, default: null }

@@ -1,6 +1,5 @@
 const Device = require('../models/Device');
 const { v4: uuidv4 } = require('uuid');
-const { ensureLoggingIntervalFormat, secondsToHHMMSS } = require('../utils/timeConverter');
 
 /**
  * Core Device Management Service
@@ -86,11 +85,35 @@ class DeviceManagementService {
         throw new Error(`Device ${deviceId} not found`);
       }
 
-      // Merge new settings with existing ones
-      const updatedSettings = {
+      // PROTECTION: If settings came from MQTT and we recently received user config,
+      // don't overwrite configuration settings that were just set by user
+      // This prevents stale device telemetry from overwriting fresh user commands
+      const PROTECTION_WINDOW_MS = 5000; // 5 second window to protect user config
+      const isFromMqtt = source === 'mqtt_incoming';
+      const lastUpdate = device.configuration?.lastConfigUpdate;
+      const hasRecentUserConfig = lastUpdate && 
+                                  (Date.now() - new Date(lastUpdate).getTime()) < PROTECTION_WINDOW_MS;
+      
+      let updatedSettings = {
         ...device.configuration.deviceSettings,
         ...settings
       };
+
+      // If this is MQTT data arriving within 5 seconds of a user config, protect those config fields
+      if (isFromMqtt && hasRecentUserConfig && device.configuration?.source === 'user_config') {
+        const protectedFields = ['electrode', 'event', 'manualModeAction', 'referenceFail'];
+        const timeSinceUpdate = Date.now() - new Date(lastUpdate).getTime();
+        console.log(`🛡️  PROTECTION ENABLED: Recent user config detected (${timeSinceUpdate}ms ago)`);
+        console.log(`   Protecting fields: ${protectedFields.join(', ')}`);
+        
+        // Restore protected fields from current database state
+        for (const field of protectedFields) {
+          if (field in device.configuration.deviceSettings) {
+            updatedSettings[field] = device.configuration.deviceSettings[field];
+            console.log(`   ✅ Protected ${field}: kept ${updatedSettings[field]} (ignoring MQTT value: ${settings[field]})`);
+          }
+        }
+      }
 
       // Clean up old field names to prevent confusion
       // If we have the new referenceOP, remove the old referenceOV
@@ -101,7 +124,10 @@ class DeviceManagementService {
       // Update device configuration
       device.configuration.deviceSettings = updatedSettings;
       device.configuration.lastConfigUpdate = new Date();
-      device.configuration.source = source;
+      // Only update source if NOT protecting (preserve the user_config marker during protection window)
+      if (!isFromMqtt || !hasRecentUserConfig) {
+        device.configuration.source = source;
+      }
 
       // Log the configuration change
       if (!device.configuration.configHistory) {
@@ -146,15 +172,6 @@ class DeviceManagementService {
       
       console.log(`📖 Loading device settings from database for device ${deviceId}:`, settings);
       
-      // Helper function to ensure numeric values are properly formatted
-      const parseNumericSetting = (value, defaultValue) => {
-        if (value !== undefined && value !== null) {
-          const numValue = parseFloat(value);
-          return isNaN(numValue) ? defaultValue : numValue;
-        }
-        return defaultValue;
-      };
-      
       return {
         "Device ID": deviceId,
         "Message Type": "settings",
@@ -163,27 +180,20 @@ class DeviceManagementService {
           "Electrode": settings.electrode !== undefined ? settings.electrode : 0,
           "Event": settings.event !== undefined ? settings.event : 0,
           "Manual Mode Action": settings.manualModeAction !== undefined ? settings.manualModeAction : 0,
-          "Shunt Voltage": settings.shuntVoltage !== undefined ? settings.shuntVoltage : 25.00,
-          "Shunt Current": settings.shuntCurrent !== undefined ? settings.shuntCurrent : 99.00,
-          "Reference Fail": parseNumericSetting(settings.referenceFail, 0.90),
-          "Reference UP": parseNumericSetting(settings.referenceUP, 0.90),
-          "Reference OP": parseNumericSetting(settings.referenceOP, parseNumericSetting(settings.referenceOV, 0.70)),
-          "Set Fail": parseNumericSetting(settings.referenceFail, 0.90),
-          "Set UP": parseNumericSetting(settings.referenceUP, 0.90),
-          "Set OP": parseNumericSetting(settings.referenceOP, parseNumericSetting(settings.referenceOV, 0.70)),
+          "Shunt Voltage": settings.shuntVoltage !== undefined ? settings.shuntVoltage : 25,
+          "Shunt Current": settings.shuntCurrent !== undefined ? settings.shuntCurrent : 999,
+          "Reference Fail": settings.referenceFail !== undefined ? settings.referenceFail : 30,
+          "Reference UP": settings.referenceUP !== undefined ? settings.referenceUP : 300,
+          "Reference OP": settings.referenceOP !== undefined ? settings.referenceOP : 60,
           "Interrupt ON Time": settings.interruptOnTime !== undefined ? settings.interruptOnTime : 86400,
           "Interrupt OFF Time": settings.interruptOffTime !== undefined ? settings.interruptOffTime : 86400,
-          "Interrupt Start TimeStamp": settings.interruptStartTimeStamp || settings.interruptStartTimestamp || "2025-02-20 19:04:00",
-          "Interrupt Stop TimeStamp": settings.interruptStopTimeStamp || settings.interruptStopTimestamp || "2025-02-20 19:05:00",
-          "DPOL Interval": settings.dpolInterval !== undefined ? settings.dpolInterval : "00:00:00",
-          "Depolarization_interval": settings.dpolInterval !== undefined ? settings.dpolInterval : "00:00:00",
-          "logging_interval": settings.loggingInterval !== undefined ? settings.loggingInterval : "00:10:00",
-          "Depolarization Start TimeStamp": settings.depolarizationStartTimeStamp || settings.depolarizationStartTimestamp || "2025-02-20 19:04:00",
-          "Depolarization Stop TimeStamp": settings.depolarizationStopTimeStamp || settings.depolarizationStopTimestamp || "2025-02-20 19:05:00",
+          "Interrupt Start TimeStamp": settings.interruptStartTimeStamp || settings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+          "Interrupt Stop TimeStamp": settings.interruptStopTimeStamp || settings.interruptStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+          "Depolarization Start TimeStamp": settings.depolarizationStartTimeStamp || settings.depolarizationStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+          "Depolarization Stop TimeStamp": settings.depolarizationStopTimeStamp || settings.depolarizationStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
           "Instant Mode": settings.instantMode !== undefined ? settings.instantMode : 0,
           "Instant Start TimeStamp": settings.instantStartTimeStamp || settings.instantStartTimestamp || "19:04:00",
-          "Instant End TimeStamp": settings.instantEndTimeStamp || settings.instantEndTimestamp || "00:00:00",
-          "logging_interval_format": settings.logging_interval_format || secondsToHHMMSS(settings.logging_interval || 600)
+          "Instant End TimeStamp": settings.instantEndTimeStamp || settings.instantEndTimestamp || "00:00:00"
         }
       };
     } catch (error) {
@@ -219,19 +229,13 @@ class DeviceManagementService {
           "Manual Mode Action": settings.manualModeAction || 0,
           "Shunt Voltage": settings.shuntVoltage || 25,
           "Shunt Current": settings.shuntCurrent || 999,
-          "Reference Fail": (settings.referenceFail !== undefined && settings.referenceFail !== null) ? settings.referenceFail : 0.90,
-          "Reference UP": (settings.referenceUP !== undefined && settings.referenceUP !== null) ? settings.referenceUP : 0.90,
-          "Reference OP": (settings.referenceOP !== undefined && settings.referenceOP !== null) ? settings.referenceOP : (settings.referenceOV !== undefined && settings.referenceOV !== null ? settings.referenceOV : 0.70),
-          "Set Fail": (settings.referenceFail !== undefined && settings.referenceFail !== null) ? settings.referenceFail : 0.90,
-          "Set UP": (settings.referenceUP !== undefined && settings.referenceUP !== null) ? settings.referenceUP : 0.90,
-          "Set OP": (settings.referenceOP !== undefined && settings.referenceOP !== null) ? settings.referenceOP : (settings.referenceOV !== undefined && settings.referenceOV !== null ? settings.referenceOV : 0.70),
+          "Reference Fail": settings.referenceFail || 30,
+          "Reference UP": settings.referenceUP || 300,
+          "Reference OV": settings.referenceOP || 60,
           "Interrupt ON Time": settings.interruptOnTime || 86400,
           "Interrupt OFF Time": settings.interruptOffTime || 86400,
           "Interrupt Start TimeStamp": settings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
           "Interrupt Stop TimeStamp": settings.interruptStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-          "DPOL Interval": settings.dpolInterval || "00:00:00",
-          "Depolarization_interval": settings.dpolInterval || "00:00:00",
-          "logging_interval": settings.loggingInterval || "00:10:00",
           "Depolarization Start TimeStamp": settings.depolarizationStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
           "Depolarization Stop TimeStamp": settings.depolarizationStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
           "Instant Mode": settings.instantMode || 0,
@@ -352,7 +356,7 @@ class DeviceManagementService {
         timestamp: new Date()
       };
 
-      await device.save();
+      await device.addConfigRequest(commandId, commandType);
       console.log(`✅ Command tracked for device ${deviceId}: ${commandId}`);
     } catch (error) {
       console.error('❌ Error tracking command:', error);
@@ -420,9 +424,9 @@ class DeviceManagementService {
       manualModeAction: 0,
       shuntVoltage: 25,
       shuntCurrent: 999,
-      referenceFail: 0.90,
-      referenceUP: 0.90,
-      referenceOP: 0.70,
+      referenceFail: 30,
+      referenceUP: 300,
+      referenceOP: 60,
       interruptOnTime: 86400,
       interruptOffTime: 86400,
       interruptStartTimeStamp: defaultTimestamp,
@@ -450,15 +454,12 @@ class DeviceManagementService {
       "Shunt Current": "shuntCurrent",
       "Reference Fail": "referenceFail",
       "Reference UP": "referenceUP",
-      "Reference OV": "referenceOP",
-      "Reference OP": "referenceOP",  // Device sends as 'Reference OP'
+      "Reference OP": "referenceOP",
       "Interrupt ON Time": "interruptOnTime",
       "Interrupt OFF Time": "interruptOffTime",
       "Interrupt Start TimeStamp": "interruptStartTimeStamp",
       "Interrupt Stop TimeStamp": "interruptStopTimeStamp",
-      "DPOL Interval": "dpolInterval",
-      "Depolarization_interval": "dpolInterval",  // Device sends with underscore
-      "logging_interval": "loggingInterval",      // Device sends with underscore
+
       "Depolarization Start TimeStamp": "depolarizationStartTimeStamp",
       "Depolarization Stop TimeStamp": "depolarizationStopTimeStamp",
       "Instant Mode": "instantMode",
@@ -526,47 +527,29 @@ class DeviceManagementService {
   }
 
   /**
-   * Alias for backward compatibility - GET device settings for frontend
-   */
-  async getDeviceSettingsForFrontend(deviceId) {
-    return await this.getDeviceSettings(deviceId);
-  }
-
-  /**
-   * Store device settings (preserving original timestamps from device)
-   * @param {string} deviceId - Device identifier
-   * @param {Object} settings - Device settings to store
-   * @param {string} source - Source of the settings (e.g., 'mqtt_incoming', 'api_request')
-   * @returns {Object} Updated device object
-   */
-
-  /**
    * Get default device settings with proper parameter names
    * @returns {Object} Default device settings
    */
   getDefaultDeviceSettings() {
     return {
-      "Electrode": 0,
-      "Event": 0,
-      "Manual Mode Action": 0,
-      "Shunt Voltage": 25.00,
-      "Shunt Current": 99.00,
-      "Reference Fail": 30,
-      "Reference UP": 0.30,
-      "Reference OP": 0.60,
-      "Reference Fail": 0,
-      "Interrupt ON Time": 86400,
-      "Interrupt OFF Time": 86400,
-      "Interrupt Start TimeStamp": "2025-02-20 19:04:00",
-      "Interrupt Stop TimeStamp": "2025-02-20 19:05:00",
-      "DPOL Interval": "00:00:00",
-      "Depolarization Start TimeStamp": "2025-02-20 19:04:00",
-      "Depolarization Stop TimeStamp": "2025-02-20 19:05:00",
-      "Instant Mode": 0,
+      "Electrode": 0, // 0=Cu/cuso4, 1=Zinc, 2=Ag/AgCl
+      "Event": 0, // 0=Normal, 1=Interrupt, 2=Manual, 3=DPOL, 4=INST
+      "Manual Mode Action": 0, // 0=stop, 1=start
+      "Shunt Voltage": 25, // mV
+      "Shunt Current": 999, // mA
+      "Reference Fail": 30, // mV  
+      "Reference UP": 300, // mV
+      "Reference OV": 60, // mV
+      "Interrupt ON Time": 86400, // seconds (24 hours)
+      "Interrupt OFF Time": 86400, // seconds (24 hours)
+      "Interrupt Start TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
+      "Interrupt Stop TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
+
+      "Depolarization Start TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
+      "Depolarization Stop TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
+      "Instant Mode": 0, // 0=daily, 1=weekly
       "Instant Start TimeStamp": "19:04:00",
-      "Instant End TimeStamp": "00:00:00",
-      "logging_interval": 600,
-      "logging_interval_format": "00:10:00"
+      "Instant End TimeStamp": "00:00:00"
     };
   }
 
@@ -584,13 +567,12 @@ class DeviceManagementService {
       'shuntCurrent': 'Shunt Current',
       'referenceFail': 'Reference Fail',
       'referenceUP': 'Reference UP',
-      'referenceOP': 'Reference OP',
+      'referenceOV': 'Reference OV',
       'interruptOnTime': 'Interrupt ON Time',
       'interruptOffTime': 'Interrupt OFF Time',
       'interruptStartTimeStamp': 'Interrupt Start TimeStamp',
       'interruptStopTimeStamp': 'Interrupt Stop TimeStamp',
-      'dpolInterval': 'DPOL Interval',
-      'loggingInterval': 'logging_interval',
+
       'depolarizationStartTimeStamp': 'Depolarization Start TimeStamp',
       'depolarizationStopTimeStamp': 'Depolarization Stop TimeStamp',
       'instantMode': 'Instant Mode',
@@ -623,15 +605,12 @@ class DeviceManagementService {
       'Shunt Current': 'shuntCurrent',
       'Reference Fail': 'referenceFail',
       'Reference UP': 'referenceUP',
-      'Reference OP': 'referenceOP',
-      'Reference OV': 'referenceOP',  // Support both names for backwards compatibility
+      'Reference OV': 'referenceOV',
       'Interrupt ON Time': 'interruptOnTime',
       'Interrupt OFF Time': 'interruptOffTime',
       'Interrupt Start TimeStamp': 'interruptStartTimeStamp',
       'Interrupt Stop TimeStamp': 'interruptStopTimeStamp',
-      'DPOL Interval': 'dpolInterval',
-      'Depolarization_interval': 'dpolInterval',
-      'logging_interval': 'loggingInterval',
+
       'Depolarization Start TimeStamp': 'depolarizationStartTimeStamp',
       'Depolarization Stop TimeStamp': 'depolarizationStopTimeStamp',
       'Instant Mode': 'instantMode',

@@ -17,6 +17,12 @@ const telemetrySchema = new mongoose.Schema({
     type: String,
     default: "NORMAL"
   },
+  status: {
+    type: String,
+    enum: ['online', 'offline', 'warning'],
+    default: 'online',
+    index: true
+  },
   location: {
     type: String,
     default: null  // Format: "latitude, longitude"

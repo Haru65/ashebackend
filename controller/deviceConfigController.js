@@ -752,9 +752,11 @@ class DeviceConfigController {
         });
       }
 
-      // Format to preserve leading zeros (e.g., 00.97 stays as "00.97")
-      const formattedCurrent = current.toFixed(2).padStart(5, '0');
-      const config = { shuntCurrent: formattedCurrent };
+      // Convert decimal format (68.9) to device format (689)
+      // Device expects values 0-999 where 999 = 99.9A
+      const deviceFormatValue = Math.round(current * 10);
+      
+      const config = { shuntCurrent: deviceFormatValue };
 
       // Send command with acknowledgment tracking
       const result = await mqttService.setShuntCurrent(deviceId, config);
@@ -768,6 +770,7 @@ class DeviceConfigController {
           commandId: result.commandId,
           configType: 'shunt_current',
           setValue: shuntCurrent,
+          deviceFormatValue: deviceFormatValue,
           timestamp: new Date().toISOString(),
           waitingForAcknowledgment: true
         }

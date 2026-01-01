@@ -193,7 +193,10 @@ class DeviceManagementService {
           "Depolarization Stop TimeStamp": settings.depolarizationStopTimeStamp || settings.depolarizationStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
           "Instant Mode": settings.instantMode !== undefined ? settings.instantMode : 0,
           "Instant Start TimeStamp": settings.instantStartTimeStamp || settings.instantStartTimestamp || "19:04:00",
-          "Instant End TimeStamp": settings.instantEndTimeStamp || settings.instantEndTimestamp || "00:00:00"
+          "Instant End TimeStamp": settings.instantEndTimeStamp || settings.instantEndTimestamp || "00:00:00",
+          "logging_interval": settings.logging_interval !== undefined ? settings.logging_interval : 600,  // numeric seconds
+          "logging_interval_format": settings.logging_interval_format || settings.loggingInterval || "00:10:00",  // time format
+          "Depolarization_interval": settings.dpolInterval || "00:00:00"
         }
       };
     } catch (error) {
@@ -240,7 +243,10 @@ class DeviceManagementService {
           "Depolarization Stop TimeStamp": settings.depolarizationStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
           "Instant Mode": settings.instantMode || 0,
           "Instant Start TimeStamp": settings.instantStartTimestamp || "19:04:00",
-          "Instant End TimeStamp": settings.instantEndTimestamp || "00:00:00"
+          "Instant End TimeStamp": settings.instantEndTimestamp || "00:00:00",
+          "logging_interval": settings.logging_interval !== undefined ? settings.logging_interval : 600,  // numeric seconds
+          "logging_interval_format": settings.logging_interval_format || settings.loggingInterval || "00:10:00",  // time format
+          "Depolarization_interval": settings.dpolInterval || "00:00:00"
         }
       };
     } catch (error) {
@@ -356,11 +362,11 @@ class DeviceManagementService {
         timestamp: new Date()
       };
 
-      await device.addConfigRequest(commandId, commandType);
+      await device.save();
       console.log(`✅ Command tracked for device ${deviceId}: ${commandId}`);
     } catch (error) {
       console.error('❌ Error tracking command:', error);
-      throw error;
+      // Don't throw - command tracking is non-critical
     }
   }
 
@@ -477,6 +483,40 @@ class DeviceManagementService {
     return mapped;
   }
 
+  // Reverse mapping: convert internal field names to Parameters format
+  mapInternalFieldsToParameters(internalFields) {
+    const reverseMapping = {
+      "electrode": "Electrode",
+      "event": "Event",
+      "manualModeAction": "Manual Mode Action",
+      "shuntVoltage": "Shunt Voltage",
+      "shuntCurrent": "Shunt Current",
+      "referenceFail": "Reference Fail",
+      "referenceUP": "Reference UP",
+      "referenceOP": "Reference OP",
+      "interruptOnTime": "Interrupt ON Time",
+      "interruptOffTime": "Interrupt OFF Time",
+      "interruptStartTimeStamp": "Interrupt Start TimeStamp",
+      "interruptStopTimeStamp": "Interrupt Stop TimeStamp",
+      "depolarizationStartTimeStamp": "Depolarization Start TimeStamp",
+      "depolarizationStopTimeStamp": "Depolarization Stop TimeStamp",
+      "instantMode": "Instant Mode",
+      "instantStartTimeStamp": "Instant Start TimeStamp",
+      "instantEndTimeStamp": "Instant End TimeStamp",
+      "dpolInterval": "Depolarization_interval",
+      "loggingInterval": "logging_interval"
+    };
+
+    const mapped = {};
+    for (const [key, value] of Object.entries(internalFields)) {
+      const parameterKey = reverseMapping[key] || key;
+      mapped[parameterKey] = value;
+    }
+
+    console.log(`🗺️ Mapped ${Object.keys(internalFields).length} internal fields to Parameters format`);
+    return mapped;
+  }
+
   /**
    * Initialize database with sample devices (for testing)
    * @returns {Array} Created sample devices
@@ -549,7 +589,9 @@ class DeviceManagementService {
       "Depolarization Stop TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),
       "Instant Mode": 0, // 0=daily, 1=weekly
       "Instant Start TimeStamp": "19:04:00",
-      "Instant End TimeStamp": "00:00:00"
+      "Instant End TimeStamp": "00:00:00",
+      "logging_interval": 600, // seconds (10 minutes default)
+      "logging_interval_format": "00:10:00" // time format (hh:mm:ss)
     };
   }
 

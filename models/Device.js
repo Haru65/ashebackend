@@ -85,7 +85,9 @@ const DeviceSchema = new Schema({
       instantStartTimestamp: { type: String, default: '' },
       instantEndTimestamp: { type: String, default: '' },
       // Logging settings - new requirement
-      loggingInterval: { type: String, default: '00:00:10' } // default 10 seconds
+      loggingInterval: { type: String, default: '00:00:10' }, // default 10 seconds (hh:mm:ss format)
+      logging_interval: { type: Number, default: 600 }, // numeric seconds (for database storage)
+      logging_interval_format: { type: String, default: '00:10:00' } // time format (for MQTT transmission)
     },
     lastUpdated: { type: Date, default: null },
     updatedBy: { type: String, default: 'system' } // 'system' or 'user'

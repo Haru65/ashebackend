@@ -20,6 +20,41 @@ class MqttClientService {
   }
 
   /**
+   * Convert received shunt values from integer format (no decimal) to decimal format
+   * e.g., 689 → "68.9", 2550 → "25.50", 97 → "9.7"
+   * @param {number|string} value - The value to convert
+   * @param {number} decimalPlaces - Number of decimal places (default 1 for current, 2 for voltage)
+   * @returns {string} Formatted value with decimal
+   */
+  formatReceivedShuntValue(value, decimalPlaces = 1) {
+    if (value === undefined || value === null) return null;
+    
+    // Convert to string
+    let strValue = value.toString();
+    
+    // If already has decimal, return as-is
+    if (strValue.includes('.')) {
+      return strValue;
+    }
+    
+    // For integer values, we need to add the decimal point
+    // Move decimal point from the right based on decimalPlaces
+    // 689 with 1 decimal place → "68.9"
+    // 2550 with 2 decimal places → "25.50"
+    
+    if (strValue.length <= decimalPlaces) {
+      // Pad with leading zeros
+      strValue = strValue.padStart(decimalPlaces + 1, '0');
+    }
+    
+    const insertIndex = strValue.length - decimalPlaces;
+    const formatted = strValue.slice(0, insertIndex) + '.' + strValue.slice(insertIndex);
+    
+    console.log(`📊 Received Shunt value: ${value} → ${formatted}`);
+    return formatted;
+  }
+
+  /**
    * Initialize and connect to MQTT broker
    */
   connect() {
@@ -139,6 +174,7 @@ class MqttClientService {
 
       // Check alarms for this device data (CRITICAL: This triggers email notifications!)
       const event = payload.Parameters?.Event || payload.EVENT || payload.event || 'NORMAL';
+      
       const sensorData = {
         dcv: payload.Parameters?.["Shunt Voltage"] || payload.dcv || 0,
         dci: payload.Parameters?.["Shunt Current"] || payload.dci || 0,
@@ -188,7 +224,9 @@ class MqttClientService {
           'configuration.deviceSettings.electrode': payload.Parameters?.Electrode !== undefined ? payload.Parameters.Electrode : undefined,
           'configuration.deviceSettings.event': payload.Parameters?.Event !== undefined ? payload.Parameters.Event : undefined,
           'configuration.deviceSettings.manualModeAction': payload.Parameters?.["Manual Mode Action"] !== undefined ? payload.Parameters["Manual Mode Action"] : undefined,
-          'configuration.deviceSettings.shuntVoltage': payload.Parameters?.["Shunt Voltage"] !== undefined ? payload.Parameters["Shunt Voltage"] : undefined,
+          // Convert Shunt Voltage from integer (2550) to decimal ("25.50")
+          'configuration.deviceSettings.shuntVoltage': payload.Parameters?.["Shunt Voltage"] !== undefined ? this.formatReceivedShuntValue(payload.Parameters["Shunt Voltage"], 2) : undefined,
+          // Keep Shunt Current as raw integer (689) - display function will handle division by 10
           'configuration.deviceSettings.shuntCurrent': payload.Parameters?.["Shunt Current"] !== undefined ? payload.Parameters["Shunt Current"] : undefined,
           'configuration.deviceSettings.referenceFail': payload.Parameters?.["Reference Fail"] !== undefined ? payload.Parameters["Reference Fail"] : undefined,
           'configuration.deviceSettings.referenceUP': payload.Parameters?.["Reference UP"] !== undefined ? payload.Parameters["Reference UP"] : undefined,
@@ -207,7 +245,7 @@ class MqttClientService {
           'configuration.deviceSettings.instantMode': payload.Parameters?.["Instant Mode"] !== undefined ? payload.Parameters["Instant Mode"] : undefined,
           'configuration.deviceSettings.instantStartTimestamp': payload.Parameters?.["Instant Start TimeStamp"] !== undefined ? payload.Parameters["Instant Start TimeStamp"] : undefined,
           'configuration.deviceSettings.instantEndTimestamp': payload.Parameters?.["Instant End TimeStamp"] !== undefined ? payload.Parameters["Instant End TimeStamp"] : undefined
-        }
+          }
       };
 
       // Remove undefined values

@@ -1,121 +1,3 @@
-// Helper function to convert DMS format coordinates to decimal
-function convertDMSToDecimal(dmsString) {
-  if (!dmsString) return null;
-  
-  try {
-    const dmsStr = String(dmsString).trim();
-    
-    // Pattern: 19°03'N or 072°52'E
-    const pattern = /(\d+)°(\d+)'([NSEW])/i;
-    const match = dmsStr.match(pattern);
-    
-    if (!match) return null;
-    
-    const degrees = parseInt(match[1]);
-    const minutes = parseInt(match[2]);
-    const direction = match[3].toUpperCase();
-    
-    let decimal = degrees + (minutes / 60);
-    
-    // Apply direction (S and W are negative)
-    if (direction === 'S' || direction === 'W') {
-      decimal = -decimal;
-    }
-    
-    return parseFloat(decimal.toFixed(4));
-  } catch (error) {
-    return null;
-  }
-}
-
-// Event/Mode mapping helper
-function mapEventCode(eventCode) {
-  const eventMappings = {
-    0: 'Normal',
-    1: 'Interrupt',
-    2: 'Manual',
-    3: 'DEPOL',
-    4: 'Instant'
-  };
-  
-  const stringMappings = {
-    'NORMAL': 'Normal',
-    'Normal': 'Normal',
-    'INTERRUPT': 'Interrupt',
-    'Interrupt': 'Interrupt',
-    'INT': 'Interrupt',
-    'INT ON': 'Interrupt',
-    'INT OFF': 'Interrupt',
-    'MANUAL': 'Manual',
-    'Manual': 'Manual',
-    'DPOL': 'DEPOL',
-    'DEPOL': 'DEPOL',
-    'INSTANT': 'Instant',
-    'Instant': 'Instant',
-    'INST': 'Instant'
-  };
-  
-  // Try numeric code first
-  const numericCode = parseInt(eventCode);
-  if (!isNaN(numericCode) && eventMappings[numericCode]) {
-    return eventMappings[numericCode];
-  }
-  
-  // Try string mapping
-  const stringCode = String(eventCode).trim();
-  if (stringMappings[stringCode]) {
-    return stringMappings[stringCode];
-  }
-  
-  // Fallback: return just the first word if it's a compound string
-  const firstWord = stringCode.split(/[\s(]/)[0];
-  if (stringMappings[firstWord]) {
-    return stringMappings[firstWord];
-  }
-  
-  // Last resort: return the code as-is without "Unknown" wrapper
-  return stringCode || 'Unknown';
-}
-
-// Digital Input/Output mapping helper
-function mapDigitalIOValue(value) {
-  const numericValue = parseInt(value);
-  const displayMap = {
-    0: 'OPEN',
-    1: 'CLOSE'
-  };
-  return displayMap[numericValue] !== undefined ? displayMap[numericValue] : `Unknown (${value})`;
-}
-
-// Helper function to normalize device parameter names
-function normalizeDeviceParams(params) {
-  const normalized = { ...params };
-  
-  // Map "Digital Input X" to "DIX"
-  if (params['Digital Input 1'] !== undefined) normalized.DI1 = params['Digital Input 1'];
-  if (params['Digital Input 2'] !== undefined) normalized.DI2 = params['Digital Input 2'];
-  if (params['Digital Input 3'] !== undefined) normalized.DI3 = params['Digital Input 3'];
-  if (params['Digital Input 4'] !== undefined) normalized.DI4 = params['Digital Input 4'];
-  
-  // Map "Digital Output" to "DO1" (assuming single output or primary output)
-  if (params['Digital Output'] !== undefined) {
-    normalized.DO1 = params['Digital Output'];
-  }
-  
-  return normalized;
-}
-
-// Helper function to convert text values to numeric (OPEN/CLOSE -> 0/1 or OFF/ON -> 0/1)
-function normalizeDigitalIOValue(value) {
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string') {
-    const lower = value.toUpperCase();
-    if (lower === 'CLOSE' || lower === 'ON') return 1;
-    if (lower === 'OPEN' || lower === 'OFF') return 0;
-  }
-  return value;
-}
-
 // Basic data transform helper
 function transformDeviceData(payload, topic) {
   // Extract device ID from MQTT topic (e.g., 'devices/123/data' -> '123')
@@ -131,10 +13,7 @@ function transformDeviceData(payload, topic) {
   const deviceId = deviceIdFromTopic;
   
   // Extract parameters from payload (could be in 'Parameters' key or at root level)
-  let params = payload.Parameters || payload;
-  
-  // Normalize parameter names from device format to standard format
-  params = normalizeDeviceParams(params);
+  const params = payload.Parameters || payload;
   
   // Build metrics array with individual values
   const metrics = [];
@@ -148,14 +27,11 @@ function transformDeviceData(payload, topic) {
     });
   }
   
-  // Add EVENT status with readable mapping
+  // Add EVENT status
   if (params.EVENT !== undefined) {
-    const eventText = mapEventCode(params.EVENT);
     metrics.push({
       type: 'EVENT',
-      value: eventText,
-      rawValue: params.EVENT,
-      displayValue: eventText,
+      value: params.EVENT,
       icon: 'bi-exclamation-circle'
     });
   }
@@ -211,85 +87,31 @@ function transformDeviceData(payload, topic) {
   
   // Add Digital Inputs (DI1, DI2, DI3, DI4)
   if (params.DI1 !== undefined) {
-    const normalizedValue = normalizeDigitalIOValue(params.DI1);
     metrics.push({
       type: 'DI1',
-      value: mapDigitalIOValue(normalizedValue),
-      rawValue: normalizedValue,
-      icon: 'bi-toggles',
-      category: 'Digital Input'
+      value: params.DI1,
+      icon: 'bi-toggles'
     });
   }
   if (params.DI2 !== undefined) {
-    const normalizedValue = normalizeDigitalIOValue(params.DI2);
     metrics.push({
       type: 'DI2',
-      value: mapDigitalIOValue(normalizedValue),
-      rawValue: normalizedValue,
-      icon: 'bi-toggles',
-      category: 'Digital Input'
+      value: params.DI2,
+      icon: 'bi-toggles'
     });
   }
   if (params.DI3 !== undefined) {
-    const normalizedValue = normalizeDigitalIOValue(params.DI3);
     metrics.push({
       type: 'DI3',
-      value: mapDigitalIOValue(normalizedValue),
-      rawValue: normalizedValue,
-      icon: 'bi-toggles',
-      category: 'Digital Input'
+      value: params.DI3,
+      icon: 'bi-toggles'
     });
   }
   if (params.DI4 !== undefined) {
-    const normalizedValue = normalizeDigitalIOValue(params.DI4);
     metrics.push({
       type: 'DI4',
-      value: mapDigitalIOValue(normalizedValue),
-      rawValue: normalizedValue,
-      icon: 'bi-toggles',
-      category: 'Digital Input'
-    });
-  }
-  
-  // Add Digital Outputs (DO1, DO2, DO3, DO4)
-  if (params.DO1 !== undefined) {
-    const normalizedValue = normalizeDigitalIOValue(params.DO1);
-    metrics.push({
-      type: 'DO1',
-      value: mapDigitalIOValue(normalizedValue),
-      rawValue: normalizedValue,
-      icon: 'bi-arrow-right-square',
-      category: 'Digital Output'
-    });
-  }
-  if (params.DO2 !== undefined) {
-    const normalizedValue = normalizeDigitalIOValue(params.DO2);
-    metrics.push({
-      type: 'DO2',
-      value: mapDigitalIOValue(normalizedValue),
-      rawValue: normalizedValue,
-      icon: 'bi-arrow-right-square',
-      category: 'Digital Output'
-    });
-  }
-  if (params.DO3 !== undefined) {
-    const normalizedValue = normalizeDigitalIOValue(params.DO3);
-    metrics.push({
-      type: 'DO3',
-      value: mapDigitalIOValue(normalizedValue),
-      rawValue: normalizedValue,
-      icon: 'bi-arrow-right-square',
-      category: 'Digital Output'
-    });
-  }
-  if (params.DO4 !== undefined) {
-    const normalizedValue = normalizeDigitalIOValue(params.DO4);
-    metrics.push({
-      type: 'DO4',
-      value: mapDigitalIOValue(normalizedValue),
-      rawValue: normalizedValue,
-      icon: 'bi-arrow-right-square',
-      category: 'Digital Output'
+      value: params.DI4,
+      icon: 'bi-toggles'
     });
   }
   
@@ -334,39 +156,9 @@ function transformDeviceData(payload, topic) {
     name: payload.API ?? `Device-${deviceId}`,
     icon: 'bi-device',
     type: 'IoT Sensor',
-    location: (() => {
-      if (!params.LATITUDE || !params.LONGITUDE || 
-          params.LATITUDE === '' || params.LONGITUDE === '' ||
-          params.LATITUDE === '00°00\'' || params.LONGITUDE === '000°00\'') {
-        return "Mumbai, India";
-      }
-      
-      // Convert DMS format to decimal if needed
-      let lat = params.LATITUDE;
-      let lon = params.LONGITUDE;
-      
-      // Check if coordinates are in degree format (contain °)
-      if (typeof lat === 'string' && lat.includes('°')) {
-        lat = convertDMSToDecimal(lat);
-      } else {
-        lat = parseFloat(lat);
-      }
-      
-      if (typeof lon === 'string' && lon.includes('°')) {
-        lon = convertDMSToDecimal(lon);
-      } else {
-        lon = parseFloat(lon);
-      }
-      
-      // Return decimal format if both are valid
-      if (!isNaN(lat) && !isNaN(lon)) {
-        return `${lat}, ${lon}`;
-      }
-      
-      return "Mumbai, India";
-    })(),
-    // NOTE: Do NOT set status here - it should come from telemetry database (online/offline/warning)
-    // The EVENT value (INT ON, NORMAL, etc.) is an operational state, not connection status
+    location: params.LATITUDE && params.LONGITUDE && (params.LATITUDE !== '00°00\'' && params.LONGITUDE !== '000°00\'')
+      ? `${params.LATITUDE}, ${params.LONGITUDE}` : "Mumbai, India",
+    status: params.EVENT ?? "NORMAL",
     lastSeen: params.TimeStamp ?? new Date().toISOString(),
     timestamp: Date.now(),
     source: `device-${deviceId}`,
@@ -414,6 +206,5 @@ function createThrottledEmit(io, mqttService) {
 
 module.exports = {
   transformDeviceData,
-  createThrottledEmit,
-  mapEventCode
+  createThrottledEmit
 };

@@ -489,21 +489,21 @@ class DeviceConfigController {
 
       console.log(`🔧 Configuring alarm/set values for device ${deviceId}:`, req.body);
 
-      // Validate input ranges for UP and OP
+      // Validate input ranges: 0.00 to 9.99V (range for Reference UP/OP/Fail)
       if (setup && setup.value !== undefined && setup.value !== null) {
-        if (setup.value < -4.0 || setup.value > 4.0) {
+        if (setup.value < 0.0 || setup.value > 9.99) {
           return res.status(400).json({
             success: false,
-            message: 'SET UP value must be between -4.0 and 4.0V'
+            message: 'SET UP value must be between 0.00 and 9.99V'
           });
         }
       }
 
       if (setop && setop.value !== undefined && setop.value !== null) {
-        if (setop.value < -4.0 || setop.value > 4.0) {
+        if (setop.value < 0.0 || setop.value > 9.99) {
           return res.status(400).json({
             success: false,
-            message: 'SET OP value must be between -4.0 and 4.0V'
+            message: 'SET OP value must be between 0.00 and 9.99V'
           });
         }
       }

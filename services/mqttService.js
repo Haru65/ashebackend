@@ -600,11 +600,11 @@ class MQTTService {
       "Electrode": 0,
       "Event": 0,
       "Manual Mode Action": 0,
-      "Shunt Voltage": "25.00",
-      "Shunt Current": "99.9",
-      "Reference Fail": "0.90",
-      "Reference UP": "0.90",
-      "Reference OP": "0.70",
+      "Shunt Voltage": 25.00,
+      "Shunt Current": 99.00,
+      "Reference Fail": 0.90,
+      "Reference UP": 0.90,
+      "Reference OP": 0.70,
       "Interrupt ON Time": 86400,
       "Interrupt OFF Time": 86400,
       "Interrupt Start TimeStamp": "2025-02-20 19:04:00",
@@ -615,32 +615,8 @@ class MQTTService {
       "Instant Mode": 0,
       "Instant Start TimeStamp": "19:04:00",
       "Instant End TimeStamp": "00:00:00",
-      "logging_interval": 600,           // numeric seconds (10 minutes default)
-      "logging_interval_format": "00:10:00"  // time format
+      "logging_interval": "00:10:00"
     };
-  }
-
-  // Format Shunt Current to 1 decimal place (0.0 to 99.9 range)
-  formatShuntCurrent(value) {
-    if (value === undefined || value === null) return 999;
-    
-    // Convert to number if string
-    const numVal = typeof value === 'string' ? parseFloat(value) : value;
-    
-    if (isNaN(numVal)) return 999;
-    
-    // If it's already in device format (0-999), return as-is
-    if (numVal > 9.99 || Number.isInteger(numVal)) {
-      const clamped = Math.max(0, Math.min(999, numVal));
-      console.log(`📊 Shunt Current formatting: ${value} → ${clamped} (device format)`);
-      return clamped;
-    }
-    
-    // If it's in decimal format (0.0-99.9), convert to device format
-    const clamped = Math.max(0.0, Math.min(99.9, numVal));
-    const deviceFormat = Math.round(clamped * 10);
-    console.log(`📊 Shunt Current formatting: ${value} A → ${deviceFormat} (device format)`);
-    return deviceFormat;
   }
 
   // Initialize device settings if not exists
@@ -666,26 +642,6 @@ class MQTTService {
                 }
               }
             });
-            
-            // Normalize Shunt Current to 1 decimal place (0.0 to 99.9 range)
-            if (normalizedSettings['Shunt Current'] !== undefined && normalizedSettings['Shunt Current'] !== null) {
-              const currentVal = typeof normalizedSettings['Shunt Current'] === 'string' 
-                ? parseFloat(normalizedSettings['Shunt Current']) 
-                : normalizedSettings['Shunt Current'];
-              if (!isNaN(currentVal)) {
-                normalizedSettings['Shunt Current'] = currentVal.toFixed(1);  // Ensure "0.0" format
-              }
-            }
-            
-            // Normalize Shunt Voltage to 2 decimal places if present
-            if (normalizedSettings['Shunt Voltage'] !== undefined && normalizedSettings['Shunt Voltage'] !== null) {
-              const voltageVal = typeof normalizedSettings['Shunt Voltage'] === 'string' 
-                ? parseFloat(normalizedSettings['Shunt Voltage']) 
-                : normalizedSettings['Shunt Voltage'];
-              if (!isNaN(voltageVal)) {
-                normalizedSettings['Shunt Voltage'] = voltageVal.toFixed(2);  // Ensure "25.00" format
-              }
-            }
             
             this.deviceSettings.set(deviceId, normalizedSettings);
             return normalizedSettings;
@@ -991,6 +947,7 @@ class MQTTService {
     
     // Store updated settings in memory
     this.deviceSettings.set(deviceId, updatedSettings);
+    console.log(`💾 Memory cache updated for ${deviceId}: Electrode=${electrodeType}, Reference Fail=${updatedSettings["Reference Fail"]}`);
 
     // Save to database immediately to persist the change
     if (this.deviceManagementService) {
@@ -1229,7 +1186,7 @@ class MQTTService {
       // Set OP maps to Reference OP - only update if explicitly provided
       "Reference OP": setopValue !== null ? setopValue : currentSettings["Reference OP"],
       "Shunt Voltage": alarmConfig.shuntVoltage || alarmConfig["Shunt Voltage"] || currentSettings["Shunt Voltage"],
-      "Shunt Current": this.formatShuntCurrent(alarmConfig.shuntCurrent || alarmConfig["Shunt Current"] || currentSettings["Shunt Current"])
+      "Shunt Current": alarmConfig.shuntCurrent || alarmConfig["Shunt Current"] || currentSettings["Shunt Current"]
     };
 
     console.log(`🔧 Set UP (${setupValue}) → Reference UP (${updatedSettings["Reference UP"]}) [Electrode: ${currentSettings["Electrode"]}]`);
@@ -1384,11 +1341,9 @@ class MQTTService {
     
     // Get current settings and update shunt current field
     const currentSettings = await this.ensureDeviceSettings(deviceId);
-    const formattedCurrent = this.formatShuntCurrent(config.shuntCurrent);
-    
     const updatedSettings = {
       ...currentSettings,
-      "Shunt Current": formattedCurrent
+      "Shunt Current": config.shuntCurrent || "999.00"
     };
     
     // Store updated settings in memory immediately
@@ -1407,7 +1362,7 @@ class MQTTService {
 
     // Create commandId and track then send complete payload
     const commandId = uuidv4();
-    const changedCurrent = { "Shunt Current": formattedCurrent };
+    const changedCurrent = { "Shunt Current": config.shuntCurrent || 999 };
     if (this.deviceManagementService) {
       try { 
         await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedCurrent); 
@@ -1455,8 +1410,8 @@ class MQTTService {
       
       console.log(`🔧 Logging: keeping current values - logging_interval=${currentSettings["logging_interval"]}, logging_interval_format="${currentSettings["logging_interval_format"]}"`);
       return { 
-        logging_interval: currentSettings["logging_interval"] || 600,           // Default: 600 seconds (10 minutes)
-        logging_interval_format: currentSettings["logging_interval_format"] || "00:10:00"  // Default: 00:10:00
+        logging_interval: currentSettings["logging_interval"] || 1800, 
+        logging_interval_format: currentSettings["logging_interval_format"] || "00:30:00" 
       };
     })();
     
@@ -1468,28 +1423,8 @@ class MQTTService {
     
     console.log('💾 Updated logging settings:', JSON.stringify(updatedSettings, null, 2));
     
-    // Store updated settings in memory
+    // Store updated settings
     this.deviceSettings.set(deviceId, updatedSettings);
-
-    // ✅ CRITICAL FIX: Save updated logging settings to database
-    try {
-      const Device = require('../models/Device');
-      await Device.updateOne(
-        { _id: deviceId },
-        {
-          $set: {
-            'configuration.deviceSettings.logging_interval': logging_interval,
-            'configuration.deviceSettings.logging_interval_format': logging_interval_format,
-            'configuration.deviceSettings.loggingInterval': logging_interval_format,
-            'configuration.lastUpdated': new Date(),
-            'configuration.updatedBy': 'system'
-          }
-        }
-      );
-      console.log(`✅ Saved logging configuration to database - logging_interval=${logging_interval}s, logging_interval_format="${logging_interval_format}"`);
-    } catch (error) {
-      console.error(`❌ Failed to save logging configuration to database:`, error.message);
-    }
 
     // Create commandId and track then send complete payload
     const commandId = uuidv4();
@@ -1497,7 +1432,6 @@ class MQTTService {
     if (this.deviceManagementService) {
       try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedLogging); } catch (e) { /* ignore */ }
     }
-    // NOTE: sendCompleteSettingsPayload will use the in-memory cache we just updated
     return await this.sendCompleteSettingsPayload(deviceId, commandId);
   }
 
@@ -1675,30 +1609,24 @@ class MQTTService {
   applyValueMappings(parameters) {
     const mapped = { ...parameters };
     
-    // Shunt Voltage: keep as 3-digit padded string (e.g., "050", "075", "100")
-    // Device expects string format, NOT integer
+    // Convert shunt values from "00.00" format to 0000 integer format (remove decimal point)
+    // e.g., "25.50" -> 2550, "00.97" -> 97
     if (mapped['Shunt Voltage'] !== undefined) {
       const voltageStr = mapped['Shunt Voltage'].toString();
-      // If no decimal, it's already formatted as "075", "050", etc - keep as string
-      if (!voltageStr.includes('.')) {
-        // Already in correct format as string - DO NOT convert to integer
-        console.log(`🔢 Shunt Voltage: "${voltageStr}" (sending as string)`);
-        // Keep as string - already padded from formatShuntVoltageForDevice
+      if (voltageStr.includes('.')) {
+        mapped['Shunt Voltage'] = parseInt(voltageStr.replace('.', ''));
       } else {
-        // Has decimal (shouldn't happen but handle it), remove it and pad
-        const voltageNoDecimal = voltageStr.replace('.', '');
-        mapped['Shunt Voltage'] = voltageNoDecimal.padStart(3, '0');
-        console.log(`🔢 Shunt Voltage: "${voltageStr}" → "${mapped['Shunt Voltage']}"`);
+        mapped['Shunt Voltage'] = parseInt(voltageStr);
       }
     }
     
-    // Shunt Current: remove decimal and convert to integer
-    // e.g., "68.9" → "689" → 689
     if (mapped['Shunt Current'] !== undefined) {
       const currentStr = mapped['Shunt Current'].toString();
-      const currentNoDecimal = currentStr.replace('.', '');
-      mapped['Shunt Current'] = parseInt(currentNoDecimal);
-      console.log(`🔢 Shunt Current: "${currentStr}" → "${currentNoDecimal}" → ${mapped['Shunt Current']}`);
+      if (currentStr.includes('.')) {
+        mapped['Shunt Current'] = parseInt(currentStr.replace('.', ''));
+      } else {
+        mapped['Shunt Current'] = parseInt(currentStr);
+      }
     }
     
     // Apply mappings to specific fields
@@ -1752,35 +1680,20 @@ class MQTTService {
         console.warn(`⚠️ Could not fetch device for _id "${deviceId}": ${error.message}, using _id as fallback`);
       }
       
-      // Get current settings for the device (in internal format from database)
-      const currentSettingsInternal = await this.ensureDeviceSettings(deviceId);
-      console.log(`📖 Current settings internal:`, JSON.stringify({
-        logging_interval: currentSettingsInternal["logging_interval"],
-        logging_interval_format: currentSettingsInternal["logging_interval_format"]
-      }, null, 2));
-      
-      // Convert internal field format to Parameters format
-      const currentSettings = this.deviceManagementService 
-        ? this.deviceManagementService.mapInternalFieldsToParameters(currentSettingsInternal)
-        : currentSettingsInternal;
-      
-      console.log(`📖 Current settings after mapping:`, JSON.stringify({
-        logging_interval: currentSettings["logging_interval"],
-        logging_interval_format: currentSettings["logging_interval_format"]
-      }, null, 2));
+      // Get current settings for the device
+      const currentSettings = await this.ensureDeviceSettings(deviceId);
       
       // Ensure logging_interval_format is set based on logging_interval
       if (currentSettings["logging_interval"]) {
         if (typeof currentSettings["logging_interval"] === 'number') {
           // Convert seconds to hh:mm:ss if not already converted
           currentSettings["logging_interval_format"] = secondsToHHMMSS(currentSettings["logging_interval"]);
-          console.log(`🔄 Converted logging_interval ${currentSettings["logging_interval"]}s to ${currentSettings["logging_interval_format"]}`);
         }
       }
       
       // Create parameters object from current settings - ALL 20 CORE PARAMETERS
-      // Format Reference values: convert to integer (multiply by 100) and pad with leading zeros for 3-digit format
-      // Example: 0.30 → "030", 1.60 → "160", 3.80 → "380"
+      // Format Reference values: multiply by 100 and pad to 3-digit format (no decimal)
+      // Example: 0.30 → "030", 1.60 → "160", -0.80 → "-080", 9.99 → "999"
       const formatRefValueForDevice = (value) => {
         if (value === undefined || value === null) return undefined;
         let numVal;
@@ -1792,17 +1705,22 @@ class MQTTService {
           return value;
         }
         if (!isNaN(numVal)) {
-          // Convert to integer by multiplying by 100 (1.60 -> 160)
-          // Then pad with leading zeros to make it 3 digits (30 -> "030")
+          // Convert to integer by multiplying by 100 (1.60 -> 160, -0.80 -> -80)
           const intVal = Math.round(numVal * 100);
-          return intVal.toString().padStart(3, '0');
+          // Handle negative numbers: "-80" -> "-080"
+          if (intVal < 0) {
+            return '-' + Math.abs(intVal).toString().padStart(3, '0');
+          } else {
+            return intVal.toString().padStart(3, '0');
+          }
         }
         return value;
       };
 
-      // Format Shunt Voltage: pad to 3 digits (e.g., 75 → "075", 100 → "100")
-      const formatShuntVoltageForDevice = (value) => {
-        if (value === undefined || value === null) return "025";
+      // Format Shunt values: pad with leading zeros for 3-digit format
+      // Example: 75 → "075", 100 → "100", 50 → "050"
+      const formatShuntValueForDevice = (value) => {
+        if (value === undefined || value === null) return undefined;
         let numVal;
         if (typeof value === 'string') {
           numVal = parseFloat(value);
@@ -1812,21 +1730,9 @@ class MQTTService {
           return value;
         }
         if (!isNaN(numVal)) {
-          // Pad to 3 digits without decimal (75 → "075", 100 → "100")
+          // Pad with leading zeros to make it 3 digits (75 -> "075", 50 -> "050")
           const intVal = Math.round(numVal);
           return intVal.toString().padStart(3, '0');
-        }
-        return value;
-      };
-
-      // Format Shunt Current: keep with decimal (e.g., 68.9 → "68.9")
-      // applyValueMappings will remove the decimal later
-      const formatShuntCurrentForDevice = (value) => {
-        if (value === undefined || value === null) return "99.9";
-        if (typeof value === 'string') {
-          return value;  // Keep as-is with decimal
-        } else if (typeof value === 'number') {
-          return value.toFixed(1);  // Ensure 1 decimal place
         }
         return value;
       };
@@ -1835,13 +1741,13 @@ class MQTTService {
         "Electrode": currentSettings["Electrode"] || 0,
         "Event": currentSettings["Event"] || 0,
         "Manual Mode Action": currentSettings["Manual Mode Action"] !== undefined ? currentSettings["Manual Mode Action"] : 0,
-        "Shunt Voltage": formatShuntVoltageForDevice(currentSettings["Shunt Voltage"]) || "025",
-        "Shunt Current": formatShuntCurrentForDevice(currentSettings["Shunt Current"]) || "99.9",
-        "Reference Fail": formatRefValueForDevice(currentSettings["Reference Fail"]) || 3000,
-        "Reference UP": formatRefValueForDevice(currentSettings["Reference UP"]) || 30,
-        "Reference OP": formatRefValueForDevice(currentSettings["Reference OP"]) || 60,
-        "Interrupt ON Time": currentSettings["Interrupt ON Time"] || 86400,
-        "Interrupt OFF Time": currentSettings["Interrupt OFF Time"] || 86400,
+        "Shunt Voltage": formatShuntValueForDevice(currentSettings["Shunt Voltage"]) || "025",
+        "Shunt Current": formatShuntValueForDevice(currentSettings["Shunt Current"]) || "099",
+        "Reference Fail": formatRefValueForDevice(currentSettings["Reference Fail"]) || "030",
+        "Reference UP": formatRefValueForDevice(currentSettings["Reference UP"]) || "030",
+        "Reference OP": formatRefValueForDevice(currentSettings["Reference OP"]) || "070",
+        "Interrupt ON Time": (currentSettings["Interrupt ON Time"] || 86400) * 10,
+        "Interrupt OFF Time": (currentSettings["Interrupt OFF Time"] || 86400) * 10,
         "Interrupt Start TimeStamp": currentSettings["Interrupt Start TimeStamp"] || "2025-02-20 19:04:00",
         "Interrupt Stop TimeStamp": currentSettings["Interrupt Stop TimeStamp"] || "2025-02-20 19:05:00",
         "Depolarization Start TimeStamp": currentSettings["Depolarization Start TimeStamp"] || "2025-02-20 19:04:00",
@@ -1850,11 +1756,12 @@ class MQTTService {
         "Instant Mode": currentSettings["Instant Mode"] !== undefined ? currentSettings["Instant Mode"] : 0,
         "Instant Start TimeStamp": currentSettings["Instant Start TimeStamp"] || "19:04:00",
         "Instant End TimeStamp": currentSettings["Instant End TimeStamp"] || "00:00:00",
-        "logging_interval": currentSettings["logging_interval_format"] !== undefined && currentSettings["logging_interval_format"] !== null && currentSettings["logging_interval_format"] !== "" 
-          ? currentSettings["logging_interval_format"] 
-          : (currentSettings["logging_interval"] !== undefined && currentSettings["logging_interval"] !== null 
-              ? secondsToHHMMSS(currentSettings["logging_interval"])
-              : "00:10:00")
+        "logging_interval": currentSettings["logging_interval_format"] || secondsToHHMMSS(currentSettings["logging_interval"] || 600)
+      };
+      
+      // Debug log for electrode changes
+      if (currentSettings["Electrode"] !== undefined || currentSettings["Reference Fail"] !== undefined) {
+        console.log(`📊 Building MQTT payload - Electrode=${currentSettings["Electrode"]}, Reference Fail raw=${currentSettings["Reference Fail"]}, formatted=${parameters["Reference Fail"]}`);
         // NOTE: Do NOT include "Set UP", "Set OP", "Set Fail" - these are display-only aliases for frontend
         // Only send "Reference UP", "Reference OP", "Reference Fail" to device
       };
@@ -1862,8 +1769,6 @@ class MQTTService {
       // Note: Set UP and Set OP were UI-only labels that map to Reference UP and Reference OP
       // These deprecated fields have been consolidated into the Reference fields
       // Depolarization_interval and logging_interval now use hh:mm:ss format only (no numeric versions)
-
-      console.log(`✅ Final logging_interval in parameters: "${parameters["logging_interval"]}"`);
 
       // Apply value mappings to convert string values to numeric codes
       const mappedParameters = this.applyValueMappings(parameters);
@@ -2278,56 +2183,17 @@ class MQTTService {
         }
       }
 
-      // Determine event type from parameters
-      let eventType = 'NORMAL';
-      const params = payload.Parameters || payload;
-      
-      // Check for EVENT parameter first (device sends string like "INT ON", "INT OFF", "NORMAL", etc.)
-      if (params.EVENT !== undefined && params.EVENT !== null && params.EVENT !== '') {
-        // Device sends event as string: "INT ON", "INT OFF", "DPOL", "NORMAL", "INST"
-        eventType = String(params.EVENT).toUpperCase().trim();
-        console.log(`📝 Event from EVENT parameter: "${eventType}"`);
-      } 
-      // Fallback to Event parameter (numeric code: 0=NORMAL, 1=INT, 2=INST, 3=DPOL)
-      else if (params.Event !== undefined) {
-        const eventCode = params.Event;
-        // Map event codes to event type names
-        if (eventCode === 0 || eventCode === '0') {
-          eventType = 'NORMAL';
-        } else if (eventCode === 1 || eventCode === '1') {
-          eventType = 'INT'; // Interrupt mode
-        } else if (eventCode === 2 || eventCode === '2') {
-          eventType = 'INST'; // Instant mode
-        } else if (eventCode === 3 || eventCode === '3') {
-          eventType = 'DPOL'; // Depolarization mode
-        } else if (eventCode === 4 || eventCode === '4') {
-          eventType = 'INST'; // Also Instant mode
-        } else {
-          eventType = String(eventCode || 'NORMAL').toUpperCase();
-        }
-        console.log(`📝 Event from Event code: ${eventCode} → "${eventType}"`);
-      } 
-      // Fallback to lowercase event parameter
-      else if (params.event) {
-        eventType = String(params.event).toUpperCase().trim();
-        console.log(`📝 Event from event parameter: "${eventType}"`);
-      }
-      
-      console.log(`✅ Determined event type: "${eventType}"`);
-      
-      
       // Create telemetry record
       const telemetryRecord = new Telemetry({
         deviceId: deviceId,
         timestamp: new Date(),
-        event: eventType,
-        status: 'online', // Device is online if it's sending data
+        event: payload.EVENT || payload.Event || 'NORMAL',
         data: dataFields,
         location: location  // Add location field for easy access in frontend
       });
 
       await telemetryRecord.save();
-      console.log(`✅ Saved telemetry data for device ${deviceId} with event type: ${eventType}, ${Object.keys(dataFields).length} data fields`);
+      console.log(`✅ Saved telemetry data for device ${deviceId} with ${Object.keys(dataFields).length} data fields`);
       console.log('📊 Saved fields:', Object.keys(dataFields).join(', '));
       if (location) {
         console.log(`📍 Saved location: ${location}`);
@@ -2436,9 +2302,9 @@ class MQTTService {
         "Manual Mode Action": settingsPayload['Manual Mode Action'] !== undefined ? settingsPayload['Manual Mode Action'] : currentSettings.manualModeAction || 0,
         "Shunt Voltage": settingsPayload['Shunt Voltage'] !== undefined ? settingsPayload['Shunt Voltage'] : currentSettings.shuntVoltage || 25,
         "Shunt Current": settingsPayload['Shunt Current'] !== undefined ? settingsPayload['Shunt Current'] : currentSettings.shuntCurrent || 999,
-        "Reference Fail": settingsPayload['Reference Fail'] !== undefined ? settingsPayload['Reference Fail'] : currentSettings.referenceFail || 30,
-        "Reference UP": settingsPayload['Reference UP'] !== undefined ? settingsPayload['Reference UP'] : currentSettings.referenceUP || 300,
-        "Reference OP": settingsPayload['Reference OP'] !== undefined ? settingsPayload['Reference OP'] : (settingsPayload['Reference OV'] !== undefined ? settingsPayload['Reference OV'] : currentSettings.referenceOP || 60),
+        "Reference Fail": settingsPayload['Reference Fail'] !== undefined ? settingsPayload['Reference Fail'] : currentSettings.referenceFail || 0.30,
+        "Reference UP": settingsPayload['Reference UP'] !== undefined ? settingsPayload['Reference UP'] : currentSettings.referenceUP || 0.30,
+        "Reference OP": settingsPayload['Reference OP'] !== undefined ? settingsPayload['Reference OP'] : (settingsPayload['Reference OV'] !== undefined ? settingsPayload['Reference OV'] : currentSettings.referenceOP || 0.70),
         "Interrupt ON Time": settingsPayload['Interrupt ON Time'] !== undefined ? settingsPayload['Interrupt ON Time'] : currentSettings.interruptOnTime || 86400,
         "Interrupt OFF Time": settingsPayload['Interrupt OFF Time'] !== undefined ? settingsPayload['Interrupt OFF Time'] : currentSettings.interruptOffTime || 86400,
         "Interrupt Start TimeStamp": settingsPayload['Interrupt Start TimeStamp'] !== undefined ? settingsPayload['Interrupt Start TimeStamp'] : currentSettings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
@@ -2820,32 +2686,16 @@ class MQTTService {
       let locationName = null;
       
       // Get latitude/longitude from MQTT payload
-      if (payload.LATITUDE && payload.LONGITUDE) {
-        // Handle DMS format (string like "19°03'N")
-        if (typeof payload.LATITUDE === 'string' && payload.LATITUDE.includes('°')) {
-          latitude = this.convertDMSToDecimal(payload.LATITUDE);
-        } else {
-          latitude = parseFloat(payload.LATITUDE);
-        }
+      if (payload.LATITUDE && payload.LONGITUDE && 
+          (payload.LATITUDE !== 0 || payload.LONGITUDE !== 0) &&
+          typeof payload.LATITUDE === 'number' && 
+          typeof payload.LONGITUDE === 'number') {
+        latitude = payload.LATITUDE;
+        longitude = payload.LONGITUDE;
         
-        if (typeof payload.LONGITUDE === 'string' && payload.LONGITUDE.includes('°')) {
-          longitude = this.convertDMSToDecimal(payload.LONGITUDE);
-        } else {
-          longitude = parseFloat(payload.LONGITUDE);
-        }
-        
-        // Only proceed if both coordinates are valid
-        if ((latitude !== 0 || longitude !== 0) && 
-            latitude !== null && longitude !== null && 
-            !isNaN(latitude) && !isNaN(longitude)) {
-          
-          // Perform reverse geocoding to get location name
-          locationName = await this.reverseGeocodeLocation(latitude, longitude);
-          console.log(`📍 Device ${deviceId} coordinates: ${payload.LATITUDE}, ${payload.LONGITUDE} → Decimal: ${latitude}, ${longitude} → ${locationName || 'Unknown'}`);
-        } else {
-          console.log(`⚠️ Device ${deviceId} has invalid coordinates after conversion - Lat: ${latitude}, Lon: ${longitude}`);
-          return;
-        }
+        // Perform reverse geocoding to get location name
+        locationName = await this.reverseGeocodeLocation(latitude, longitude);
+        console.log(`📍 Device ${deviceId} coordinates: ${latitude}, ${longitude} → ${locationName || 'Unknown'}`);
       } else {
         console.log(`⚠️ Device ${deviceId} has invalid or missing LATITUDE/LONGITUDE in payload`);
         return;

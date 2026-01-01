@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Telemetry = require('../models/telemetry');
+const Device = require('../models/Device');
 const { authenticateToken } = require('../middleware/auth');
 
 // Get telemetry data with filtering
@@ -44,14 +45,30 @@ router.get('/', authenticateToken, async (req, res) => {
       .limit(parseInt(limit))
       .skip(parseInt(offset));
 
+    // Enrich telemetry data with device metadata
+    const enrichedTelemetryData = await Promise.all(
+      telemetryData.map(async (telemetry) => {
+        const device = await Device.findOne({ deviceId: telemetry.deviceId }).lean();
+        const telemetryObj = telemetry.toObject ? telemetry.toObject() : telemetry;
+        
+        return {
+          ...telemetryObj,
+          // Add device metadata fields
+          name: device?.deviceName || telemetry.deviceId,
+          type: 'IoT Sensor', // Default type - can be extended in Device model if needed
+          lastSeen: device?.status?.lastSeen || telemetry.timestamp
+        };
+      })
+    );
+
     // Get total count for pagination
     const totalCount = await Telemetry.countDocuments(query);
 
-    console.log('✅ Telemetry results:', telemetryData.length, 'records');
+    console.log('✅ Telemetry results:', enrichedTelemetryData.length, 'records');
 
     res.json({
       success: true,
-      data: telemetryData,
+      data: enrichedTelemetryData,
       meta: {
         total: totalCount,
         limit: parseInt(limit),
@@ -96,9 +113,25 @@ router.get('/device/:deviceId', authenticateToken, async (req, res) => {
       .sort({ timestamp: -1 })
       .limit(parseInt(limit));
 
+    // Get device metadata once
+    const device = await Device.findOne({ deviceId }).lean();
+
+    // Enrich all telemetry records with device metadata
+    const enrichedTelemetryData = telemetryData.map(telemetry => {
+      const telemetryObj = telemetry.toObject ? telemetry.toObject() : telemetry;
+      
+      return {
+        ...telemetryObj,
+        // Add device metadata fields
+        name: device?.deviceName || deviceId,
+        type: 'IoT Sensor',
+        lastSeen: device?.status?.lastSeen || telemetry.timestamp
+      };
+    });
+
     res.json({
       success: true,
-      data: telemetryData
+      data: enrichedTelemetryData
     });
 
   } catch (error) {
@@ -128,9 +161,23 @@ router.get('/latest', authenticateToken, async (req, res) => {
       }
     ]);
 
+    // Enrich with device metadata
+    const enrichedLatestData = await Promise.all(
+      latestData.map(async (telemetry) => {
+        const device = await Device.findOne({ deviceId: telemetry.deviceId }).lean();
+        
+        return {
+          ...telemetry,
+          name: device?.deviceName || telemetry.deviceId,
+          type: 'IoT Sensor',
+          lastSeen: device?.status?.lastSeen || telemetry.timestamp
+        };
+      })
+    );
+
     res.json({
       success: true,
-      data: latestData
+      data: enrichedLatestData
     });
 
   } catch (error) {

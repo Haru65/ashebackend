@@ -43,21 +43,58 @@ router.get('/', authenticateToken, async (req, res) => {
       .find(query)
       .sort({ timestamp: -1 })
       .limit(parseInt(limit))
-      .skip(parseInt(offset));
+      .skip(parseInt(offset))
+      .exec(); // Don't use .lean() so Mongoose applies schema methods properly
 
-    // Enrich telemetry data with device metadata
+    // Enrich telemetry data with device metadata AND flatten data fields
     const enrichedTelemetryData = await Promise.all(
       telemetryData.map(async (telemetry) => {
         const device = await Device.findOne({ deviceId: telemetry.deviceId }).lean();
         const telemetryObj = telemetry.toObject ? telemetry.toObject() : telemetry;
         
-        return {
-          ...telemetryObj,
+        console.log(`🔍 Processing telemetry record ${telemetryObj._id}:`, {
+          deviceId: telemetryObj.deviceId,
+          dataType: typeof telemetryObj.data,
+          isMap: telemetryObj.data instanceof Map,
+          dataKeys: telemetryObj.data ? Object.keys(telemetryObj.data) : [],
+          dataLength: telemetryObj.data ? Object.keys(telemetryObj.data).length : 0
+        });
+        
+        // Convert Map data to plain object and flatten all fields
+        let dataObj = {};
+        
+        if (telemetryObj.data) {
+          if (telemetryObj.data instanceof Map) {
+            dataObj = Object.fromEntries(telemetryObj.data);
+            console.log(`  ✓ Converted Map to object: ${Object.keys(dataObj).length} fields`);
+          } else if (typeof telemetryObj.data === 'object') {
+            // Handle plain object (should be the case for new records)
+            dataObj = telemetryObj.data;
+            console.log(`  ✓ Using plain object: ${Object.keys(dataObj).length} fields`);
+          }
+        }
+        
+        const enrichedRecord = {
+          _id: telemetryObj._id,
+          deviceId: telemetryObj.deviceId,
+          timestamp: telemetryObj.timestamp,
+          event: telemetryObj.event,
+          status: telemetryObj.status,
+          location: telemetryObj.location,
+          // Include all data fields directly (flattened)
+          ...dataObj,
           // Add device metadata fields
           name: device?.deviceName || telemetry.deviceId,
-          type: 'IoT Sensor', // Default type - can be extended in Device model if needed
+          type: 'IoT Sensor',
           lastSeen: device?.status?.lastSeen || telemetry.timestamp
         };
+        
+        // Explicitly remove the nested data field to avoid confusion
+        delete enrichedRecord.data;
+        
+        console.log(`  ✓ Enriched record has ${Object.keys(enrichedRecord).length - 4} data fields (excluding _id, deviceId, timestamp, event)`);
+        
+        return enrichedRecord;
       })
     );
 
@@ -65,6 +102,14 @@ router.get('/', authenticateToken, async (req, res) => {
     const totalCount = await Telemetry.countDocuments(query);
 
     console.log('✅ Telemetry results:', enrichedTelemetryData.length, 'records');
+    if (enrichedTelemetryData.length > 0) {
+      console.log('   Sample record keys:', Object.keys(enrichedTelemetryData[0]));
+      console.log('   Sample record (first 20 fields):', JSON.stringify(
+        Object.fromEntries(Object.entries(enrichedTelemetryData[0]).slice(0, 20)),
+        null,
+        2
+      ));
+    }
 
     res.json({
       success: true,
@@ -116,17 +161,34 @@ router.get('/device/:deviceId', authenticateToken, async (req, res) => {
     // Get device metadata once
     const device = await Device.findOne({ deviceId }).lean();
 
-    // Enrich all telemetry records with device metadata
+    // Enrich all telemetry records with device metadata and flatten data fields
     const enrichedTelemetryData = telemetryData.map(telemetry => {
       const telemetryObj = telemetry.toObject ? telemetry.toObject() : telemetry;
       
-      return {
-        ...telemetryObj,
+      // Convert Map data to plain object and flatten all fields
+      const dataObj = telemetryObj.data instanceof Map 
+        ? Object.fromEntries(telemetryObj.data)
+        : telemetryObj.data || {};
+      
+      const enrichedRecord = {
+        _id: telemetryObj._id,
+        deviceId: telemetryObj.deviceId,
+        timestamp: telemetryObj.timestamp,
+        event: telemetryObj.event,
+        status: telemetryObj.status,
+        location: telemetryObj.location,
+        // Include all data fields directly (flattened)
+        ...dataObj,
         // Add device metadata fields
         name: device?.deviceName || deviceId,
         type: 'IoT Sensor',
         lastSeen: device?.status?.lastSeen || telemetry.timestamp
       };
+      
+      // Explicitly remove the nested data field to avoid confusion
+      delete enrichedRecord.data;
+      
+      return enrichedRecord;
     });
 
     res.json({
@@ -161,17 +223,34 @@ router.get('/latest', authenticateToken, async (req, res) => {
       }
     ]);
 
-    // Enrich with device metadata
+    // Enrich with device metadata and flatten data fields
     const enrichedLatestData = await Promise.all(
       latestData.map(async (telemetry) => {
         const device = await Device.findOne({ deviceId: telemetry.deviceId }).lean();
         
-        return {
-          ...telemetry,
+        // Convert Map data to plain object and flatten all fields
+        const dataObj = telemetry.data instanceof Map 
+          ? Object.fromEntries(telemetry.data)
+          : telemetry.data || {};
+        
+        const enrichedRecord = {
+          _id: telemetry._id,
+          deviceId: telemetry.deviceId,
+          timestamp: telemetry.timestamp,
+          event: telemetry.event,
+          status: telemetry.status,
+          location: telemetry.location,
+          // Include all data fields directly (flattened)
+          ...dataObj,
           name: device?.deviceName || telemetry.deviceId,
           type: 'IoT Sensor',
           lastSeen: device?.status?.lastSeen || telemetry.timestamp
         };
+        
+        // Explicitly remove the nested data field to avoid confusion
+        delete enrichedRecord.data;
+        
+        return enrichedRecord;
       })
     );
 
@@ -260,6 +339,15 @@ router.get('/recent', authenticateToken, async (req, res) => {
       error: 'Failed to fetch recent telemetry data'
     });
   }
+});
+
+// DEPRECATED: Reverse geocoding endpoint removed
+// Use device's stored location instead of external API calls
+router.get('/geolocation/reverse', async (req, res) => {
+  res.json({
+    success: false,
+    error: 'Reverse geocoding service disabled. Use device location instead.'
+  });
 });
 
 module.exports = router;

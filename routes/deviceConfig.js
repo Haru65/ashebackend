@@ -20,6 +20,10 @@ router.get('/devices/:deviceId/settings', deviceConfigController.getDeviceSettin
 router.post('/devices/:deviceId/settings', deviceConfigController.updateDeviceSettings);
 router.post('/devices/:deviceId/settings/single', deviceConfigController.updateSingleSetting);
 
+// Settings caching routes - COMPLETE PAYLOAD & BATCH
+router.post('/devices/:deviceId/settings/complete', deviceConfigController.sendCompleteSettingsPayload);
+router.post('/devices/:deviceId/settings/batch', deviceConfigController.batchUpdateSettings);
+
 // New configuration routes for missing features  
 router.post('/devices/:deviceId/configure/voltage', deviceConfigController.configureSetVoltage);
 router.post('/devices/:deviceId/configure/shunt', deviceConfigController.configureSetShunt);

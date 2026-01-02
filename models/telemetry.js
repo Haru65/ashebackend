@@ -29,10 +29,37 @@ const telemetrySchema = new mongoose.Schema({
   },
 
   // 🔹 Flexible fields (payload can vary per device/model)
+  // Store all telemetry data fields in a Map for flexibility
   data: {
     type: Map,
-    of: mongoose.Schema.Types.Mixed // can hold Number, String, Boolean, etc.
+    of: mongoose.Schema.Types.Mixed, // can hold Number, String, Boolean, etc.
+    default: {},  // Ensure default is empty object, not undefined
+    set: (value) => {
+      // Ensure data is always a proper object/Map
+      if (!value) return new Map();
+      if (value instanceof Map) return value;
+      if (typeof value === 'object') return new Map(Object.entries(value));
+      return new Map();
+    }
   }
+}, {
+  // Store as plain object in MongoDB, not as Map
+  toJSON: {
+    getters: true,
+    virtuals: true
+  },
+  toObject: {
+    getters: true,
+    virtuals: true
+  }
+});
+
+// Ensure data is serialized properly
+telemetrySchema.pre('toJSON', function(next) {
+  if (this.data && this.data instanceof Map) {
+    this.data = Object.fromEntries(this.data);
+  }
+  next();
 });
 
 module.exports = mongoose.model("telemetry_data" , telemetrySchema);

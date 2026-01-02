@@ -796,7 +796,8 @@ class DeviceController {
         };
         
         // This will send the complete settings frame with logging_interval and logging_interval_format
-        const result = await mqttService.setLoggingConfiguration(device._id, config);
+        // Use deviceId (string like "123"), not device._id (MongoDB ObjectId) to match memory cache keys
+        const result = await mqttService.setLoggingConfiguration(deviceId, config);
         console.log(`✅ [MQTT] Complete settings frame sent successfully to ${deviceId}`);
         
         // Update device configuration in database

@@ -194,7 +194,7 @@ class DeviceManagementService {
           "Instant Mode": settings.instantMode !== undefined ? settings.instantMode : 0,
           "Instant Start TimeStamp": settings.instantStartTimeStamp || settings.instantStartTimestamp || "19:04:00",
           "Instant End TimeStamp": settings.instantEndTimeStamp || settings.instantEndTimestamp || "00:00:00",
-          "logging_interval": settings.logging_interval !== undefined ? settings.logging_interval : 600,  // numeric seconds
+          "logging_interval": settings.logging_interval_format || settings.loggingInterval || "00:10:00",  // time format string
           "logging_interval_format": settings.logging_interval_format || settings.loggingInterval || "00:10:00",  // time format
           "Depolarization_interval": settings.dpolInterval || "00:00:00"
         }

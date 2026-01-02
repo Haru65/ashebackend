@@ -72,18 +72,35 @@ class ExcelExportService {
       console.log('✅ Worksheet added to workbook');
 
       // Get all unique data keys for dynamic columns
+      // These now come from flattened top-level fields (ref1, ref2, aci, acv, etc.)
       const allDataKeys = new Set();
+      const fixedFields = ['deviceId', 'timestamp', 'event', 'status', 'location', 'name', 'type', 'lastSeen', '_id'];
+      
+      telemetryData.forEach(record => {
+        Object.keys(record).forEach(key => {
+          // Include all fields except the fixed metadata ones
+          if (!fixedFields.includes(key)) {
+            allDataKeys.add(key);
+          }
+        });
+      });
+
+      // Also check if data still exists as a Map/Object (for backward compatibility)
       telemetryData.forEach(record => {
         if (record.data && typeof record.data === 'object') {
           if (record.data instanceof Map) {
             // Handle Map data type
             record.data.forEach((value, key) => {
-              allDataKeys.add(key);
+              if (!allDataKeys.has(key)) {
+                allDataKeys.add(key);
+              }
             });
           } else {
             // Handle regular object
             Object.keys(record.data).forEach(key => {
-              allDataKeys.add(key);
+              if (!allDataKeys.has(key)) {
+                allDataKeys.add(key);
+              }
             });
           }
         }
@@ -94,18 +111,21 @@ class ExcelExportService {
         { header: 'Device ID', key: 'deviceId', width: 15 },
         { header: 'Timestamp', key: 'timestamp', width: 20 },
         { header: 'Event', key: 'event', width: 15 },
+        { header: 'Status', key: 'status', width: 12 },
+        { header: 'Location', key: 'location', width: 15 }
       ];
 
-      // Add dynamic data columns
-      const dataColumns = Array.from(allDataKeys).map(key => ({
+      // Add dynamic data columns (sorted for consistency)
+      const dataColumns = Array.from(allDataKeys).sort().map(key => ({
         header: key.toUpperCase().replace(/_/g, ' '),
-        key: `data_${key}`,
+        key: key,
         width: 15
       }));
 
       worksheet.columns = [...baseColumns, ...dataColumns];
 
       console.log(`📋 Columns configured: ${baseColumns.length + dataColumns.length} total (${baseColumns.length} base + ${dataColumns.length} data)`);
+      console.log('📋 Dynamic data fields:', Array.from(allDataKeys).sort());
 
       // Style the header row
       worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFF' } };
@@ -121,18 +141,25 @@ class ExcelExportService {
           const row = {
             deviceId: record.deviceId,
             timestamp: record.timestamp,
-            event: record.event || 'NORMAL'
+            event: record.event || 'NORMAL',
+            status: record.status || 'online',
+            location: record.location || 'N/A'
           };
 
-          // Extract data fields
-          if (record.data) {
-            const dataObj = record.data instanceof Map ? 
-              Object.fromEntries(record.data) : record.data;
-            
-            Object.keys(dataObj).forEach(key => {
-              row[`data_${key}`] = dataObj[key];
-            });
-          }
+          // Extract all dynamic fields directly from the flattened record
+          Array.from(allDataKeys).forEach(key => {
+            // First check if field exists directly in record
+            if (record[key] !== undefined) {
+              row[key] = record[key];
+            }
+            // Fall back to checking data object (backward compatibility)
+            else if (record.data) {
+              const dataObj = record.data instanceof Map ? 
+                Object.fromEntries(record.data) : record.data;
+              
+              row[key] = dataObj[key];
+            }
+          });
 
           worksheet.addRow(row);
 

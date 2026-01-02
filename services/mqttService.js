@@ -105,6 +105,7 @@ class MQTTService {
     // Location tracking
     this.lastLocationSummaryEmit = 0;
     this.deviceLocations = new Map(); // deviceId -> {name, latitude, longitude}
+    this.locationCache = {}; // Coordinate-based location cache
   }
 
   initialize(io) {
@@ -1383,8 +1384,34 @@ class MQTTService {
     console.log('🔧 Setting logging configuration - will send complete settings...');
     console.log('📥 Received logging config:', JSON.stringify(config, null, 2));
     
-    // Get current settings and update interval fields
-    const currentSettings = await this.ensureDeviceSettings(deviceId);
+    // Get current settings - PRIORITIZE memory cache (most recent from device)
+    // Fall back to database if memory cache is empty
+    let currentSettings = null;
+    
+    // First, try to get from memory cache (has latest device data)
+    if (this.deviceSettings.has(deviceId)) {
+      currentSettings = { ...this.deviceSettings.get(deviceId) };
+      console.log(`📥 Using MEMORY CACHE settings for device ${deviceId} (most recent from device)`);
+    }
+    
+    // If memory cache is empty, try loading from database
+    if (!currentSettings && this.deviceManagementService) {
+      try {
+        const dbSettings = await this.deviceManagementService.getDeviceSettings(deviceId);
+        if (dbSettings && dbSettings.Parameters) {
+          currentSettings = { ...dbSettings.Parameters };
+          console.log(`📥 Using DATABASE settings for device ${deviceId} (memory cache was empty)`);
+        }
+      } catch (error) {
+        console.warn(`⚠️ Could not load settings from database for ${deviceId}:`, error.message);
+      }
+    }
+    
+    // Final fallback - use defaults
+    if (!currentSettings) {
+      currentSettings = await this.ensureDeviceSettings(deviceId);
+      console.log(`⚠️ Using DEFAULT settings for device ${deviceId} (neither cache nor database had values)`);
+    }
     
     // Handle nested object format for logging interval
     const { logging_interval, logging_interval_format } = (() => {
@@ -1423,7 +1450,7 @@ class MQTTService {
     
     console.log('💾 Updated logging settings:', JSON.stringify(updatedSettings, null, 2));
     
-    // Store updated settings
+    // Store updated settings in memory cache
     this.deviceSettings.set(deviceId, updatedSettings);
 
     // Create commandId and track then send complete payload
@@ -1609,27 +1636,11 @@ class MQTTService {
   applyValueMappings(parameters) {
     const mapped = { ...parameters };
     
-    // Convert shunt values from "00.00" format to 0000 integer format (remove decimal point)
-    // e.g., "25.50" -> 2550, "00.97" -> 97
-    if (mapped['Shunt Voltage'] !== undefined) {
-      const voltageStr = mapped['Shunt Voltage'].toString();
-      if (voltageStr.includes('.')) {
-        mapped['Shunt Voltage'] = parseInt(voltageStr.replace('.', ''));
-      } else {
-        mapped['Shunt Voltage'] = parseInt(voltageStr);
-      }
-    }
+    // Shunt values are already formatted as 3-digit padded strings (e.g., "075", "099")
+    // They are sent as-is to the device (no further conversion needed)
+    // The padding format is: 75 → "075", 100 → "100", 50 → "050"
     
-    if (mapped['Shunt Current'] !== undefined) {
-      const currentStr = mapped['Shunt Current'].toString();
-      if (currentStr.includes('.')) {
-        mapped['Shunt Current'] = parseInt(currentStr.replace('.', ''));
-      } else {
-        mapped['Shunt Current'] = parseInt(currentStr);
-      }
-    }
-    
-    // Apply mappings to specific fields
+    // Apply mappings to specific fields (these remain as numeric codes)
     if (mapped['Electrode'] !== undefined) {
       mapped['Electrode'] = this.mapValueToCode('Electrode', mapped['Electrode']);
     }
@@ -1692,8 +1703,52 @@ class MQTTService {
       }
       
       // Create parameters object from current settings - ALL 20 CORE PARAMETERS
-      // Format Reference values: multiply by 100 and pad to 3-digit format (no decimal)
-      // Example: 0.30 → "030", 1.60 → "160", -0.80 → "-080", 9.99 → "999"
+      // Using OLD RESOLUTION HANDLER LOGIC:
+      // Shunt Voltage: 75 → "075" (3-digit padded, no multiplication)
+      // Shunt Current: 16.8 → "168" (multiply by 10)
+      // Reference values: 0.30 → "030", 1.24 → "124" (multiply by 100, pad 3 digits)
+      // Interrupt times: 50.0 → 500 (multiply by 10)
+
+      const formatShuntVoltageForDevice = (value) => {
+        if (value === undefined || value === null) return undefined;
+        let numVal;
+        if (typeof value === 'string') {
+          numVal = parseFloat(value);
+        } else if (typeof value === 'number') {
+          numVal = value;
+        } else {
+          return value;
+        }
+        if (!isNaN(numVal)) {
+          // Pad to 3 digits with leading zeros (75 -> "075", 100 -> "100")
+          const intVal = Math.round(numVal);
+          return intVal.toString().padStart(3, '0');
+        }
+        return value;
+      };
+
+      const formatShuntCurrentForDevice = (value) => {
+        if (value === undefined || value === null) return undefined;
+        let numVal;
+        if (typeof value === 'string') {
+          numVal = parseFloat(value);
+        } else if (typeof value === 'number') {
+          numVal = value;
+        } else {
+          return value;
+        }
+        if (!isNaN(numVal)) {
+          // If value is already large (>100), assume it's been scaled and just return it
+          // Otherwise multiply by 10 (16.8 * 10 = 168)
+          if (numVal > 100) {
+            return Math.round(numVal);
+          } else {
+            return Math.round(numVal * 10);
+          }
+        }
+        return value;
+      };
+
       const formatRefValueForDevice = (value) => {
         if (value === undefined || value === null) return undefined;
         let numVal;
@@ -1705,9 +1760,15 @@ class MQTTService {
           return value;
         }
         if (!isNaN(numVal)) {
-          // Convert to integer by multiplying by 100 (1.60 -> 160, -0.80 -> -80)
-          const intVal = Math.round(numVal * 100);
-          // Handle negative numbers: "-80" -> "-080"
+          // If value is already large (>100), assume it's been scaled and just pad it
+          // Otherwise multiply by 100 (0.30 * 100 = 30 → "030", 1.24 * 100 = 124 → "124")
+          let intVal;
+          if (Math.abs(numVal) > 100) {
+            intVal = Math.round(numVal);
+          } else {
+            intVal = Math.round(numVal * 100);
+          }
+          
           if (intVal < 0) {
             return '-' + Math.abs(intVal).toString().padStart(3, '0');
           } else {
@@ -1717,32 +1778,20 @@ class MQTTService {
         return value;
       };
 
-      // Format Shunt values: pad with leading zeros for 3-digit format
-      // Example: 75 → "075", 100 → "100", 50 → "050"
-      const formatShuntValueForDevice = (value) => {
-        if (value === undefined || value === null) return undefined;
-        let numVal;
-        if (typeof value === 'string') {
-          numVal = parseFloat(value);
-        } else if (typeof value === 'number') {
-          numVal = value;
-        } else {
-          return value;
-        }
-        if (!isNaN(numVal)) {
-          // Pad with leading zeros to make it 3 digits (75 -> "075", 50 -> "050")
-          const intVal = Math.round(numVal);
-          return intVal.toString().padStart(3, '0');
-        }
-        return value;
-      };
+      // Build logging_interval - handle both string (time format) and numeric (seconds) values
+      let loggingIntervalValue = currentSettings["logging_interval"] || "00:10:00";
+      if (typeof loggingIntervalValue === 'number') {
+        // If it's numeric, convert to HH:MM:SS format
+        loggingIntervalValue = secondsToHHMMSS(loggingIntervalValue);
+      }
+      // If it's already a string, use as-is
 
       const parameters = {
         "Electrode": currentSettings["Electrode"] || 0,
         "Event": currentSettings["Event"] || 0,
         "Manual Mode Action": currentSettings["Manual Mode Action"] !== undefined ? currentSettings["Manual Mode Action"] : 0,
-        "Shunt Voltage": formatShuntValueForDevice(currentSettings["Shunt Voltage"]) || "025",
-        "Shunt Current": formatShuntValueForDevice(currentSettings["Shunt Current"]) || "099",
+        "Shunt Voltage": formatShuntVoltageForDevice(currentSettings["Shunt Voltage"]) || "025",
+        "Shunt Current": formatShuntCurrentForDevice(currentSettings["Shunt Current"]) || 99,
         "Reference Fail": formatRefValueForDevice(currentSettings["Reference Fail"]) || "030",
         "Reference UP": formatRefValueForDevice(currentSettings["Reference UP"]) || "030",
         "Reference OP": formatRefValueForDevice(currentSettings["Reference OP"]) || "070",
@@ -1756,7 +1805,7 @@ class MQTTService {
         "Instant Mode": currentSettings["Instant Mode"] !== undefined ? currentSettings["Instant Mode"] : 0,
         "Instant Start TimeStamp": currentSettings["Instant Start TimeStamp"] || "19:04:00",
         "Instant End TimeStamp": currentSettings["Instant End TimeStamp"] || "00:00:00",
-        "logging_interval": currentSettings["logging_interval_format"] || secondsToHHMMSS(currentSettings["logging_interval"] || 600)
+        "logging_interval": loggingIntervalValue
       };
       
       // Debug log for electrode changes
@@ -2132,71 +2181,198 @@ class MQTTService {
     try {
       const Telemetry = require('../models/telemetry');
       
+      console.log(`\n${'='.repeat(80)}`);
+      console.log(`📥 TELEMETRY SAVE START for device ${deviceId}`);
+      console.log(`${'='.repeat(80)}`);
+      console.log('📦 Incoming payload keys:', Object.keys(payload));
+      console.log('📦 Full payload:', JSON.stringify(payload, null, 2).substring(0, 500) + '...');
+      
       // Extract all data fields from payload, including Parameters if nested
       const dataFields = {};
       
       // Handle nested Parameters structure (real device format)
       if (payload.Parameters && typeof payload.Parameters === 'object') {
+        console.log(`✓ Found nested Parameters object with ${Object.keys(payload.Parameters).length} fields`);
         Object.keys(payload.Parameters).forEach(key => {
           dataFields[key] = payload.Parameters[key];
         });
         console.log('📦 Extracted nested Parameters for telemetry');
+        console.log('   Keys extracted:', Object.keys(dataFields).join(', '));
+      } else {
+        console.log('⚠️ No nested Parameters object found');
       }
       
+      // Extract LATITUDE and LONGITUDE BEFORE they are excluded from dataFields
+      // These will be used for reverse geocoding
+      const rawLatitude = payload.LATITUDE;
+      const rawLongitude = payload.LONGITUDE;
+      console.log(`🔍 DEBUG - Raw coordinates from payload:`, {
+        rawLatitude,
+        rawLongitude,
+        latitudeType: typeof rawLatitude,
+        longitudeType: typeof rawLongitude,
+        latitudeExists: rawLatitude !== undefined,
+        longitudeExists: rawLongitude !== undefined
+      });
+      
       // Also include root-level fields (simulator format)
+      const beforeRootCount = Object.keys(dataFields).length;
       Object.keys(payload).forEach(key => {
-        // Skip meta fields, keep actual telemetry data
-        if (!['Device ID', 'Message Type', 'sender', 'CommandId', 'Parameters'].includes(key)) {
+        // Skip meta fields and location fields (handled separately), keep actual telemetry data
+        if (!['Device ID', 'Message Type', 'sender', 'CommandId', 'Parameters', 'sn', 'SN', 'LATITUDE', 'LONGITUDE'].includes(key)) {
           dataFields[key] = payload[key];
         }
       });
+      
+      if (Object.keys(dataFields).length > beforeRootCount) {
+        console.log(`✓ Added ${Object.keys(dataFields).length - beforeRootCount} root-level fields`);
+      }
 
-      // Ensure critical REF values are properly captured
-      ['REF/OP', 'REF/UP', 'REF FAIL', 'REF_OP', 'REF_UP', 'REF_FAIL', 
-       'DI1', 'DI2', 'DI3', 'DI4', 'REF1', 'REF2', 'REF3', 'LATITUDE', 'LONGITUDE'].forEach(field => {
+      // Ensure critical REF values are properly captured (but NOT latitude/longitude which are handled as location)
+      const criticalFields = ['REF/OP', 'REF/UP', 'REF FAIL', 'REF_OP', 'REF_UP', 'REF_FAIL', 
+       'DI1', 'DI2', 'DI3', 'DI4', 'REF1', 'REF2', 'REF3'];
+      
+      let criticalAdded = 0;
+      criticalFields.forEach(field => {
         if (payload[field] !== undefined) {
           dataFields[field] = payload[field];
+          criticalAdded++;
         }
         if (payload.Parameters && payload.Parameters[field] !== undefined) {
           dataFields[field] = payload.Parameters[field];
+          criticalAdded++;
         }
       });
+      
+      if (criticalAdded > 0) {
+        console.log(`✓ Added ${criticalAdded} critical fields`);
+      }
+
+      console.log(`\n📊 FINAL DATA FIELDS SUMMARY:`);
+      console.log(`   Total fields extracted: ${Object.keys(dataFields).length}`);
+      console.log(`   Fields: ${Object.keys(dataFields).join(', ')}`);
+      console.log(`   Sample values:`, Object.fromEntries(Object.entries(dataFields).slice(0, 5)));
 
       // Format location field if latitude and longitude are present
       let location = null;
-      if (dataFields.LATITUDE && dataFields.LONGITUDE && 
-          dataFields.LATITUDE !== '' && dataFields.LONGITUDE !== '') {
+      console.log(`📍 Location processing:`, {
+        hasRawLatitude: !!rawLatitude,
+        hasRawLongitude: !!rawLongitude,
+        rawLatitude,
+        rawLongitude
+      });
+      
+      if (rawLatitude && rawLongitude && 
+          rawLatitude !== '' && rawLongitude !== '') {
+        
+        console.log(`✓ Raw coordinates found, attempting conversion...`);
         
         // Convert DMS format to decimal if needed
-        const lat = typeof dataFields.LATITUDE === 'string' && dataFields.LATITUDE.includes('°') 
-          ? this.convertDMSToDecimal(dataFields.LATITUDE)
-          : parseFloat(dataFields.LATITUDE);
+        const lat = typeof rawLatitude === 'string' && rawLatitude.includes('°') 
+          ? this.convertDMSToDecimal(rawLatitude)
+          : parseFloat(rawLatitude);
         
-        const lon = typeof dataFields.LONGITUDE === 'string' && dataFields.LONGITUDE.includes('°')
-          ? this.convertDMSToDecimal(dataFields.LONGITUDE)
-          : parseFloat(dataFields.LONGITUDE);
+        const lon = typeof rawLongitude === 'string' && rawLongitude.includes('°')
+          ? this.convertDMSToDecimal(rawLongitude)
+          : parseFloat(rawLongitude);
+        
+        console.log(`📐 Conversion result:`, {
+          lat,
+          lon,
+          latIsNaN: isNaN(lat),
+          lonIsNaN: isNaN(lon)
+        });
         
         // Only set location if both are valid decimal numbers
         if (!isNaN(lat) && !isNaN(lon)) {
-          location = `${lat}, ${lon}`;
-          console.log(`📍 Converted coordinates - Original: ${dataFields.LATITUDE}, ${dataFields.LONGITUDE} → Decimal: ${location}`);
+          console.log(`📍 Converted coordinates - Original: ${rawLatitude}, ${rawLongitude} → Decimal: ${lat}, ${lon}`);
+          
+          // Perform reverse geocoding to get human-readable location name
+          try {
+            console.log(`🌐 Calling reverseGeocodeLocation with lat=${lat}, lon=${lon}...`);
+            const locationName = await this.reverseGeocodeLocation(lat, lon);
+            console.log(`🌐 Reverse geocoding returned:`, locationName);
+            
+            if (locationName) {
+              location = locationName;
+              console.log(`✅ Reverse geocoding successful: ${locationName}`);
+            } else {
+              // Fallback to coordinates if reverse geocoding returns null
+              location = `${lat}, ${lon}`;
+              console.log(`⚠️ Reverse geocoding returned null, using coordinates: ${location}`);
+            }
+          } catch (geocodingError) {
+            console.warn(`⚠️ Error during reverse geocoding: ${geocodingError.message}, using coordinates as fallback`);
+            console.warn(`   Full error:`, geocodingError);
+            location = `${lat}, ${lon}`;
+          }
+        } else {
+          console.log(`❌ Coordinates are NaN, skipping reverse geocoding`);
         }
+      } else {
+        console.log(`❌ Missing coordinates - lat: ${!!rawLatitude}, lon: ${!!rawLongitude}`);
       }
 
-      // Create telemetry record
+      console.log(`📝 Data fields to be saved (${Object.keys(dataFields).length} fields):`, dataFields);
+
+      // Create telemetry record with explicit data assignment
       const telemetryRecord = new Telemetry({
         deviceId: deviceId,
         timestamp: new Date(),
         event: payload.EVENT || payload.Event || 'NORMAL',
-        data: dataFields,
         location: location  // Add location field for easy access in frontend
       });
+      
+      // Assign data field separately to ensure it's properly set
+      telemetryRecord.data = new Map(Object.entries(dataFields));
+      
+      console.log(`🔍 Telemetry record before save:`, {
+        deviceId: telemetryRecord.deviceId,
+        timestamp: telemetryRecord.timestamp,
+        event: telemetryRecord.event,
+        data: telemetryRecord.data,
+        location: telemetryRecord.location,
+        dataFieldsCount: telemetryRecord.data.size
+      });
 
-      await telemetryRecord.save();
-      console.log(`✅ Saved telemetry data for device ${deviceId} with ${Object.keys(dataFields).length} data fields`);
+      console.log(`\n💾 SAVING TO DATABASE...`);
+      console.log(`   dataFields before save: ${JSON.stringify(dataFields).substring(0, 200)}...`);
+      
+      const saveResult = await telemetryRecord.save();
+      
+      console.log(`✅ Save completed successfully`);
+      console.log(`   Document ID: ${saveResult._id}`);
+      console.log(`   Data field type after save: ${typeof saveResult.data}`);
+      console.log(`   Data field instanceof Map: ${saveResult.data instanceof Map}`);
+      console.log(`   Saved telemetry data for device ${deviceId} with ${Object.keys(dataFields).length} data fields`);
       console.log('📊 Saved fields:', Object.keys(dataFields).join(', '));
       if (location) {
         console.log(`📍 Saved location: ${location}`);
+      }
+      
+      // Verify the saved record by fetching it back IMMEDIATELY using raw query first
+      console.log(`\n🔍 VERIFICATION PHASE:`);
+      console.log(`   Fetching saved record from DB using findById...`);
+      
+      const savedRecord = await Telemetry.findById(telemetryRecord._id);
+      console.log(`   Record fetched, data type: ${typeof savedRecord.data}`);
+      console.log(`   Data is Map: ${savedRecord.data instanceof Map}`);
+      console.log(`   Raw data value:`, savedRecord.data);
+      
+      const savedDataObj = savedRecord.data instanceof Map 
+        ? Object.fromEntries(savedRecord.data)
+        : (savedRecord.data || {});
+      
+      console.log(`\n📊 VERIFICATION RESULTS:`);
+      console.log(`   recordId: ${savedRecord._id}`);
+      console.log(`   dataFieldsCount: ${Object.keys(savedDataObj).length}`);
+      console.log(`   dataKeys: ${Object.keys(savedDataObj).join(', ') || '(EMPTY)'}`);
+      
+      if (Object.keys(savedDataObj).length > 0) {
+        console.log(`   ✅ Data was properly saved!`);
+        console.log(`   Sample data:`, Object.fromEntries(Object.entries(savedDataObj).slice(0, 5)));
+      } else {
+        console.log(`   ❌ WARNING: Saved data is EMPTY! Check if dataFields was populated correctly`);
       }
       
       // Check alarms for this device data
@@ -2206,8 +2382,17 @@ class MQTTService {
       // Check if payload contains device settings and save them
       await this.saveDeviceSettings(deviceId, payload, 'system');
       
+      console.log(`${'='.repeat(80)}\n`);
+      
     } catch (error) {
-      console.error(`❌ Error saving telemetry data for device ${deviceId}:`, error.message);
+      console.error(`${'='.repeat(80)}`);
+      console.error(`❌ ERROR SAVING TELEMETRY DATA`);
+      console.error(`   Device: ${deviceId}`);
+      console.error(`   Error message: ${error.message}`);
+      console.error(`   Error code: ${error.code}`);
+      console.error(`   Stack: ${error.stack}`);
+      console.error(`   Full error object:`, error);
+      console.error(`${'='.repeat(80)}\n`);
     }
   }
 
@@ -2641,40 +2826,171 @@ class MQTTService {
   }
 
   // Function to reverse geocode coordinates to location name
+  // Uses free APIs with timeout fallback to coordinate-based names
   async reverseGeocodeLocation(lat, lon) {
     try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`,
-        {
-          headers: {
-            'Accept': 'application/json',
-            'User-Agent': 'ASHECONTROL-Device-Service'
-          },
-        }
-      );
-      if (!response.ok) throw new Error('Network response was not ok');
-      const data = await response.json();
+      // Helper: Create abort controller with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
       
-      // Extract location parts
-      if (data && data.address) {
-        const parts = [];
-        if (data.address.city) parts.push(data.address.city);
-        if (data.address.town) parts.push(data.address.town);
-        if (data.address.village) parts.push(data.address.village);
-        if (data.address.state) parts.push(data.address.state);
-        if (data.address.country) parts.push(data.address.country);
+      try {
+        // Try local geocoding cache first (for frequently accessed locations)
+        const localLocationName = this.getLocalLocationName(lat, lon);
+        if (localLocationName) {
+          console.log(`📍 Found location in local cache: ${localLocationName}`);
+          return localLocationName;
+        }
         
-        // Return first meaningful location
-        if (parts.length > 0) {
-          return Array.from(new Set(parts)).join(', ');
+        // Primary: OpenWeather free reverse geocoding (more reliable than Nominatim)
+        console.log(`🌐 Attempting OpenWeather reverse geocoding for ${lat}, ${lon}...`);
+        const response = await fetch(
+          `https://api.openweathermap.org/geo/1.0/reverse?lat=${lat}&lon=${lon}&limit=1&format=json`,
+          {
+            headers: {
+              'Accept': 'application/json',
+            },
+            signal: controller.signal,
+            timeout: 5000
+          }
+        );
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.length > 0) {
+            const result = data[0];
+            const parts = [];
+            
+            if (result.name) parts.push(result.name);
+            if (result.state) parts.push(result.state);
+            if (result.country) parts.push(result.country);
+            
+            if (parts.length > 0) {
+              const locationName = Array.from(new Set(parts)).join(', ');
+              this.cacheLocalLocation(lat, lon, locationName);
+              return locationName;
+            }
+          }
         }
+        
+        console.log(`ℹ️ OpenWeather returned empty result, trying Nominatim...`);
+        // Fallback 1: OpenStreetMap Nominatim (completely free, no API key)
+        return await this.reverseGeocodeLocationNominatim(lat, lon);
+      } finally {
+        clearTimeout(timeoutId);
       }
-      
-      return null;
     } catch (error) {
       console.warn(`⚠️ Reverse geocoding failed for ${lat}, ${lon}:`, error.message);
+      // Fallback to Nominatim if primary fails
+      try {
+        return await this.reverseGeocodeLocationNominatim(lat, lon);
+      } catch (fallbackError) {
+        console.warn(`⚠️ All reverse geocoding attempts failed for ${lat}, ${lon}`);
+        return null;
+      }
+    }
+  }
+
+  // Fallback: OpenStreetMap Nominatim - Free, no API key required
+  async reverseGeocodeLocationNominatim(lat, lon) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout for slower API
+      
+      try {
+        console.log(`🌐 Attempting Nominatim reverse geocoding for ${lat}, ${lon}...`);
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=10&addressdetails=1`,
+          {
+            headers: {
+              'Accept': 'application/json',
+              'User-Agent': 'ASHECONTROL-IoT-Device-Service'
+            },
+            signal: controller.signal,
+            timeout: 8000
+          }
+        );
+        
+        if (!response.ok) throw new Error(`Nominatim API error: ${response.status}`);
+        const data = await response.json();
+        
+        if (data && data.address) {
+          const parts = [];
+          
+          // Extract meaningful location parts in priority order
+          if (data.address.city) parts.push(data.address.city);
+          else if (data.address.town) parts.push(data.address.town);
+          else if (data.address.village) parts.push(data.address.village);
+          else if (data.address.county) parts.push(data.address.county);
+          
+          if (data.address.state) parts.push(data.address.state);
+          if (data.address.country) parts.push(data.address.country);
+          
+          if (parts.length > 0) {
+            const locationName = Array.from(new Set(parts)).join(', ');
+            this.cacheLocalLocation(lat, lon, locationName);
+            console.log(`✅ Nominatim resolved location: ${locationName}`);
+            return locationName;
+          }
+        }
+        
+        console.log(`⚠️ Nominatim returned no address data`);
+        return null;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    } catch (error) {
+      console.warn(`⚠️ Nominatim reverse geocoding failed for ${lat}, ${lon}:`, error.message);
       return null;
     }
+  }
+
+  // Simple location caching for frequently accessed coordinates
+  getLocalLocationName(lat, lon) {
+    // First check runtime cache (coordinates rounded to 2 decimals)
+    const cacheKey = `${Math.round(lat * 100) / 100},${Math.round(lon * 100) / 100}`;
+    
+    if (this.locationCache && this.locationCache[cacheKey]) {
+      const cached = this.locationCache[cacheKey];
+      // Check if cache is less than 24 hours old
+      if (Date.now() - cached.timestamp < 24 * 60 * 60 * 1000) {
+        console.log(`📍 Using cached location: ${cached.name}`);
+        return cached.name;
+      }
+    }
+    
+    // Pre-defined common locations (can be expanded)
+    const commonLocations = [
+      { lat: 19.05, lon: 72.87, name: 'Mumbai, Maharashtra, India' },  // Mumbai
+      { lat: 28.70, lon: 77.10, name: 'Delhi, India' },                 // Delhi
+      { lat: 13.34, lon: 74.74, name: 'Mangalore, Karnataka, India' },  // Mangalore
+      { lat: 15.50, lon: 73.83, name: 'Goa, India' },                   // Goa
+    ];
+    
+    // Check if coordinates match any common location (within 0.1 degree = ~11km)
+    for (const location of commonLocations) {
+      if (Math.abs(lat - location.lat) < 0.1 && Math.abs(lon - location.lon) < 0.1) {
+        return location.name;
+      }
+    }
+    
+    return null;
+  }
+
+  // Cache resolved locations for 24 hours
+  cacheLocalLocation(lat, lon, name) {
+    // Round to 2 decimal places for caching
+    const key = `${Math.round(lat * 100) / 100},${Math.round(lon * 100) / 100}`;
+    
+    if (!this.locationCache) {
+      this.locationCache = {};
+    }
+    
+    this.locationCache[key] = {
+      name,
+      timestamp: Date.now()
+    };
+    
+    console.log(`💾 Cached location: ${key} → ${name}`);
   }
 
   // Function to emit active device locations for map display
@@ -2792,6 +3108,98 @@ class MQTTService {
     } catch (error) {
       console.error('❌ Error emitting active devices locations summary:', error.message);
     }
+  }
+
+  /**
+   * Publish settings directly to device via MQTT
+   * Used by the new settings caching endpoints
+   * Topic: devices/{deviceId}/settings (not /command)
+   */
+  publishSettingsToDevice(deviceId, settingsMessage) {
+    return new Promise((resolve) => {
+      try {
+        if (!this.client || !this.client.connected) {
+          console.warn(`⚠️ MQTT client not connected`);
+          return resolve({
+            success: false,
+            error: 'MQTT client not connected'
+          });
+        }
+
+        // Use correct topic: devices/{deviceId}/settings
+        const topic = `devices/${deviceId}/settings`;
+        console.log(`📤 Publishing to topic: ${topic}`);
+        console.log(`   Message:`, JSON.stringify(settingsMessage, null, 2));
+
+        this.client.publish(topic, JSON.stringify(settingsMessage), { qos: 1 }, (error) => {
+          if (error) {
+            console.error(`❌ MQTT publish error:`, error);
+            resolve({
+              success: false,
+              error: error.message
+            });
+          } else {
+            console.log(`✅ Settings published to device ${deviceId}`);
+            resolve({
+              success: true,
+              message: 'Settings published successfully'
+            });
+          }
+        });
+      } catch (error) {
+        console.error('❌ Error publishing settings:', error);
+        resolve({
+          success: false,
+          error: error.message
+        });
+      }
+    });
+  }
+
+  /**
+   * Publish complete settings command to device via MQTT commands topic
+   * Used for bulk settings updates with proper command format
+   * Topic: devices/{deviceId}/commands
+   */
+  publishCompleteSettingsCommand(deviceId, settingsMessage) {
+    return new Promise((resolve) => {
+      try {
+        if (!this.client || !this.client.connected) {
+          console.warn(`⚠️ MQTT client not connected`);
+          return resolve({
+            success: false,
+            error: 'MQTT client not connected'
+          });
+        }
+
+        // Use commands topic for bulk settings updates
+        const topic = `devices/${deviceId}/commands`;
+        console.log(`📤 Publishing settings command to topic: ${topic}`);
+        console.log(`   Message:`, JSON.stringify(settingsMessage, null, 2));
+
+        this.client.publish(topic, JSON.stringify(settingsMessage), { qos: 1 }, (error) => {
+          if (error) {
+            console.error(`❌ MQTT publish error:`, error);
+            resolve({
+              success: false,
+              error: error.message
+            });
+          } else {
+            console.log(`✅ Settings command published to device ${deviceId}`);
+            resolve({
+              success: true,
+              message: 'Settings command published successfully'
+            });
+          }
+        });
+      } catch (error) {
+        console.error('❌ Error publishing settings command:', error);
+        resolve({
+          success: false,
+          error: error.message
+        });
+      }
+    });
   }
 
   disconnect() {

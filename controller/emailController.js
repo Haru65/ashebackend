@@ -210,14 +210,22 @@ class EmailController {
    */
   async getProviderStatus(req, res) {
     try {
+      if (!this.emailService) {
+        return res.status(500).json({
+          success: false,
+          message: 'Email service not initialized'
+        });
+      }
+
       const status = this.emailService.getProviderStatus();
 
       res.json({
         success: true,
-        data: status
+        data: status || {}
       });
 
     } catch (error) {
+      console.error('Error fetching provider status:', error);
       res.status(500).json({
         success: false,
         message: 'Error fetching provider status',

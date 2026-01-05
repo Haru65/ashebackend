@@ -76,10 +76,81 @@ class ExcelExportService {
       const allDataKeys = new Set();
       const fixedFields = ['deviceId', 'timestamp', 'event', 'status', 'location', 'name', 'type', 'lastSeen', '_id'];
       
+      // Fields to exclude from report generation
+      const excludedFields = new Set([
+        // Depolarization fields
+        'DEPOLARIZATION START TIMESTAMP',
+        'DEPOLARIZATION STOP TIMESTAMP',
+        'DEPOLARIZATION INTERVAL',
+        'DEPOLARIZATIONSTARTTIMESTAMP',
+        'DEPOLARIZATIONSTOPTIMESTAMP',
+        'DPOLINTERVAL',
+        // Instant fields
+        'INSTANT END TIMESTAMP',
+        'INSTANT MODE',
+        'INSTANT START TIMESTAMP',
+        'INSTANTENDTIMESTAMP',
+        'INSTANTMODE',
+        'INSTANTSTARTTIMESTAMP',
+        // Interrupt fields
+        'INTERRUPT OFF TIME',
+        'INTERRUPT ON TIME',
+        'INTERRUPT START TIMESTAMP',
+        'INTERRUPT STOP TIMESTAMP',
+        'INTERRUPTOFFTIME',
+        'INTERRUPTONTIME',
+        'INTERRUPTSTARTTIMESTAMP',
+        'INTERRUPTSTOPTIMESTAMP',
+        // Location fields
+        'LATITUDE',
+        'LONGITUDE',
+        'LOG',
+        // Mode and action fields
+        'MANUAL MODE ACTION',
+        'MANUALMODEACTION',
+        // Calibration fields - ALL TO BE REMOVED
+        'REFFCAL CALIBRATION',
+        'REFFCAL ENABLED',
+        'REFFCAL VALUE',
+        'REF FCAL',
+        'REF OP',
+        'REF UP',
+        // Reference fields - ALL TO BE REMOVED
+        'REFERENCE FAIL',
+        'REFERENCE OP',
+        'REFERENCE UP',
+        'REFERENCEOV',
+        'REFERENCEFAIL',
+        'REFERENCEUP',
+        // Setup fields - ALL TO BE REMOVED
+        'SETOP ENABLED',
+        'SETOP VALUE',
+        'SETUP ENABLED',
+        'SETUP VALUE',
+        // Shunt fields - ALL TO BE REMOVED
+        'SHUNT CURRENT',
+        'SHUNT VOLTAGE',
+        'SHUNTCURRENT',
+        'SHUNTVOLTAGE',
+        // Other redundant fields
+        'SN',
+        'SENDER',
+        'V',
+        'DATA',
+        'ELECTRODE',
+        'LOGGINGINTERVAL',
+        'LOGGINGINTERVALFORMATTED',
+        'LOGGING INTERVAL',
+        'DI1',
+        'DI2',
+        'DI3',
+        'DI4'
+      ]);
+      
       telemetryData.forEach(record => {
         Object.keys(record).forEach(key => {
-          // Include all fields except the fixed metadata ones
-          if (!fixedFields.includes(key)) {
+          // Include all fields except the fixed metadata ones and excluded fields
+          if (!fixedFields.includes(key) && !excludedFields.has(key.toUpperCase())) {
             allDataKeys.add(key);
           }
         });
@@ -91,14 +162,14 @@ class ExcelExportService {
           if (record.data instanceof Map) {
             // Handle Map data type
             record.data.forEach((value, key) => {
-              if (!allDataKeys.has(key)) {
+              if (!allDataKeys.has(key) && !excludedFields.has(key.toUpperCase())) {
                 allDataKeys.add(key);
               }
             });
           } else {
             // Handle regular object
             Object.keys(record.data).forEach(key => {
-              if (!allDataKeys.has(key)) {
+              if (!allDataKeys.has(key) && !excludedFields.has(key.toUpperCase())) {
                 allDataKeys.add(key);
               }
             });

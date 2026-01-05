@@ -2841,28 +2841,32 @@ class MQTTService {
           return localLocationName;
         }
         
-        // Primary: OpenWeather free reverse geocoding (more reliable than Nominatim)
-        console.log(`🌐 Attempting OpenWeather reverse geocoding for ${lat}, ${lon}...`);
-        const response = await fetch(
-          `https://api.openweathermap.org/geo/1.0/reverse?lat=${lat}&lon=${lon}&limit=1&format=json`,
+        // Primary: Nominatim with high zoom for precise city-level location
+        console.log(`🌐 Attempting Nominatim reverse geocoding for ${lat}, ${lon}...`);
+        const nominatimResp = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`,
           {
             headers: {
               'Accept': 'application/json',
+              'User-Agent': 'ASHECONTROL-IoT-Device-Service'
             },
             signal: controller.signal,
-            timeout: 5000
+            timeout: 8000
           }
         );
         
-        if (response.ok) {
-          const data = await response.json();
-          if (data && data.length > 0) {
-            const result = data[0];
+        if (nominatimResp.ok) {
+          const data = await nominatimResp.json();
+          if (data && data.address) {
             const parts = [];
             
-            if (result.name) parts.push(result.name);
-            if (result.state) parts.push(result.state);
-            if (result.country) parts.push(result.country);
+            if (data.address.city) parts.push(data.address.city);
+            else if (data.address.town) parts.push(data.address.town);
+            else if (data.address.village) parts.push(data.address.village);
+            else if (data.address.hamlet) parts.push(data.address.hamlet);
+            
+            if (data.address.state) parts.push(data.address.state);
+            if (data.address.country) parts.push(data.address.country);
             
             if (parts.length > 0) {
               const locationName = Array.from(new Set(parts)).join(', ');
@@ -2872,9 +2876,9 @@ class MQTTService {
           }
         }
         
-        console.log(`ℹ️ OpenWeather returned empty result, trying Nominatim...`);
-        // Fallback 1: OpenStreetMap Nominatim (completely free, no API key)
-        return await this.reverseGeocodeLocationNominatim(lat, lon);
+        console.log(`ℹ️ Nominatim returned empty result, trying OpenWeather...`);
+        // Fallback: OpenWeather (completely free, no API key)
+        return await this.reverseGeocodeLocationOpenWeather(lat, lon);
       } finally {
         clearTimeout(timeoutId);
       }
@@ -2890,56 +2894,52 @@ class MQTTService {
     }
   }
 
-  // Fallback: OpenStreetMap Nominatim - Free, no API key required
-  async reverseGeocodeLocationNominatim(lat, lon) {
+  // Fallback: OpenWeather - Free, no API key required
+  async reverseGeocodeLocationOpenWeather(lat, lon) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout for slower API
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
       
       try {
-        console.log(`🌐 Attempting Nominatim reverse geocoding for ${lat}, ${lon}...`);
+        console.log(`🌐 Attempting OpenWeather reverse geocoding for ${lat}, ${lon}...`);
         const response = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=10&addressdetails=1`,
+          `https://api.openweathermap.org/geo/1.0/reverse?lat=${lat}&lon=${lon}&limit=1&format=json`,
           {
             headers: {
-              'Accept': 'application/json',
-              'User-Agent': 'ASHECONTROL-IoT-Device-Service'
+              'Accept': 'application/json'
             },
             signal: controller.signal,
-            timeout: 8000
+            timeout: 5000
           }
         );
         
-        if (!response.ok) throw new Error(`Nominatim API error: ${response.status}`);
+        if (!response.ok) throw new Error(`OpenWeather API error: ${response.status}`);
         const data = await response.json();
         
-        if (data && data.address) {
+        if (data && data.length > 0) {
+          const result = data[0];
           const parts = [];
           
           // Extract meaningful location parts in priority order
-          if (data.address.city) parts.push(data.address.city);
-          else if (data.address.town) parts.push(data.address.town);
-          else if (data.address.village) parts.push(data.address.village);
-          else if (data.address.county) parts.push(data.address.county);
-          
-          if (data.address.state) parts.push(data.address.state);
-          if (data.address.country) parts.push(data.address.country);
+          if (result.name) parts.push(result.name);
+          if (result.state) parts.push(result.state);
+          if (result.country) parts.push(result.country);
           
           if (parts.length > 0) {
             const locationName = Array.from(new Set(parts)).join(', ');
             this.cacheLocalLocation(lat, lon, locationName);
-            console.log(`✅ Nominatim resolved location: ${locationName}`);
+            console.log(`✅ OpenWeather resolved location: ${locationName}`);
             return locationName;
           }
         }
         
-        console.log(`⚠️ Nominatim returned no address data`);
+        console.log(`⚠️ OpenWeather returned no address data`);
         return null;
       } finally {
         clearTimeout(timeoutId);
       }
     } catch (error) {
-      console.warn(`⚠️ Nominatim reverse geocoding failed for ${lat}, ${lon}:`, error.message);
+      console.warn(`⚠️ OpenWeather reverse geocoding failed for ${lat}, ${lon}:`, error.message);
       return null;
     }
   }
@@ -2958,20 +2958,20 @@ class MQTTService {
       }
     }
     
-    // Pre-defined common locations (can be expanded)
-    const commonLocations = [
-      { lat: 19.05, lon: 72.87, name: 'Mumbai, Maharashtra, India' },  // Mumbai
-      { lat: 28.70, lon: 77.10, name: 'Delhi, India' },                 // Delhi
-      { lat: 13.34, lon: 74.74, name: 'Mangalore, Karnataka, India' },  // Mangalore
-      { lat: 15.50, lon: 73.83, name: 'Goa, India' },                   // Goa
-    ];
+    // Pre-defined common locations disabled for now - will use API reverse geocoding
+    // const commonLocations = [
+    //   { lat: 19.05, lon: 72.87, name: 'Mumbai, Maharashtra, India' },  // Mumbai
+    //   { lat: 28.70, lon: 77.10, name: 'Delhi, India' },                 // Delhi
+    //   { lat: 13.34, lon: 74.74, name: 'Mangalore, Karnataka, India' },  // Mangalore
+    //   { lat: 15.50, lon: 73.83, name: 'Goa, India' },                   // Goa
+    // ];
     
     // Check if coordinates match any common location (within 0.1 degree = ~11km)
-    for (const location of commonLocations) {
-      if (Math.abs(lat - location.lat) < 0.1 && Math.abs(lon - location.lon) < 0.1) {
-        return location.name;
-      }
-    }
+    // for (const location of commonLocations) {
+    //   if (Math.abs(lat - location.lat) < 0.1 && Math.abs(lon - location.lon) < 0.1) {
+    //     return location.name;
+    //   }
+    // }
     
     return null;
   }
@@ -3160,16 +3160,40 @@ class MQTTService {
    * Publish complete settings command to device via MQTT commands topic
    * Used for bulk settings updates with proper command format
    * Topic: devices/{deviceId}/commands
+   * Will wait up to 5 seconds for MQTT connection if not ready
    */
   publishCompleteSettingsCommand(deviceId, settingsMessage) {
     return new Promise((resolve) => {
       try {
+        // If client is not ready, try to wait for it
         if (!this.client || !this.client.connected) {
-          console.warn(`⚠️ MQTT client not connected`);
-          return resolve({
-            success: false,
-            error: 'MQTT client not connected'
-          });
+          console.warn(`⚠️ MQTT client not connected, waiting for connection...`);
+          
+          // Wait up to 5 seconds for connection
+          let waitAttempts = 0;
+          const maxAttempts = 50; // 50 * 100ms = 5 seconds
+          
+          const waitForConnection = () => {
+            if (this.client && this.client.connected) {
+              console.log(`✅ MQTT connection established, publishing message...`);
+              this.publishCompleteSettingsCommand(deviceId, settingsMessage).then(resolve);
+              return;
+            }
+            
+            waitAttempts++;
+            if (waitAttempts < maxAttempts) {
+              setTimeout(waitForConnection, 100);
+            } else {
+              console.error(`❌ MQTT client did not connect within 5 seconds`);
+              resolve({
+                success: false,
+                error: 'MQTT client not connected (timeout after 5 seconds)'
+              });
+            }
+          };
+          
+          waitForConnection();
+          return;
         }
 
         // Use commands topic for bulk settings updates

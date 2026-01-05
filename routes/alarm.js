@@ -5,6 +5,9 @@ const alarmController = require('../controller/alarmController');
 // Clear all alarms (admin only) - MUST come before /:id routes
 router.delete('/', alarmController.clearAllAlarms.bind(alarmController));
 
+// Alarm history route (IMPORTANT: Place before device/:deviceName to avoid conflicts)
+router.get('/history/log', alarmController.getAlarmHistory.bind(alarmController));
+
 // Device-specific alarm routes (IMPORTANT: Place before :id routes to avoid conflicts)
 router.get('/device/:deviceName', alarmController.getAlarmsByDevice.bind(alarmController));
 router.delete('/device/:deviceName', alarmController.deleteDeviceAlarms.bind(alarmController));

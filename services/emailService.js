@@ -450,16 +450,34 @@ class EmailService {
    * Get email provider status
    */
   getProviderStatus() {
-    const status = {};
-    
-    for (const [provider, transporter] of Object.entries(this.transporters)) {
-      status[provider] = {
-        configured: transporter !== null,
-        ready: false
+    try {
+      const status = {};
+      
+      if (!this.transporters || typeof this.transporters !== 'object') {
+        console.warn('Transporters not initialized properly');
+        return {
+          gmail: { configured: false, ready: false },
+          outlook: { configured: false, ready: false },
+          smtp: { configured: false, ready: false }
+        };
+      }
+
+      for (const [provider, transporter] of Object.entries(this.transporters)) {
+        status[provider] = {
+          configured: transporter !== null && transporter !== undefined,
+          ready: false
+        };
+      }
+      
+      return status;
+    } catch (error) {
+      console.error('Error getting provider status:', error);
+      return {
+        gmail: { configured: false, ready: false },
+        outlook: { configured: false, ready: false },
+        smtp: { configured: false, ready: false }
       };
     }
-    
-    return status;
   }
 
   /**

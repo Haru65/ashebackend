@@ -202,6 +202,24 @@ class ExportController {
         .limit(10)
         .lean();
 
+      // Fields to exclude from preview
+      const excludedFields = new Set([
+        'DEPOLARIZATION START TIMESTAMP', 'DEPOLARIZATION STOP TIMESTAMP', 'DEPOLARIZATION INTERVAL',
+        'DEPOLARIZATIONSTARTTIMESTAMP', 'DEPOLARIZATIONSTOPTIMESTAMP', 'DPOLINTERVAL',
+        'INSTANT END TIMESTAMP', 'INSTANT MODE', 'INSTANT START TIMESTAMP',
+        'INSTANTENDTIMESTAMP', 'INSTANTMODE', 'INSTANTSTARTTIMESTAMP',
+        'INTERRUPT OFF TIME', 'INTERRUPT ON TIME', 'INTERRUPT START TIMESTAMP', 'INTERRUPT STOP TIMESTAMP',
+        'INTERRUPTOFFTIME', 'INTERRUPTONTIME', 'INTERRUPTSTARTTIMESTAMP', 'INTERRUPTSTOPTIMESTAMP',
+        'LATITUDE', 'LONGITUDE', 'LOG', 'MANUAL MODE ACTION', 'MANUALMODEACTION',
+        'REFFCAL CALIBRATION', 'REFFCAL ENABLED', 'REFFCAL VALUE', 'REF FCAL',
+        'REF OP', 'REF UP', 'REFERENCE FAIL', 'REFERENCE OP', 'REFERENCE UP',
+        'REFERENCEOV', 'REFERENCEFAIL', 'REFERENCEUP',
+        'SETOP ENABLED', 'SETOP VALUE', 'SETUP ENABLED', 'SETUP VALUE',
+        'SHUNT CURRENT', 'SHUNT VOLTAGE', 'SHUNTCURRENT', 'SHUNTVOLTAGE',
+        'SN', 'SENDER', 'V', 'DATA', 'ELECTRODE', 'LOGGINGINTERVAL', 'LOGGINGINTERVALFORMATTED',
+        'LOGGING INTERVAL', 'DI1', 'DI2', 'DI3', 'DI4'
+      ]);
+
       // Transform data for preview
       const transformedData = previewData.map(record => {
         const result = {
@@ -210,15 +228,25 @@ class ExportController {
           event: record.event
         };
 
-        // Extract data fields
+        // Extract data fields (excluding unwanted fields)
         if (record.data) {
           const dataObj = record.data instanceof Map ? 
             Object.fromEntries(record.data) : record.data;
           
           Object.entries(dataObj).forEach(([key, value]) => {
-            result[key] = value;
+            if (!excludedFields.has(key.toUpperCase())) {
+              result[key] = value;
+            }
           });
         }
+
+        // Also extract flattened fields from record (excluding unwanted fields)
+        Object.entries(record).forEach(([key, value]) => {
+          if (!['deviceId', 'timestamp', 'event', 'status', 'location', 'name', 'type', 'lastSeen', '_id', 'data', '__v'].includes(key) &&
+              !excludedFields.has(key.toUpperCase())) {
+            result[key] = value;
+          }
+        });
 
         return result;
       });

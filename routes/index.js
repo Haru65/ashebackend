@@ -1,6 +1,7 @@
 const express = require('express');
 const authRoutes = require('./auth');
 const deviceRoutes = require('./device');
+const deviceConfigRoutes = require('./deviceConfig');
 const exportRoutes = require('./export');
 const alarmRoutes = require('./alarm');
 const telemetryRoutes = require('./telemetry');
@@ -14,6 +15,7 @@ const router = express.Router();
 // Mount routes
 router.use('/auth', authRoutes);
 router.use('/api', deviceRoutes);
+router.use('/api', deviceConfigRoutes);
 router.use('/api/telemetry', telemetryRoutes);
 router.use('/api/email', emailRoutes);
 router.use('/api/device-sync', deviceSyncRoutes);

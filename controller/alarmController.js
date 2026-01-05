@@ -513,6 +513,92 @@ class AlarmController {
       });
     }
   }
+
+  /**
+   * Get alarm history/log for all devices
+   * Fetches historical alarm trigger records from DeviceHistory
+   */
+  async getAlarmHistory(req, res) {
+    try {
+      const { device_name, limit = 50, page = 1, days = 30 } = req.query;
+      
+      const DeviceHistory = require('../models/DeviceHistory');
+      
+      // Calculate date range (default: last 30 days)
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - parseInt(days));
+      
+      // Build filter
+      const filter = {
+        'data.type': 'ALARM_TRIGGER',
+        timestamp: { $gte: startDate }
+      };
+
+      // Filter by device if specified
+      if (device_name) {
+        // Get the device to find its deviceId
+        const Device = require('../models/Device');
+        const device = await Device.findOne({ name: device_name });
+        if (device) {
+          filter.deviceId = device.deviceId;
+        } else {
+          return res.json({
+            success: true,
+            data: [],
+            total: 0,
+            message: 'Device not found'
+          });
+        }
+      }
+
+      // Pagination
+      const skip = (page - 1) * limit;
+
+      // Fetch alarm history
+      const alarmHistory = await DeviceHistory.find(filter)
+        .sort({ timestamp: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean();
+
+      const total = await DeviceHistory.countDocuments(filter);
+
+      // Enrich alarm data with device info
+      const Device = require('../models/Device');
+      const enrichedHistory = await Promise.all(
+        alarmHistory.map(async (entry) => {
+          const device = await Device.findOne({ deviceId: entry.deviceId });
+          return {
+            _id: entry._id,
+            timestamp: entry.timestamp,
+            alarm_type: entry.data.alarmName || 'Unknown',
+            device_name: device?.name || entry.deviceId,
+            device_id: entry.deviceId,
+            location: device?.location || 'Unknown',
+            alarm_id: entry.data.alarmId,
+            reason: entry.data.reason,
+            triggered_values: entry.data.triggered_values || {}
+          };
+        })
+      );
+
+      res.json({
+        success: true,
+        data: enrichedHistory,
+        total: total,
+        page: page,
+        pages: Math.ceil(total / limit),
+        message: `Found ${enrichedHistory.length} alarm history record(s)`
+      });
+    } catch (error) {
+      console.error('Error fetching alarm history:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching alarm history',
+        error: error.message
+      });
+    }
+  }
 }
 
 module.exports = new AlarmController();

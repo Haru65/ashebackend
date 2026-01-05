@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const deviceConfigController = require('../controller/deviceConfigController');
+const { authenticateToken, requirePermission } = require('../middleware/auth');
 
 // Device configuration routes
 router.post('/devices/:deviceId/configure/interrupt-mode', deviceConfigController.configureInterruptMode);
@@ -21,8 +22,8 @@ router.post('/devices/:deviceId/settings', deviceConfigController.updateDeviceSe
 router.post('/devices/:deviceId/settings/single', deviceConfigController.updateSingleSetting);
 
 // Settings caching routes - COMPLETE PAYLOAD & BATCH
-router.post('/devices/:deviceId/settings/complete', deviceConfigController.sendCompleteSettingsPayload);
-router.post('/devices/:deviceId/settings/batch', deviceConfigController.batchUpdateSettings);
+router.post('/devices/:deviceId/settings/complete', authenticateToken, requirePermission('write_devices'), deviceConfigController.sendCompleteSettingsPayload);
+router.post('/devices/:deviceId/settings/batch', authenticateToken, requirePermission('write_devices'), deviceConfigController.batchUpdateSettings);
 
 // New configuration routes for missing features  
 router.post('/devices/:deviceId/configure/voltage', deviceConfigController.configureSetVoltage);

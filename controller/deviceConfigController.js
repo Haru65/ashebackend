@@ -15,7 +15,7 @@ const ELECTRODE_TYPE_TO_CODE = {
  * Get default Reference Fail value based on electrode type
  * Ensures consistent Reference Fail value for each electrode type
  */
-function getDefaultRefFailForElectrode(electrodeValue: any): number {
+function getDefaultRefFailForElectrode(electrodeValue) {
   let electrodeCode = electrodeValue;
   
   // Convert electrode name to code if needed
@@ -1090,12 +1090,10 @@ class DeviceConfigController {
       console.log(`   Fields: ${Object.keys(completePayload).join(', ')}`);
       console.log(`   Payload:`, completePayload);
 
-      // Check if device is connected
-      if (!mqttService.isDeviceConnected(deviceId)) {
-        return res.status(503).json({
-          success: false,
-          message: `Device ${deviceId} is not connected. Settings will be sent when device connects.`
-        });
+      // Check device connection status (log warning if not connected, but continue anyway)
+      const isConnected = mqttService.isDeviceConnected(deviceId);
+      if (!isConnected) {
+        console.warn(`⚠️ Device ${deviceId} appears to be offline. Settings will be published and device will receive them when it reconnects.`);
       }
 
       // Transform parameters from cache format to device dataframe format
@@ -1122,18 +1120,18 @@ class DeviceConfigController {
       console.log(`📡 MQTT Message (topic: devices/${deviceId}/commands):`, JSON.stringify(settingsMessage, null, 2));
 
       // Send via MQTT using commands topic (not settings topic)
+      // Note: MQTT broker will queue messages if device is offline
       const result = await mqttService.publishCompleteSettingsCommand(deviceId, settingsMessage);
 
       if (!result.success) {
         console.warn(`⚠️ MQTT publish failed for device ${deviceId}:`, result.error);
-        return res.status(503).json({
-          success: false,
-          message: 'Failed to publish settings to device',
-          error: result.error
-        });
+        console.log(`ℹ️ Will save settings to database for delivery on next connection`);
+      } else {
+        console.log(`✅ Settings published via MQTT to device ${deviceId}`);
       }
 
       // Save settings to database (store original cache format + transformed format)
+      // This ensures settings are persisted regardless of MQTT publish success
       try {
         const Device = require('../models/Device');
         const device = await Device.findOne({ deviceId });

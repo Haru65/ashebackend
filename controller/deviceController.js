@@ -989,6 +989,248 @@ class DeviceController {
       });
     }
   }
+
+  /**
+   * Send complete settings payload with all fields
+   * Used by the caching system to send all accumulated changes at once
+   */
+  static async sendCompleteSettingsPayload(req, res) {
+    try {
+      const { deviceId } = req.params;
+      let completePayload = req.body;
+
+      console.log(`📤 [SETTINGS CACHE] Received payload for device ${deviceId}:`, JSON.stringify(completePayload, null, 2).substring(0, 500));
+
+      // CRITICAL FIX: If payload has nested Parameters, extract it
+      // Frontend sends just the parameters object, but ensure we're not double-wrapping
+      if (completePayload.Parameters && !completePayload.Electrode) {
+        // Payload is wrapped - extract Parameters
+        console.log(`🔄 Extracting Parameters from wrapped payload`);
+        completePayload = completePayload.Parameters;
+      }
+
+      // Validate that we have a payload with actual settings
+      if (!completePayload || typeof completePayload !== 'object') {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad request',
+          message: 'Complete settings payload is required in request body'
+        });
+      }
+
+      // Check if device exists
+      const device = await Device.findOne({ deviceId });
+      if (!device) {
+        return res.status(404).json({
+          success: false,
+          error: 'Device not found',
+          message: `Device with ID ${deviceId} does not exist`
+        });
+      }
+
+      // Normalize the payload to ensure raw numeric values (no pre-formatting)
+      // The MQTT service will handle all formatting when sending
+      const normalizedPayload = {};
+      
+      // Map of fields and their expected raw format
+      const fieldMappings = {
+        'Electrode': (v) => typeof v === 'number' ? v : parseInt(v),
+        'Event': (v) => typeof v === 'number' ? v : parseInt(v),
+        'Manual Mode Action': (v) => typeof v === 'number' ? v : parseInt(v),
+        'Instant Mode': (v) => typeof v === 'number' ? v : parseInt(v),
+        'Shunt Voltage': (v) => typeof v === 'number' ? v : parseFloat(v),
+        'Shunt Current': (v) => typeof v === 'number' ? v : parseFloat(v),
+        'Reference Fail': (v) => typeof v === 'number' ? v : parseFloat(v),
+        'Reference UP': (v) => typeof v === 'number' ? v : parseFloat(v),
+        'Reference OP': (v) => typeof v === 'number' ? v : parseFloat(v),
+        'Interrupt ON Time': (v) => typeof v === 'number' ? v : parseInt(v),
+        'Interrupt OFF Time': (v) => typeof v === 'number' ? v : parseInt(v),
+        'Interrupt Start TimeStamp': (v) => v,
+        'Interrupt Stop TimeStamp': (v) => v,
+        'Depolarization Start TimeStamp': (v) => v,
+        'Depolarization Stop TimeStamp': (v) => v,
+        'Depolarization_interval': (v) => v,
+        'Instant Start TimeStamp': (v) => v,
+        'Instant End TimeStamp': (v) => v,
+        'logging_interval': (v) => {
+          // Convert HH:MM:SS to seconds if needed
+          if (typeof v === 'string' && v.includes(':')) {
+            const parts = v.split(':');
+            return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
+          }
+          return typeof v === 'number' ? v : parseInt(v);
+        }
+      };
+
+      // Normalize each field
+      for (const [key, value] of Object.entries(completePayload)) {
+        if (fieldMappings[key] && value !== undefined && value !== null) {
+          try {
+            normalizedPayload[key] = fieldMappings[key](value);
+          } catch (e) {
+            console.warn(`⚠️ Could not normalize ${key}: ${value}, keeping as-is`);
+            normalizedPayload[key] = value;
+          }
+        } else {
+          // Keep fields that aren't in mapping (pass-through)
+          normalizedPayload[key] = value;
+        }
+      }
+
+      console.log(`✅ Normalized payload:`, JSON.stringify(normalizedPayload, null, 2).substring(0, 500));
+
+      // Check MQTT connection
+      if (!mqttService.isDeviceConnected()) {
+        console.warn(`⚠️ Device ${deviceId} not connected, but saving to database`);
+      }
+
+      // CRITICAL: Update MQTT service cache with the normalized payload before sending
+      // This ensures sendCompleteSettingsPayload() uses the latest settings, not stale cache
+      console.log(`🔄 Updating MQTT cache with normalized payload for device ${deviceId}`);
+      const cacheUpdate = await mqttService.updateDeviceSettingsCache(deviceId, normalizedPayload);
+      if (!cacheUpdate.success) {
+        console.warn(`⚠️ Could not update MQTT cache: ${cacheUpdate.error}`);
+      }
+
+      // Send complete settings payload via MQTT service
+      try {
+        const result = await mqttService.sendCompleteSettingsPayload(deviceId);
+        console.log(`✅ Complete settings payload sent via MQTT to ${deviceId}`);
+      } catch (mqttError) {
+        console.warn(`⚠️ MQTT send failed: ${mqttError.message}. Will still save to database.`);
+      }
+
+      // Store the normalized settings in database
+      const updateData = {
+        $set: {
+          'configuration.deviceSettings': normalizedPayload,
+          'configuration.lastUpdated': new Date(),
+          'configuration.updatedBy': req.user ? req.user.username : 'system',
+          'configuration.updateMethod': 'complete-payload'
+        }
+      };
+
+      await Device.updateOne({ deviceId }, updateData);
+      console.log(`💾 Saved normalized settings payload to database for device ${deviceId}`);
+
+      res.json({
+        success: true,
+        message: 'Complete settings payload sent and saved',
+        data: {
+          deviceId,
+          settingsCount: Object.keys(completePayload).length,
+          settings: completePayload,
+          saved: true,
+          timestamp: new Date().toISOString()
+        }
+      });
+
+    } catch (error) {
+      console.error('Error sending complete settings payload:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: error.message
+      });
+    }
+  }
+
+  /**
+   * Batch update multiple settings and send as complete payload
+   * Used by the caching system for batch updates
+   */
+  static async batchUpdateSettings(req, res) {
+    try {
+      const { deviceId } = req.params;
+      const { updates } = req.body;
+
+      console.log(`📤 [SETTINGS CACHE] Batch updating settings for device ${deviceId}:`, updates);
+
+      // Validate input
+      if (!updates || typeof updates !== 'object' || Object.keys(updates).length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad request',
+          message: 'updates object with settings is required in request body'
+        });
+      }
+
+      // Check if device exists
+      const device = await Device.findOne({ deviceId });
+      if (!device) {
+        return res.status(404).json({
+          success: false,
+          error: 'Device not found',
+          message: `Device with ID ${deviceId} does not exist`
+        });
+      }
+
+      // Get current settings from database to merge with updates
+      const currentSettings = device.configuration?.deviceSettings || {};
+      
+      // Merge updates with current settings to create complete payload
+      const completePayload = {
+        ...currentSettings,
+        ...updates
+      };
+
+      console.log(`📦 [SETTINGS CACHE] Complete merged payload:`, completePayload);
+
+      // Check MQTT connection
+      if (!mqttService.isDeviceConnected()) {
+        console.warn(`⚠️ Device ${deviceId} not connected, but saving to database`);
+      }
+
+      // CRITICAL: Update MQTT service cache with the merged payload before sending
+      console.log(`🔄 Updating MQTT cache with merged payload for device ${deviceId}`);
+      const cacheUpdate = await mqttService.updateDeviceSettingsCache(deviceId, completePayload);
+      if (!cacheUpdate.success) {
+        console.warn(`⚠️ Could not update MQTT cache: ${cacheUpdate.error}`);
+      }
+
+      // Send complete payload via MQTT service
+      try {
+        const result = await mqttService.sendCompleteSettingsPayload(deviceId);
+        console.log(`✅ Batch settings sent via MQTT to ${deviceId}`);
+      } catch (mqttError) {
+        console.warn(`⚠️ MQTT send failed: ${mqttError.message}. Will still save to database.`);
+      }
+
+      // Store in database
+      const updateData = {
+        $set: {
+          'configuration.deviceSettings': completePayload,
+          'configuration.lastUpdated': new Date(),
+          'configuration.updatedBy': req.user ? req.user.username : 'system',
+          'configuration.updateMethod': 'batch-update'
+        }
+      };
+
+      await Device.updateOne({ deviceId }, updateData);
+      console.log(`💾 Saved batch updated settings to database for device ${deviceId}`);
+
+      res.json({
+        success: true,
+        message: 'Batch settings updated and sent successfully',
+        data: {
+          deviceId,
+          updateCount: Object.keys(updates).length,
+          updates,
+          completePayload,
+          saved: true,
+          timestamp: new Date().toISOString()
+        }
+      });
+
+    } catch (error) {
+      console.error('Error batch updating settings:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: error.message
+      });
+    }
+  }
 }
 
 module.exports = DeviceController;

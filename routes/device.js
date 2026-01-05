@@ -11,6 +11,8 @@ router.get('/devices/mqtt', authenticateToken, requirePermission('read_devices')
 router.get('/devices/params/:deviceName', DeviceController.getDeviceParametersByName); // Get device params by name
 router.get('/devices/:deviceId', DeviceController.getDeviceById); // Public endpoint - no auth required
 router.get('/devices/:deviceId/settings', DeviceController.getDeviceSettings); // Get device configuration/settings
+router.post('/devices/:deviceId/settings/complete', DeviceController.sendCompleteSettingsPayload); // Send complete settings payload
+router.post('/devices/:deviceId/settings/batch', DeviceController.batchUpdateSettings); // Batch update settings
 router.delete('/devices/:deviceId', DeviceController.deleteDevice); // Delete device
 router.post('/devices/:deviceId/data', authenticateToken, requirePermission('write_devices'), DeviceController.postDeviceData);
 router.post('/send-message', authenticateToken, requirePermission('send_commands'), DeviceController.sendMessage);

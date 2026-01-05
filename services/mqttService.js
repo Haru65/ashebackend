@@ -3226,6 +3226,26 @@ class MQTTService {
     });
   }
 
+  /**
+   * Update device settings in memory cache
+   * Used by controller to sync staged changes before sending via MQTT
+   */
+  updateDeviceSettingsCache(deviceId, settingsUpdate) {
+    try {
+      const currentSettings = this.deviceSettings.get(deviceId) || {};
+      const updatedSettings = {
+        ...currentSettings,
+        ...settingsUpdate  // Merge new settings over existing
+      };
+      this.deviceSettings.set(deviceId, updatedSettings);
+      console.log(`✅ Updated MQTT cache for device ${deviceId} with new settings`);
+      return { success: true, updatedSettings };
+    } catch (error) {
+      console.error(`❌ Error updating device settings cache for ${deviceId}:`, error.message);
+      return { success: false, error: error.message };
+    }
+  }
+
   disconnect() {
     if (this.client) {
       this.client.end(true);

@@ -170,7 +170,12 @@ class DeviceManagementService {
 
       const settings = device.configuration.deviceSettings || this.getDefaultDeviceSettings();
       
-      console.log(`📖 Loading device settings from database for device ${deviceId}:`, settings);
+      console.log(`📖 Loading device settings from database for device ${deviceId}:`);
+      console.log(`   All fields in DB:`, JSON.stringify(settings, null, 2));
+      console.log(`   Critical fields:`);
+      console.log(`     - shuntVoltage: ${settings.shuntVoltage} (type: ${typeof settings.shuntVoltage})`);
+      console.log(`     - referenceFail: ${settings.referenceFail} (type: ${typeof settings.referenceFail})`);
+      console.log(`     - interruptOnTime: ${settings.interruptOnTime} (type: ${typeof settings.interruptOnTime})`);
       
       return {
         "Device ID": deviceId,
@@ -187,15 +192,15 @@ class DeviceManagementService {
           "Reference OP": settings.referenceOP !== undefined ? settings.referenceOP : 60,
           "Interrupt ON Time": settings.interruptOnTime !== undefined ? settings.interruptOnTime : 86400,
           "Interrupt OFF Time": settings.interruptOffTime !== undefined ? settings.interruptOffTime : 86400,
-          "Interrupt Start TimeStamp": settings.interruptStartTimeStamp || settings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-          "Interrupt Stop TimeStamp": settings.interruptStopTimeStamp || settings.interruptStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-          "Depolarization Start TimeStamp": settings.depolarizationStartTimeStamp || settings.depolarizationStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-          "Depolarization Stop TimeStamp": settings.depolarizationStopTimeStamp || settings.depolarizationStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+          "Interrupt Start TimeStamp": settings.interruptStartTimeStamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+          "Interrupt Stop TimeStamp": settings.interruptStopTimeStamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+          "Depolarization Start TimeStamp": settings.depolarizationStartTimeStamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+          "Depolarization Stop TimeStamp": settings.depolarizationStopTimeStamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
           "Instant Mode": settings.instantMode !== undefined ? settings.instantMode : 0,
-          "Instant Start TimeStamp": settings.instantStartTimeStamp || settings.instantStartTimestamp || "19:04:00",
-          "Instant End TimeStamp": settings.instantEndTimeStamp || settings.instantEndTimestamp || "00:00:00",
-          "logging_interval": settings.logging_interval_format || settings.loggingInterval || "00:10:00",  // time format string
-          "logging_interval_format": settings.logging_interval_format || settings.loggingInterval || "00:10:00",  // time format
+          "Instant Start TimeStamp": settings.instantStartTimeStamp || "19:04:00",
+          "Instant End TimeStamp": settings.instantEndTimeStamp || "00:00:00",
+          "logging_interval": settings.loggingInterval || "00:10:00",
+          "logging_interval_format": settings.loggingInterval || "00:10:00",
           "Depolarization_interval": settings.dpolInterval || "00:00:00"
         }
       };

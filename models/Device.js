@@ -73,21 +73,20 @@ const DeviceSchema = new Schema({
       di2: { type: Number, default: 0 },
       di3: { type: Number, default: 0 },
       di4: { type: Number, default: 0 },
-      // Time-related settings
+      // Time-related settings - STANDARDIZED NAMING: all use camelCase with "TimeStamp"
       interruptOnTime: { type: Number, default: 0 },
       interruptOffTime: { type: Number, default: 0 },
-      interruptStartTimestamp: { type: String, default: '' },
-      interruptStopTimestamp: { type: String, default: '' },
+      interruptStartTimeStamp: { type: String, default: '' },  // StandardCamelCase
+      interruptStopTimeStamp: { type: String, default: '' },   // StandardCamelCase
       dpolInterval: { type: String, default: '00:00:00' },
-      depolarizationStartTimestamp: { type: String, default: '' },
-      depolarizationStopTimestamp: { type: String, default: '' },
+      depolarizationStartTimeStamp: { type: String, default: '' },  // StandardCamelCase
+      depolarizationStopTimeStamp: { type: String, default: '' },   // StandardCamelCase
       instantMode: { type: Number, default: 0 },
-      instantStartTimestamp: { type: String, default: '' },
-      instantEndTimestamp: { type: String, default: '' },
-      // Logging settings - new requirement
-      loggingInterval: { type: String, default: '00:00:10' }, // default 10 seconds (hh:mm:ss format)
-      logging_interval: { type: Number, default: 600 }, // numeric seconds (for database storage)
-      logging_interval_format: { type: String, default: '00:10:00' } // time format (for MQTT transmission)
+      instantStartTimeStamp: { type: String, default: '' },  // StandardCamelCase
+      instantEndTimeStamp: { type: String, default: '' },    // StandardCamelCase
+      // Logging settings - SINGLE FIELD ONLY (time string in hh:mm:ss format)
+      loggingInterval: { type: String, default: '00:00:10' }  // hh:mm:ss format
+
     },
     lastUpdated: { type: Date, default: null },
     updatedBy: { type: String, default: 'system' } // 'system' or 'user'

@@ -1145,8 +1145,74 @@ class DeviceConfigController {
             device.configuration.deviceSettings = {};
           }
 
-          // Update each setting field with transformed values
-          Object.assign(device.configuration.deviceSettings, transformedParameters);
+          // CRITICAL FIX: Store ORIGINAL values from completePayload, not transformed values
+          // Transformed values are only for MQTT transmission
+          // Database must store original UI format values so they can be read back correctly
+          const dbSettings = {};
+          
+          // COMPREHENSIVE KEY MAPPING
+          // Maps frontend UI parameter names to database camelCase field names
+          // This must match EXACTLY what getDeviceSettings expects to read
+          const keyMapping = {
+            // Basic control parameters
+            'Electrode': 'electrode',
+            'Event': 'event',
+            'Manual Mode Action': 'manualModeAction',
+            
+            // Voltage/Current measurements
+            'Shunt Voltage': 'shuntVoltage',
+            'Shunt Current': 'shuntCurrent',
+            
+            // Reference thresholds (CRITICAL - these are often corrupted)
+            'Reference Fail': 'referenceFail',
+            'Reference UP': 'referenceUP',
+            'Reference OP': 'referenceOP',
+            
+            // Interrupt timings (CRITICAL - these are multiplied by 1000)
+            'Interrupt ON Time': 'interruptOnTime',
+            'Interrupt OFF Time': 'interruptOffTime',
+            'Interrupt Start TimeStamp': 'interruptStartTimeStamp',
+            'Interrupt Stop TimeStamp': 'interruptStopTimeStamp',
+            
+            // Depolarization settings
+            'Depolarization Start TimeStamp': 'depolarizationStartTimeStamp',
+            'Depolarization Stop TimeStamp': 'depolarizationStopTimeStamp',
+            'Depolarization_interval': 'dpolInterval',  // Note: underscore in UI format
+            'Depolarization Interval': 'dpolInterval',  // Also accept without underscore
+            
+            // Instant mode
+            'Instant Mode': 'instantMode',
+            'Instant Start TimeStamp': 'instantStartTimeStamp',
+            'Instant End TimeStamp': 'instantEndTimeStamp',
+            
+            // Logging settings - these come with underscores from API
+            'logging_interval': 'loggingInterval',      // String time format from API
+            'logging_interval_format': 'loggingInterval'  // Same field - both are time format strings
+          };
+
+          // Map ORIGINAL parameters (completePayload) to camelCase database field names
+          // Do NOT use transformedParameters - those are MQTT format only!
+          console.log(`📝 Starting field mapping for device ${deviceId}:`);
+          console.log(`   Input keys from completePayload:`, Object.keys(completePayload));
+          
+          Object.entries(completePayload).forEach(([key, value]) => {
+            const dbKey = keyMapping[key];
+            if (dbKey) {
+              // Only log critical fields to reduce noise
+              if (['referenceFail', 'interruptOnTime', 'interruptOffTime', 'electrode', 'shuntVoltage'].includes(dbKey)) {
+                console.log(`   ✓ Mapping '${key}' → '${dbKey}' = ${value}`);
+              }
+              dbSettings[dbKey] = value;
+            } else {
+              console.log(`   ⚠️ No mapping found for key '${key}', skipping`);
+            }
+          });
+
+          console.log(`🔄 Mapping original params to DB format:`, dbSettings);
+          console.log(`   (Using original completePayload, NOT transformedParameters)`);
+
+          // Update device settings with properly mapped keys
+          Object.assign(device.configuration.deviceSettings, dbSettings);
 
           // Also track the original cache format for reference
           if (!device.configuration.deviceSettingsCacheFormat) {
@@ -1160,6 +1226,11 @@ class DeviceConfigController {
 
           await device.save();
           console.log(`✅ Settings saved to database for device ${deviceId}`);
+          console.log(`   DB field names: ${Object.keys(device.configuration.deviceSettings).join(', ')}`);
+          console.log(`   Sample values:`);
+          console.log(`     - shuntVoltage: ${device.configuration.deviceSettings.shuntVoltage}`);
+          console.log(`     - referenceFail: ${device.configuration.deviceSettings.referenceFail}`);
+          console.log(`     - interruptOnTime: ${device.configuration.deviceSettings.interruptOnTime}`);
         }
       } catch (dbError) {
         console.warn(`⚠️ Failed to save settings to database (non-critical):`, dbError);
@@ -1288,8 +1359,41 @@ class DeviceConfigController {
         });
       }
 
-      // Update database with merged settings (store transformed values)
-      device.configuration.deviceSettings = transformedParameters;
+      // Update database with merged settings (store ORIGINAL values, not transformed)
+      // CRITICAL FIX: Store original completePayload values, NOT transformedParameters
+      // Transformed values are only for MQTT transmission
+      const keyMapping = {
+        'Electrode': 'electrode',
+        'Event': 'event',
+        'Manual Mode Action': 'manualModeAction',
+        'Shunt Voltage': 'shuntVoltage',
+        'Shunt Current': 'shuntCurrent',
+        'Reference Fail': 'referenceFail',
+        'Reference UP': 'referenceUP',
+        'Reference OP': 'referenceOP',
+        'Interrupt ON Time': 'interruptOnTime',
+        'Interrupt OFF Time': 'interruptOffTime',
+        'Interrupt Start TimeStamp': 'interruptStartTimeStamp',
+        'Interrupt Stop TimeStamp': 'interruptStopTimeStamp',
+        'Depolarization Start TimeStamp': 'depolarizationStartTimeStamp',
+        'Depolarization Stop TimeStamp': 'depolarizationStopTimeStamp',
+        'Instant Mode': 'instantMode',
+        'Instant Start TimeStamp': 'instantStartTimeStamp',
+        'Instant End TimeStamp': 'instantEndTimeStamp',
+        'logging_interval': 'loggingInterval',
+        'logging_interval_format': 'logging_interval_format',
+        'Depolarization_interval': 'dpolInterval'
+      };
+
+      const dbSettings = {};
+      Object.entries(completePayload).forEach(([key, value]) => {
+        const dbKey = keyMapping[key] || key;
+        if (dbKey) {
+          dbSettings[dbKey] = value;
+        }
+      });
+
+      device.configuration.deviceSettings = dbSettings;
       
       // Also track cache format for reference
       if (!device.configuration.deviceSettingsCacheFormat) {

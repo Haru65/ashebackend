@@ -193,7 +193,7 @@ class MQTTService {
           await this.saveTelemetryData(deviceId, payload); // ✅ Save first to get location from geocoding
           
           // Fetch the just-saved telemetry record to get the reverse-geocoded location
-          const Telemetry = require('../models/Telemetry');
+          const Telemetry = require('../models/telemetry');
           const latestTelemetry = await Telemetry.findOne({ deviceId: deviceId }).sort({ timestamp: -1 });
           if (latestTelemetry && latestTelemetry.location) {
             console.log(`📍 Updated device location from telemetry: ${latestTelemetry.location}`);
@@ -2848,8 +2848,32 @@ class MQTTService {
   // Function to reverse geocode coordinates to location name
   // Uses free APIs with timeout fallback to coordinate-based names
   // IMPORTANT: This function has internal timeout to prevent blocking MQTT pipeline
+  // THROTTLED: Only call once per unique coordinate per minute
   async reverseGeocodeLocation(lat, lon) {
     try {
+      const coordKey = `${Math.round(lat * 10000) / 10000},${Math.round(lon * 10000) / 10000}`;
+      const now = Date.now();
+      
+      // ⚡ THROTTLE: Check if we recently geocoded this exact coordinate
+      if (this.lastGeocodingAttempts && this.lastGeocodingAttempts.has(coordKey)) {
+        const lastAttempt = this.lastGeocodingAttempts.get(coordKey);
+        const timeSinceLastAttempt = now - lastAttempt;
+        
+        if (timeSinceLastAttempt < 60000) { // Less than 1 minute
+          console.log(`⏱️ THROTTLED: Skipping geocoding for ${coordKey} (last attempted ${timeSinceLastAttempt}ms ago)`);
+          return null; // Return null to avoid re-geocoding the same coordinates
+        }
+      }
+      
+      // Initialize the tracking map if it doesn't exist
+      if (!this.lastGeocodingAttempts) {
+        this.lastGeocodingAttempts = new Map();
+      }
+      
+      // Record this geocoding attempt
+      this.lastGeocodingAttempts.set(coordKey, now);
+      console.log(`🌐 GEOCODING INITIATED for ${coordKey}`);
+      
       // Set a hard timeout for the entire geocoding operation (max 20 seconds)
       // This prevents any single geocoding attempt from blocking the system
       const gecodingPromise = this._performReverseGeocoding(lat, lon);
@@ -2857,7 +2881,9 @@ class MQTTService {
         setTimeout(() => reject(new Error('Geocoding timeout exceeded')), 20000)
       );
       
-      return await Promise.race([gecodingPromise, timeoutPromise]);
+      const result = await Promise.race([gecodingPromise, timeoutPromise]);
+      console.log(`✅ GEOCODING COMPLETED for ${coordKey}: ${result}`);
+      return result;
     } catch (error) {
       console.warn(`⚠️ Reverse geocoding failed for ${lat}, ${lon}:`, error.message);
       // Try pre-defined locations as last resort
@@ -3106,19 +3132,26 @@ class MQTTService {
         longitude = payload.LONGITUDE;
         
         // ⚡ CRITICAL FIX: Only geocode if coordinates have changed
-        // Check if we've already processed these coordinates for this device
+        // Round coordinates to 4 decimal places (~11 meters precision) to avoid unnecessary geocoding
+        // due to minor GPS precision variations (every second instead of every minute)
+        const roundedLat = Math.round(latitude * 10000) / 10000;
+        const roundedLon = Math.round(longitude * 10000) / 10000;
+        
+        // Check if we've already processed these rounded coordinates for this device
         const lastCoords = this.deviceCoordinates.get(deviceId);
-        const coordinatesChanged = !lastCoords || lastCoords.lat !== latitude || lastCoords.lon !== longitude;
+        const coordinatesChanged = !lastCoords || 
+                                  Math.round(lastCoords.lat * 10000) / 10000 !== roundedLat || 
+                                  Math.round(lastCoords.lon * 10000) / 10000 !== roundedLon;
         
         if (coordinatesChanged) {
-          // Store new coordinates
-          this.deviceCoordinates.set(deviceId, { lat: latitude, lon: longitude });
+          // Store rounded coordinates to prevent re-triggering on minor GPS variations
+          this.deviceCoordinates.set(deviceId, { lat: roundedLat, lon: roundedLon });
           
-          console.log(`📍 Device ${deviceId} coordinates changed: ${latitude}, ${longitude}`);
+          console.log(`📍 Device ${deviceId} coordinates changed: ${roundedLat}, ${roundedLon} (from: ${latitude}, ${longitude})`);
           
           // Trigger reverse geocoding in background (non-blocking)
           setImmediate(() => {
-            this.reverseGeocodeLocation(latitude, longitude)
+            this.reverseGeocodeLocation(roundedLat, roundedLon)
               .then(resolvedLocation => {
                 if (resolvedLocation) {
                   console.log(`✅ Device ${deviceId} location resolved: ${resolvedLocation}`);

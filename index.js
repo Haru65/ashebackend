@@ -10,6 +10,7 @@ const { initializeSocket } = require('./config/socket');
 // Import services
 const mqttService = require('./services/mqttService');
 const socketService = require('./services/socketService');
+const deviceStatusMonitor = require('./services/deviceStatusMonitor');
 const { initializeServices, shutdownServices } = require('./initIoTServices');
 const UserLifecycleMonitor = require('./middleware/userLifecycleMonitor');
 
@@ -70,6 +71,12 @@ const startUserMonitoring = () => {
   }
 };
 
+// Start device status monitor
+const startDeviceStatusMonitoring = () => {
+  console.log('🚀 Starting device status monitor service...');
+  deviceStatusMonitor.start();
+};
+
 // Start the server
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
@@ -89,6 +96,9 @@ server.listen(PORT, () => {
   // Start periodic status reporting
   startStatusReporting();
   
+  // Start device status monitoring
+  startDeviceStatusMonitoring();
+  
   // Start user lifecycle monitoring
   startUserMonitoring();
 });
@@ -96,6 +106,9 @@ server.listen(PORT, () => {
 // Graceful shutdown
 const gracefulShutdown = () => {
   console.log('\n🔄 Shutting down gracefully...');
+  
+  // Stop device status monitor
+  deviceStatusMonitor.stop();
   
   // Shutdown IoT services
   shutdownServices();

@@ -341,13 +341,108 @@ router.get('/recent', authenticateToken, async (req, res) => {
   }
 });
 
-// DEPRECATED: Reverse geocoding endpoint removed
-// Use device's stored location instead of external API calls
-router.get('/geolocation/reverse', async (req, res) => {
-  res.json({
-    success: false,
-    error: 'Reverse geocoding service disabled. Use device location instead.'
-  });
+// Reverse geocoding endpoint - converts coordinates to location names
+router.get('/geolocation/reverse', authenticateToken, async (req, res) => {
+  try {
+    const { lat, lon } = req.query;
+    
+    if (!lat || !lon) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing latitude or longitude parameters'
+      });
+    }
+    
+    const latitude = parseFloat(lat);
+    const longitude = parseFloat(lon);
+    
+    if (isNaN(latitude) || isNaN(longitude)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid latitude or longitude values'
+      });
+    }
+    
+    console.log(`🌐 [REVERSE GEOCODE] Request: lat=${latitude}, lon=${longitude}`);
+    
+    try {
+      // Call Nominatim reverse geocoding service
+      const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`;
+      
+      const response = await fetch(nominatimUrl, {
+        headers: {
+          'User-Agent': 'Zeptac-IoT-Platform/1.0'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Nominatim returned ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data && data.address) {
+        console.log(`✅ [REVERSE GEOCODE] Success:`, data.display_name);
+        return res.json({
+          success: true,
+          data: data,
+          address: data.address
+        });
+      } else {
+        throw new Error('No address data in response');
+      }
+    } catch (nominatimError) {
+      console.warn(`⚠️ [REVERSE GEOCODE] Nominatim failed:`, nominatimError.message);
+      
+      // Fallback to OpenWeatherMap
+      try {
+        const owmApiKey = process.env.OPENWEATHER_API_KEY;
+        if (!owmApiKey) {
+          throw new Error('OpenWeatherMap API key not configured');
+        }
+        
+        const owmUrl = `https://api.openweathermap.org/geo/1.0/reverse?lat=${latitude}&lon=${longitude}&limit=1&appid=${owmApiKey}`;
+        const owmResponse = await fetch(owmUrl);
+        
+        if (!owmResponse.ok) {
+          throw new Error(`OpenWeatherMap returned ${owmResponse.status}`);
+        }
+        
+        const owmData = await owmResponse.json();
+        
+        if (owmData && owmData.length > 0) {
+          const location = owmData[0];
+          console.log(`✅ [REVERSE GEOCODE] OpenWeatherMap fallback:`, location.name);
+          return res.json({
+            success: true,
+            data: {
+              display_name: `${location.name}, ${location.state || ''}, ${location.country}`.replace(', ,', ',').trim(),
+              address: {
+                city: location.name,
+                state: location.state,
+                country: location.country
+              }
+            }
+          });
+        } else {
+          throw new Error('No location data from OpenWeatherMap');
+        }
+      } catch (owmError) {
+        console.warn(`⚠️ [REVERSE GEOCODE] All geocoding services failed:`, owmError.message);
+        return res.status(503).json({
+          success: false,
+          error: 'Reverse geocoding service temporarily unavailable',
+          fallback: `${latitude}, ${longitude}`
+        });
+      }
+    }
+  } catch (error) {
+    console.error('❌ [REVERSE GEOCODE] Error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error during reverse geocoding'
+    });
+  }
 });
 
 module.exports = router;

@@ -342,7 +342,8 @@ router.get('/recent', authenticateToken, async (req, res) => {
 });
 
 // Reverse geocoding endpoint - converts coordinates to location names
-router.get('/geolocation/reverse', authenticateToken, async (req, res) => {
+// PUBLIC ENDPOINT - No authentication required (converts public coordinates to location names)
+router.get('/geolocation/reverse', async (req, res) => {
   try {
     const { lat, lon } = req.query;
     

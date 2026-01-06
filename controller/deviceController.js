@@ -179,23 +179,79 @@ class DeviceController {
   // Get all devices from MongoDB
   static async getAllDevices(req, res) {
     try {
+      const axios = require('axios');
+      const Telemetry = require('../models/telemetry');
+      const geoCache = new Map();
+
+      // Reverse geocode function
+      const reverseGeocode = async (lat, lon) => {
+        const cacheKey = `${lat},${lon}`;
+        if (geoCache.has(cacheKey)) {
+          console.log(`✅ Using cached location for ${cacheKey}`);
+          return geoCache.get(cacheKey);
+        }
+
+        try {
+          console.log(`🌐 Reverse geocoding ${cacheKey}...`);
+          const response = await axios.get('https://nominatim.openstreetmap.org/reverse', {
+            params: {
+              format: 'json',
+              lat: lat,
+              lon: lon,
+              zoom: 18,
+              addressdetails: 1
+            },
+            headers: {
+              'User-Agent': 'AsheControl-IoT'
+            },
+            timeout: 5000
+          });
+
+          if (response.data && response.data.address) {
+            const addr = response.data.address;
+            const location = addr.city || addr.town || addr.village || addr.suburb || addr.county || response.data.display_name;
+            console.log(`📍 Geocoded ${cacheKey} to: ${location}`);
+            geoCache.set(cacheKey, location);
+            return location;
+          }
+        } catch (error) {
+          console.warn(`⚠️ Reverse geocoding failed for ${cacheKey}:`, error.message);
+        }
+
+        const fallback = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+        geoCache.set(cacheKey, fallback);
+        return fallback;
+      };
+
       const devices = await Device.find({})
         .select('deviceId deviceName location status sensors metadata mqtt configuration')
         .lean();
 
       // Transform the data to match the expected frontend format
-      const transformedDevices = devices.map(device => ({
-        deviceId: device.deviceId,
-        name: device.deviceName || device.deviceId,
-        location: device.location || 'N/A',
-        status: device.status?.state || 'offline',
-        lastSeen: device.status?.lastSeen || null,
-        currentData: device.sensors || {},
-        mqttTopic: device.mqtt?.topics?.data || `devices/${device.deviceId}/data`,
-        icon: device.metadata?.icon || null,
-        color: device.metadata?.color || null,
-        description: device.metadata?.description || null,
-        configuration: device.configuration || null
+      const transformedDevices = await Promise.all(devices.map(async (device) => {
+        let location = device.location || 'N/A';
+
+        // Reverse geocode if location is coordinates
+        const coordMatch = location.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
+        if (coordMatch) {
+          const lat = parseFloat(coordMatch[1]);
+          const lon = parseFloat(coordMatch[2]);
+          location = await reverseGeocode(lat, lon);
+        }
+
+        return {
+          deviceId: device.deviceId,
+          name: device.deviceName || device.deviceId,
+          location: location,
+          status: device.status?.state || 'offline',
+          lastSeen: device.status?.lastSeen || null,
+          currentData: device.sensors || {},
+          mqttTopic: device.mqtt?.topics?.data || `devices/${device.deviceId}/data`,
+          icon: device.metadata?.icon || null,
+          color: device.metadata?.color || null,
+          description: device.metadata?.description || null,
+          configuration: device.configuration || null
+        };
       }));
 
       res.json({

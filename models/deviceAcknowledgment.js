@@ -108,6 +108,6 @@ deviceAcknowledgmentSchema.statics.getStats = function(deviceId, fromDate) {
   ]);
 };
 
-const DeviceAcknowledgment = mongoose.model('DeviceAcknowledgment', deviceAcknowledgmentSchema);
+const DeviceAcknowledgment = mongoose.models.DeviceAcknowledgment || mongoose.model('DeviceAcknowledgment', deviceAcknowledgmentSchema);
 
 module.exports = DeviceAcknowledgment;

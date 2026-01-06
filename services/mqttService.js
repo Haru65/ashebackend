@@ -188,6 +188,17 @@ class MQTTService {
           const deviceInfo = transformDeviceData(payload, topic);
           console.log('🔄 Transformed Device Info:', JSON.stringify(deviceInfo, null, 2));
           
+          // Save telemetry data FIRST to perform reverse geocoding
+          await this.saveTelemetryData(deviceId, payload); // ✅ Save first to get location from geocoding
+          
+          // Fetch the just-saved telemetry record to get the reverse-geocoded location
+          const Telemetry = require('../models/Telemetry');
+          const latestTelemetry = await Telemetry.findOne({ deviceId: deviceId }).sort({ timestamp: -1 });
+          if (latestTelemetry && latestTelemetry.location) {
+            console.log(`📍 Updated device location from telemetry: ${latestTelemetry.location}`);
+            deviceInfo.location = latestTelemetry.location;
+          }
+          
           this.deviceData.device = deviceInfo;
           this.lastDeviceTimestamp = Date.now();
           this.throttledEmit(deviceInfo);
@@ -201,11 +212,8 @@ class MQTTService {
           // Update device status in MongoDB
           await this.updateDeviceStatus(deviceId, payload); // ✅ RE-ENABLED - Keep MongoDB in sync with current status
           
-          // Save telemetry data to database  
-          await this.saveTelemetryData(deviceId, payload); // ✅ RE-ENABLED - Saves telemetry to database for Reports page
-          
-          // Note: saveTelemetryData uses server-side timestamps for the telemetry record
-          // This is correct behavior - device-specific timestamps are preserved in the data.Parameters
+          // Note: saveTelemetryData is called earlier (above) to get reverse-geocoded location
+          // before emitting device data to frontend
           
           console.log('💾 Updated device data and notified frontend');
         } else if (topicType === 'commands') {
@@ -2204,15 +2212,18 @@ class MQTTService {
       
       // Extract LATITUDE and LONGITUDE BEFORE they are excluded from dataFields
       // These will be used for reverse geocoding
-      const rawLatitude = payload.LATITUDE;
-      const rawLongitude = payload.LONGITUDE;
+      // Check both root level and nested Parameters
+      const rawLatitude = payload.LATITUDE || (payload.Parameters && payload.Parameters.LATITUDE);
+      const rawLongitude = payload.LONGITUDE || (payload.Parameters && payload.Parameters.LONGITUDE);
       console.log(`🔍 DEBUG - Raw coordinates from payload:`, {
         rawLatitude,
         rawLongitude,
         latitudeType: typeof rawLatitude,
         longitudeType: typeof rawLongitude,
         latitudeExists: rawLatitude !== undefined,
-        longitudeExists: rawLongitude !== undefined
+        longitudeExists: rawLongitude !== undefined,
+        fromRoot: !!payload.LATITUDE,
+        fromParameters: !!(payload.Parameters && payload.Parameters.LATITUDE)
       });
       
       // Also include root-level fields (simulator format)
@@ -2230,7 +2241,8 @@ class MQTTService {
 
       // Ensure critical REF values are properly captured (but NOT latitude/longitude which are handled as location)
       const criticalFields = ['REF/OP', 'REF/UP', 'REF FAIL', 'REF_OP', 'REF_UP', 'REF_FAIL', 
-       'DI1', 'DI2', 'DI3', 'DI4', 'REF1', 'REF2', 'REF3'];
+       'DI1', 'DI2', 'DI3', 'DI4', 'DO1', 'REF1', 'REF2', 'REF3',
+       'Digital Input 1', 'Digital Input 2', 'Digital Input 3', 'Digital Input 4', 'Digital Output'];
       
       let criticalAdded = 0;
       criticalFields.forEach(field => {
@@ -2280,11 +2292,13 @@ class MQTTService {
           lat,
           lon,
           latIsNaN: isNaN(lat),
-          lonIsNaN: isNaN(lon)
+          lonIsNaN: isNaN(lon),
+          latIsZero: lat === 0,
+          lonIsZero: lon === 0
         });
         
-        // Only set location if both are valid decimal numbers
-        if (!isNaN(lat) && !isNaN(lon)) {
+        // Only set location if both are valid decimal numbers AND not zero/null coordinates
+        if (!isNaN(lat) && !isNaN(lon) && (lat !== 0 || lon !== 0)) {
           console.log(`📍 Converted coordinates - Original: ${rawLatitude}, ${rawLongitude} → Decimal: ${lat}, ${lon}`);
           
           // Perform reverse geocoding to get human-readable location name
@@ -2307,10 +2321,12 @@ class MQTTService {
             location = `${lat}, ${lon}`;
           }
         } else {
-          console.log(`❌ Coordinates are NaN, skipping reverse geocoding`);
+          console.log(`❌ Coordinates are invalid (NaN or both zero), setting location to null`);
+          location = null;
         }
       } else {
         console.log(`❌ Missing coordinates - lat: ${!!rawLatitude}, lon: ${!!rawLongitude}`);
+        location = null;
       }
 
       console.log(`📝 Data fields to be saved (${Object.keys(dataFields).length} fields):`, dataFields);
@@ -2860,17 +2876,33 @@ class MQTTService {
           if (data && data.address) {
             const parts = [];
             
+            // Add detailed address components in order of specificity (most specific first)
+            // Zone/Area/Neighbourhood
+            if (data.address.neighbourhood) parts.push(data.address.neighbourhood);
+            else if (data.address.suburb) parts.push(data.address.suburb);
+            else if (data.address.city_district) parts.push(data.address.city_district);
+            
+            // City/Town/Village
             if (data.address.city) parts.push(data.address.city);
             else if (data.address.town) parts.push(data.address.town);
             else if (data.address.village) parts.push(data.address.village);
             else if (data.address.hamlet) parts.push(data.address.hamlet);
             
+            // District/County level
+            if (data.address.county) parts.push(data.address.county);
+            else if (data.address.state_district) parts.push(data.address.state_district);
+            
+            // State/Province
             if (data.address.state) parts.push(data.address.state);
-            if (data.address.country) parts.push(data.address.country);
+            
+            // Country (optional - only add if not already in parts)
+            if (data.address.country && parts.length < 4) parts.push(data.address.country);
             
             if (parts.length > 0) {
+              // Remove duplicates while preserving order
               const locationName = Array.from(new Set(parts)).join(', ');
               this.cacheLocalLocation(lat, lon, locationName);
+              console.log(`✅ Nominatim reverse geocoding: ${locationName}`);
               return locationName;
             }
           }
@@ -2884,13 +2916,9 @@ class MQTTService {
       }
     } catch (error) {
       console.warn(`⚠️ Reverse geocoding failed for ${lat}, ${lon}:`, error.message);
-      // Fallback to Nominatim if primary fails
-      try {
-        return await this.reverseGeocodeLocationNominatim(lat, lon);
-      } catch (fallbackError) {
-        console.warn(`⚠️ All reverse geocoding attempts failed for ${lat}, ${lon}`);
-        return null;
-      }
+      // All reverse geocoding attempts have failed
+      console.warn(`⚠️ All reverse geocoding attempts failed for ${lat}, ${lon}`);
+      return null;
     }
   }
 

@@ -1,6 +1,60 @@
 const express = require('express');
 const router = express.Router();
 const Device = require('../models/Device');
+const axios = require('axios');
+
+// Cache for reverse geocoding results to avoid repeated API calls
+const geoCache = new Map();
+
+/**
+ * Reverse geocode coordinates to location name using Nominatim
+ * @param {number} lat - Latitude
+ * @param {number} lon - Longitude
+ * @returns {Promise<string>} - Location name or coordinates as fallback
+ */
+const reverseGeocode = async (lat, lon) => {
+  const cacheKey = `${lat},${lon}`;
+  
+  // Check cache first
+  if (geoCache.has(cacheKey)) {
+    console.log(`✅ Using cached location for ${cacheKey}`);
+    return geoCache.get(cacheKey);
+  }
+
+  try {
+    console.log(`🌐 Reverse geocoding ${cacheKey}...`);
+    const response = await axios.get('https://nominatim.openstreetmap.org/reverse', {
+      params: {
+        format: 'json',
+        lat: lat,
+        lon: lon,
+        zoom: 18,
+        addressdetails: 1
+      },
+      headers: {
+        'User-Agent': 'AsheControl-IoT'
+      },
+      timeout: 5000
+    });
+
+    if (response.data && response.data.address) {
+      // Try to get the most relevant address part
+      const addr = response.data.address;
+      const location = addr.city || addr.town || addr.village || addr.suburb || addr.county || response.data.display_name;
+      
+      console.log(`📍 Geocoded ${cacheKey} to: ${location}`);
+      geoCache.set(cacheKey, location);
+      return location;
+    }
+  } catch (error) {
+    console.warn(`⚠️ Reverse geocoding failed for ${cacheKey}:`, error.message);
+  }
+
+  // Fallback to coordinates
+  const fallback = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+  geoCache.set(cacheKey, fallback);
+  return fallback;
+};
 
 /**
  * POST /api/devices
@@ -134,6 +188,8 @@ router.delete('/devices/:deviceId', async (req, res) => {
  */
 router.get('/devices', async (req, res) => {
   try {
+    const Telemetry = require('../models/telemetry');
+    
     const devices = await Device.find({})
       .select('deviceId deviceName location mqtt sensors status metadata')
       .sort({ 'status.lastSeen': -1 })
@@ -142,24 +198,68 @@ router.get('/devices', async (req, res) => {
     console.log(`📋 GET /api/devices - Found ${devices.length} devices in database`);
     console.log('📋 Device IDs:', devices.map(d => d.deviceId));
     
-    // Transform to match frontend expectations
-    const formattedDevices = devices.map(device => ({
-      id: device.deviceId,
-      name: device.deviceName || `Device ${device.deviceId}`,
-      icon: device.metadata?.icon || 'bi-device',
-      type: 'IoT Sensor',
-      location: device.location || 'N/A',
-      status: device.status?.state || 'offline',
-      lastSeen: device.status?.lastSeen ? new Date(device.status.lastSeen).toISOString() : 'Never',
-      metrics: [
-        { type: 'battery', value: device.sensors?.battery || 0, icon: 'bi-battery-full' },
-        { type: 'signal', value: device.sensors?.signal || 0, icon: 'bi-wifi' },
-        { type: 'temperature', value: device.sensors?.temperature || 0, icon: 'bi-thermometer' },
-      ]
+    // Fetch latest telemetry for each device to get fresh location data
+    const formattedDevices = await Promise.all(devices.map(async (device) => {
+      let location = device.location || 'N/A';
+      let status = device.status?.state || 'offline';
+      let lastSeen = device.status?.lastSeen ? new Date(device.status.lastSeen).toLocaleString() : 'Never';
+      
+      // Try to get latest telemetry location and status
+      try {
+        const latestTelemetry = await Telemetry.findOne({ deviceId: device.deviceId })
+          .select('location status lastSeen timestamp')
+          .sort({ timestamp: -1 })
+          .lean();
+        
+        if (latestTelemetry) {
+          // Update location if available from telemetry
+          if (latestTelemetry.location) {
+            location = latestTelemetry.location;
+          }
+          // Update status if available from telemetry
+          if (latestTelemetry.status) {
+            status = latestTelemetry.status;
+          }
+          // Update lastSeen to latest telemetry timestamp
+          if (latestTelemetry.timestamp) {
+            lastSeen = new Date(latestTelemetry.timestamp).toLocaleString();
+          }
+        }
+      } catch (err) {
+        console.warn(`⚠️ Could not fetch latest telemetry for ${device.deviceId}`);
+      }
+      
+      // Reverse geocode if location is coordinates
+      const coordMatch = location.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
+      if (coordMatch) {
+        const lat = parseFloat(coordMatch[1]);
+        const lon = parseFloat(coordMatch[2]);
+        location = await reverseGeocode(lat, lon);
+      }
+      
+      return {
+        id: device.deviceId,
+        sensorId: device.deviceId, // Use deviceId as sensor identifier
+        name: device.deviceName || `Device ${device.deviceId}`,
+        icon: device.metadata?.icon || 'bi-device',
+        type: 'IoT Sensor',
+        location: location,
+        status: status,
+        lastSeen: lastSeen,
+        metrics: [
+          { type: 'battery', value: device.sensors?.battery || 0, icon: 'bi-battery-full' },
+          { type: 'signal', value: device.sensors?.signal || 0, icon: 'bi-wifi' },
+          { type: 'temperature', value: device.sensors?.temperature || 0, icon: 'bi-thermometer' },
+        ]
+      };
     }));
     
     console.log(`✅ Returning ${formattedDevices.length} formatted devices`);
-    res.json(formattedDevices);
+    res.json({
+      success: true,
+      count: formattedDevices.length,
+      devices: formattedDevices
+    });
   } catch (error) {
     console.error('Error fetching devices:', error);
     res.status(500).json({ error: 'Failed to fetch devices' });

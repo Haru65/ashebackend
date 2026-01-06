@@ -86,32 +86,56 @@ function transformDeviceData(payload, topic) {
   }
   
   // Add Digital Inputs (DI1, DI2, DI3, DI4)
-  if (params.DI1 !== undefined) {
+  // Device sends these as "Digital Input 1-4" with OPEN/CLOSE or numeric values
+  const di1Value = params.DI1 !== undefined ? params.DI1 : params['Digital Input 1'];
+  if (di1Value !== undefined) {
     metrics.push({
       type: 'DI1',
-      value: params.DI1,
-      icon: 'bi-toggles'
+      value: di1Value,
+      icon: 'bi-toggle-on',
+      category: 'Digital Input'
     });
   }
-  if (params.DI2 !== undefined) {
+  
+  const di2Value = params.DI2 !== undefined ? params.DI2 : params['Digital Input 2'];
+  if (di2Value !== undefined) {
     metrics.push({
       type: 'DI2',
-      value: params.DI2,
-      icon: 'bi-toggles'
+      value: di2Value,
+      icon: 'bi-toggle-on',
+      category: 'Digital Input'
     });
   }
-  if (params.DI3 !== undefined) {
+  
+  const di3Value = params.DI3 !== undefined ? params.DI3 : params['Digital Input 3'];
+  if (di3Value !== undefined) {
     metrics.push({
       type: 'DI3',
-      value: params.DI3,
-      icon: 'bi-toggles'
+      value: di3Value,
+      icon: 'bi-toggle-on',
+      category: 'Digital Input'
     });
   }
-  if (params.DI4 !== undefined) {
+  
+  const di4Value = params.DI4 !== undefined ? params.DI4 : params['Digital Input 4'];
+  if (di4Value !== undefined) {
     metrics.push({
       type: 'DI4',
-      value: params.DI4,
-      icon: 'bi-toggles'
+      value: di4Value,
+      icon: 'bi-toggle-on',
+      category: 'Digital Input'
+    });
+  }
+  
+  // Add Digital Output (DO1)
+  // Device sends this as "Digital Output" with ON/OFF or numeric values
+  const do1Value = params.DO1 !== undefined ? params.DO1 : params['Digital Output'];
+  if (do1Value !== undefined) {
+    metrics.push({
+      type: 'DO1',
+      value: do1Value,
+      icon: 'bi-arrow-right-square',
+      category: 'Digital Output'
     });
   }
   
@@ -156,8 +180,7 @@ function transformDeviceData(payload, topic) {
     name: payload.API ?? `Device-${deviceId}`,
     icon: 'bi-device',
     type: 'IoT Sensor',
-    location: params.LATITUDE && params.LONGITUDE && (params.LATITUDE !== '00°00\'' && params.LONGITUDE !== '000°00\'')
-      ? `${params.LATITUDE}, ${params.LONGITUDE}` : "Mumbai, India",
+    location: null, // Will be updated from telemetry after geocoding
     status: params.EVENT ?? "NORMAL",
     lastSeen: params.TimeStamp ?? new Date().toISOString(),
     timestamp: Date.now(),

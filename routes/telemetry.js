@@ -79,7 +79,7 @@ router.get('/', authenticateToken, async (req, res) => {
           deviceId: telemetryObj.deviceId,
           timestamp: telemetryObj.timestamp,
           event: telemetryObj.event,
-          status: telemetryObj.status,
+          status: 'online',  // ✅ Status is always 'online' when data exists in telemetry
           location: telemetryObj.location,
           // Include all data fields directly (flattened)
           ...dataObj,

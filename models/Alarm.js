@@ -96,6 +96,6 @@ AlarmSchema.methods.recordTrigger = async function() {
   }
 };
 
-const Alarm = mongoose.model('Alarm', AlarmSchema);
+const Alarm = mongoose.models.Alarm || mongoose.model('Alarm', AlarmSchema);
 
 module.exports = Alarm;

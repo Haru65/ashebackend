@@ -17,6 +17,13 @@ class SocketService {
       // Send initial data to new client
       this.sendInitialData(socket);
       
+      // Handle ping from frontend
+      socket.on('ping', () => {
+        console.log(`📡 Ping received from ${socket.id}`);
+        socket.emit('pong');
+        console.log(`📤 Pong sent to ${socket.id}`);
+      });
+      
       // Handle message sending from frontend
       socket.on('sendMessage', (messageData, callback) => {
         this.handleSendMessage(messageData, callback, socket.id);

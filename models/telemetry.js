@@ -62,4 +62,5 @@ telemetrySchema.pre('toJSON', function(next) {
   next();
 });
 
-module.exports = mongoose.model("telemetry_data" , telemetrySchema);
+// Export model, checking if it already exists to avoid overwrite errors
+module.exports = mongoose.models.telemetry_data || mongoose.model("telemetry_data", telemetrySchema);

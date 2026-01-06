@@ -95,4 +95,4 @@ DeviceHistorySchema.statics.getLatest = async function(deviceId, limit = 1) {
     .lean();
 };
 
-module.exports = mongoose.model('DeviceHistory', DeviceHistorySchema);
+module.exports = mongoose.models.DeviceHistory || mongoose.model('DeviceHistory', DeviceHistorySchema);

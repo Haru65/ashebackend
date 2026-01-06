@@ -105,6 +105,7 @@ class MQTTService {
     // Location tracking
     this.lastLocationSummaryEmit = 0;
     this.deviceLocations = new Map(); // deviceId -> {name, latitude, longitude}
+    this.deviceCoordinates = new Map(); // deviceId -> {lat, lon} - track for changes only
     this.locationCache = {}; // Coordinate-based location cache
   }
 
@@ -2301,25 +2302,28 @@ class MQTTService {
         if (!isNaN(lat) && !isNaN(lon) && (lat !== 0 || lon !== 0)) {
           console.log(`📍 Converted coordinates - Original: ${rawLatitude}, ${rawLongitude} → Decimal: ${lat}, ${lon}`);
           
-          // Perform reverse geocoding to get human-readable location name
-          try {
-            console.log(`🌐 Calling reverseGeocodeLocation with lat=${lat}, lon=${lon}...`);
-            const locationName = await this.reverseGeocodeLocation(lat, lon);
-            console.log(`🌐 Reverse geocoding returned:`, locationName);
-            
-            if (locationName) {
-              location = locationName;
-              console.log(`✅ Reverse geocoding successful: ${locationName}`);
-            } else {
-              // Fallback to coordinates if reverse geocoding returns null
-              location = `${lat}, ${lon}`;
-              console.log(`⚠️ Reverse geocoding returned null, using coordinates: ${location}`);
-            }
-          } catch (geocodingError) {
-            console.warn(`⚠️ Error during reverse geocoding: ${geocodingError.message}, using coordinates as fallback`);
-            console.warn(`   Full error:`, geocodingError);
-            location = `${lat}, ${lon}`;
-          }
+          // ⚡ CRITICAL FIX: Set location to coordinates immediately for fast data flow
+          // Reverse geocoding happens in background to avoid blocking MQTT data pipeline
+          location = `${lat}, ${lon}`;
+          
+          // Trigger reverse geocoding in background (non-blocking)
+          // This prevents slow API calls from blocking telemetry save
+          setImmediate(() => {
+            this.reverseGeocodeLocation(lat, lon)
+              .then(locationName => {
+                if (locationName) {
+                  console.log(`✅ Geocoding completed in background: ${locationName}`);
+                  // Telemetry already saved with coordinates, location can be updated later if needed
+                  // For now, we've ensured the data flow is not blocked
+                } else {
+                  console.log(`ℹ️ Geocoding returned no location for ${lat}, ${lon}`);
+                }
+              })
+              .catch(error => {
+                console.warn(`⚠️ Background geocoding error for ${lat}, ${lon}:`, error.message);
+                // Gracefully handle - telemetry already saved with coordinates
+              });
+          });
         } else {
           console.log(`❌ Coordinates are invalid (NaN or both zero), setting location to null`);
           location = null;
@@ -2843,7 +2847,32 @@ class MQTTService {
 
   // Function to reverse geocode coordinates to location name
   // Uses free APIs with timeout fallback to coordinate-based names
+  // IMPORTANT: This function has internal timeout to prevent blocking MQTT pipeline
   async reverseGeocodeLocation(lat, lon) {
+    try {
+      // Set a hard timeout for the entire geocoding operation (max 20 seconds)
+      // This prevents any single geocoding attempt from blocking the system
+      const gecodingPromise = this._performReverseGeocoding(lat, lon);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Geocoding timeout exceeded')), 20000)
+      );
+      
+      return await Promise.race([gecodingPromise, timeoutPromise]);
+    } catch (error) {
+      console.warn(`⚠️ Reverse geocoding failed for ${lat}, ${lon}:`, error.message);
+      // Try pre-defined locations as last resort
+      const commonLocationName = this.getCommonLocation(lat, lon);
+      if (commonLocationName) {
+        console.log(`📍 Using pre-defined location (error fallback): ${commonLocationName}`);
+        return commonLocationName;
+      }
+      console.warn(`⚠️ All geocoding methods failed for ${lat}, ${lon}`);
+      return null;
+    }
+  }
+
+  // Internal function that performs the actual reverse geocoding
+  async _performReverseGeocoding(lat, lon) {
     try {
       // Try local geocoding cache first (for frequently accessed locations)
       const localLocationName = this.getLocalLocationName(lat, lon);
@@ -2853,7 +2882,7 @@ class MQTTService {
       }
       
       // Primary: Nominatim with high zoom for precise city-level location
-      console.log(`🌐 Attempting Nominatim reverse geocoding for ${lat}, ${lon}...`);
+      // (suppress logging during background geocoding to reduce console spam)
       
       // Retry logic for Nominatim (timeout issues are common on cloud platforms like Render)
       let nominatimResp = null;
@@ -2879,7 +2908,7 @@ class MQTTService {
           } catch (fetchError) {
             clearTimeout(timeoutId);
             if (attempt < 2) {
-              console.log(`  ⚠️ Nominatim attempt ${attempt} failed, retrying...`);
+              // Suppress retry logging to reduce spam
               await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay before retry
             } else {
               throw fetchError;
@@ -2889,66 +2918,57 @@ class MQTTService {
           if (attempt === 2) throw err;
         }
       }
-  
+      
       if (nominatimResp && nominatimResp.ok) {
         const data = await nominatimResp.json();
         if (data && data.address) {
           const parts = [];
           
           // Add detailed address components in order of specificity (most specific first)
-          // Zone/Area/Neighbourhood
+          // Subdistrict/Neighborhood (most specific)
           if (data.address.neighbourhood) parts.push(data.address.neighbourhood);
-          else if (data.address.suburb) parts.push(data.address.suburb);
-          else if (data.address.city_district) parts.push(data.address.city_district);
+          if (data.address.suburb) parts.push(data.address.suburb);
+          if (data.address.city_district) parts.push(data.address.city_district);
           
-          // City/Town/Village
+          // City/Town/Village (second level)
           if (data.address.city) parts.push(data.address.city);
-          else if (data.address.town) parts.push(data.address.town);
-          else if (data.address.village) parts.push(data.address.village);
-          else if (data.address.hamlet) parts.push(data.address.hamlet);
+          if (data.address.town) parts.push(data.address.town);
+          if (data.address.village) parts.push(data.address.village);
+          if (data.address.hamlet) parts.push(data.address.hamlet);
           
-          // District/County level
+          // District/County level (third level)
           if (data.address.county) parts.push(data.address.county);
-          else if (data.address.state_district) parts.push(data.address.state_district);
+          if (data.address.state_district) parts.push(data.address.state_district);
           
-          // State/Province
+          // State/Province (fourth level)
           if (data.address.state) parts.push(data.address.state);
           
           // Country (optional - only add if not already in parts)
-          if (data.address.country && parts.length < 4) parts.push(data.address.country);
+          if (data.address.country && parts.length < 5) parts.push(data.address.country);
           
           if (parts.length > 0) {
-            // Remove duplicates while preserving order
-            const locationName = Array.from(new Set(parts)).join(', ');
+            // Remove duplicates while preserving order, keep top 3-4 components for readability
+            const uniqueParts = Array.from(new Set(parts));
+            const locationName = uniqueParts.slice(0, 3).join(', ');
             this.cacheLocalLocation(lat, lon, locationName);
-            console.log(`✅ Nominatim reverse geocoding successful: ${locationName}`);
+            // Only log on success, suppress during background geocoding
             return locationName;
           }
         }
       }
       
-      console.log(`⚠️ Nominatim failed or returned empty result, trying fallback methods...`);
+      // Suppress logs during background geocoding to reduce spam
       // Fallback: Pre-defined common locations (works even when all APIs fail)
       const commonLocationName = this.getCommonLocation(lat, lon);
       if (commonLocationName) {
-        console.log(`📍 Using pre-defined location: ${commonLocationName}`);
         this.cacheLocalLocation(lat, lon, commonLocationName);
         return commonLocationName;
       }
       
       // Fallback: OpenWeather (completely free, no API key)
-      console.log(`🌐 Trying OpenWeather as final fallback...`);
       return await this.reverseGeocodeLocationOpenWeather(lat, lon);
     } catch (error) {
-      console.warn(`⚠️ Reverse geocoding error for ${lat}, ${lon}:`, error.message);
-      // Try pre-defined locations as last resort
-      const commonLocationName = this.getCommonLocation(lat, lon);
-      if (commonLocationName) {
-        console.log(`📍 Using pre-defined location (error fallback): ${commonLocationName}`);
-        return commonLocationName;
-      }
-      console.warn(`⚠️ All geocoding methods failed for ${lat}, ${lon}`);
-      return null;
+      throw error;
     }
   }
 
@@ -2972,7 +2992,6 @@ class MQTTService {
         );
         
         if (!response.ok) {
-          console.warn(`⚠️ OpenWeather API error: ${response.status}`);
           return null;
         }
         
@@ -2990,12 +3009,10 @@ class MQTTService {
           if (parts.length > 0) {
             const locationName = Array.from(new Set(parts)).join(', ');
             this.cacheLocalLocation(lat, lon, locationName);
-            console.log(`✅ OpenWeather resolved location: ${locationName}`);
             return locationName;
           }
         }
         
-        console.log(`⚠️ OpenWeather returned no address data`);
         return null;
       } finally {
         clearTimeout(timeoutId);
@@ -3025,16 +3042,26 @@ class MQTTService {
 
   // Get pre-defined common locations as fallback when APIs fail
   getCommonLocation(lat, lon) {
+    // More detailed locations with neighborhoods/areas
     const commonLocations = [
-      { lat: 19.05, lon: 72.87, name: 'Mumbai, Maharashtra, India', tolerance: 0.05 },  // Mumbai
-      { lat: 28.70, lon: 77.10, name: 'Delhi, India', tolerance: 0.05 },                 // Delhi
-      { lat: 13.34, lon: 74.74, name: 'Mangalore, Karnataka, India', tolerance: 0.05 },  // Mangalore
-      { lat: 15.50, lon: 73.83, name: 'Goa, India', tolerance: 0.05 },                   // Goa
-      { lat: 12.97, lon: 77.59, name: 'Bangalore, Karnataka, India', tolerance: 0.05 },  // Bangalore
-      { lat: 18.52, lon: 73.86, name: 'Pune, Maharashtra, India', tolerance: 0.05 },    // Pune
+      // Mumbai areas and neighborhoods
+      { lat: 19.076, lon: 72.877, name: 'Sion, Mumbai, Maharashtra, India', tolerance: 0.01 },
+      { lat: 19.055, lon: 72.872, name: 'Currey Road, Mumbai, Maharashtra, India', tolerance: 0.01 },
+      { lat: 19.015, lon: 72.856, name: 'Worli, Mumbai, Maharashtra, India', tolerance: 0.01 },
+      { lat: 19.047, lon: 72.821, name: 'Fort, Mumbai, Maharashtra, India', tolerance: 0.01 },
+      { lat: 19.089, lon: 72.836, name: 'Kala Ghoda, Mumbai, Maharashtra, India', tolerance: 0.01 },
+      { lat: 19.118, lon: 72.829, name: 'Fort District, Mumbai, Maharashtra, India', tolerance: 0.01 },
+      { lat: 19.050, lon: 72.870, name: 'Mumbai, Maharashtra, India', tolerance: 0.05 },  // General Mumbai
+      
+      // Other major cities
+      { lat: 28.70, lon: 77.10, name: 'New Delhi, India', tolerance: 0.05 },
+      { lat: 13.34, lon: 74.74, name: 'Mangalore, Karnataka, India', tolerance: 0.05 },
+      { lat: 15.50, lon: 73.83, name: 'Goa, India', tolerance: 0.05 },
+      { lat: 12.97, lon: 77.59, name: 'Bangalore, Karnataka, India', tolerance: 0.05 },
+      { lat: 18.52, lon: 73.86, name: 'Pune, Maharashtra, India', tolerance: 0.05 },
     ];
     
-    // Check if coordinates match any common location (within tolerance)
+    // Check specific locations first (smaller tolerance)
     for (const location of commonLocations) {
       if (Math.abs(lat - location.lat) < location.tolerance && Math.abs(lon - location.lon) < location.tolerance) {
         console.log(`📍 Matched pre-defined location: ${location.name}`);
@@ -3043,6 +3070,7 @@ class MQTTService {
     }
     
     return null;
+  }
 
   // Cache resolved locations for 24 hours
   cacheLocalLocation(lat, lon, name) {
@@ -3077,9 +3105,45 @@ class MQTTService {
         latitude = payload.LATITUDE;
         longitude = payload.LONGITUDE;
         
-        // Perform reverse geocoding to get location name
-        locationName = await this.reverseGeocodeLocation(latitude, longitude);
-        console.log(`📍 Device ${deviceId} coordinates: ${latitude}, ${longitude} → ${locationName || 'Unknown'}`);
+        // ⚡ CRITICAL FIX: Only geocode if coordinates have changed
+        // Check if we've already processed these coordinates for this device
+        const lastCoords = this.deviceCoordinates.get(deviceId);
+        const coordinatesChanged = !lastCoords || lastCoords.lat !== latitude || lastCoords.lon !== longitude;
+        
+        if (coordinatesChanged) {
+          // Store new coordinates
+          this.deviceCoordinates.set(deviceId, { lat: latitude, lon: longitude });
+          
+          console.log(`📍 Device ${deviceId} coordinates changed: ${latitude}, ${longitude}`);
+          
+          // Trigger reverse geocoding in background (non-blocking)
+          setImmediate(() => {
+            this.reverseGeocodeLocation(latitude, longitude)
+              .then(resolvedLocation => {
+                if (resolvedLocation) {
+                  console.log(`✅ Device ${deviceId} location resolved: ${resolvedLocation}`);
+                  // Update device locations map with resolved location
+                  if (this.deviceLocations.has(deviceId)) {
+                    const existing = this.deviceLocations.get(deviceId);
+                    existing.location = resolvedLocation;
+                    this.deviceLocations.set(deviceId, existing);
+                  }
+                  locationName = resolvedLocation;
+                }
+              })
+              .catch(error => {
+                console.warn(`⚠️ Background geocoding failed for device ${deviceId}:`, error.message);
+              });
+          });
+        } else {
+          console.log(`📍 Device ${deviceId} coordinates unchanged, skipping geocoding`);
+          // Use existing location if available
+          if (this.deviceLocations.has(deviceId)) {
+            locationName = this.deviceLocations.get(deviceId).location || `${latitude}, ${longitude}`;
+          } else {
+            locationName = `${latitude}, ${longitude}`;
+          }
+        }
       } else {
         console.log(`⚠️ Device ${deviceId} has invalid or missing LATITUDE/LONGITUDE in payload`);
         return;

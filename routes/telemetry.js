@@ -4,6 +4,32 @@ const Telemetry = require('../models/telemetry');
 const Device = require('../models/Device');
 const { authenticateToken } = require('../middleware/auth');
 
+// Simple in-memory cache for reverse geocoding results (24 hour TTL)
+const geolocationCache = new Map();
+
+function getCacheKey(lat, lon) {
+  return `${Math.round(lat * 1000) / 1000},${Math.round(lon * 1000) / 1000}`;
+}
+
+function getCachedLocation(lat, lon) {
+  const key = getCacheKey(lat, lon);
+  const cached = geolocationCache.get(key);
+  
+  if (cached && Date.now() - cached.timestamp < 24 * 60 * 60 * 1000) {
+    return cached.data;
+  }
+  
+  return null;
+}
+
+function cacheLocation(lat, lon, data) {
+  const key = getCacheKey(lat, lon);
+  geolocationCache.set(key, {
+    data: data,
+    timestamp: Date.now()
+  });
+}
+
 // Get telemetry data with filtering
 router.get('/', authenticateToken, async (req, res) => {
   try {
@@ -365,24 +391,39 @@ router.get('/geolocation/reverse', async (req, res) => {
       });
     }
     
+    // ⚡ CHECK CACHE FIRST - Return instantly if we've seen these coordinates before
+    const cachedResult = getCachedLocation(latitude, longitude);
+    if (cachedResult) {
+      return res.json(cachedResult);
+    }
+    
     console.log(`🌐 [REVERSE GEOCODE] Request: lat=${latitude}, lon=${longitude}`);
     
     // Pre-defined common locations as instant fallback (works even when APIs fail)
     const commonLocations = [
-      { lat: 19.05, lon: 72.87, name: 'Mumbai, Maharashtra, India', tolerance: 0.05 },
-      { lat: 28.70, lon: 77.10, name: 'Delhi, India', tolerance: 0.05 },
+      // Mumbai areas and neighborhoods
+      { lat: 19.076, lon: 72.877, name: 'Sion, Mumbai, Maharashtra, India', tolerance: 0.01 },
+      { lat: 19.055, lon: 72.872, name: 'Currey Road, Mumbai, Maharashtra, India', tolerance: 0.01 },
+      { lat: 19.015, lon: 72.856, name: 'Worli, Mumbai, Maharashtra, India', tolerance: 0.01 },
+      { lat: 19.047, lon: 72.821, name: 'Fort, Mumbai, Maharashtra, India', tolerance: 0.01 },
+      { lat: 19.089, lon: 72.836, name: 'Kala Ghoda, Mumbai, Maharashtra, India', tolerance: 0.01 },
+      { lat: 19.118, lon: 72.829, name: 'Fort District, Mumbai, Maharashtra, India', tolerance: 0.01 },
+      { lat: 19.050, lon: 72.870, name: 'Mumbai, Maharashtra, India', tolerance: 0.05 },  // General Mumbai fallback
+      
+      // Other major cities
+      { lat: 28.70, lon: 77.10, name: 'New Delhi, India', tolerance: 0.05 },
       { lat: 13.34, lon: 74.74, name: 'Mangalore, Karnataka, India', tolerance: 0.05 },
       { lat: 15.50, lon: 73.83, name: 'Goa, India', tolerance: 0.05 },
       { lat: 12.97, lon: 77.59, name: 'Bangalore, Karnataka, India', tolerance: 0.05 },
       { lat: 18.52, lon: 73.86, name: 'Pune, Maharashtra, India', tolerance: 0.05 },
     ];
     
-    // Check if matches pre-defined location first
+    // Check if matches pre-defined location first (instant, no API call)
     for (const location of commonLocations) {
       if (Math.abs(latitude - location.lat) < location.tolerance && 
           Math.abs(longitude - location.lon) < location.tolerance) {
         console.log(`✅ [REVERSE GEOCODE] Matched pre-defined location: ${location.name}`);
-        return res.json({
+        const result = {
           success: true,
           data: {
             display_name: location.name,
@@ -392,15 +433,18 @@ router.get('/geolocation/reverse', async (req, res) => {
               longitude: longitude
             }
           },
-          preDefinedMatch: true
-        });
+          preDefinedMatch: true,
+          cached: false
+        };
+        cacheLocation(latitude, longitude, result);
+        return res.json(result);
       }
     }
     
-    // Try Nominatim with increased timeout for Render
+    // Try Nominatim ONLY if not in pre-defined locations (to avoid blocking)
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000); // 12 second timeout for Render
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
       
       try {
         const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`;
@@ -419,11 +463,14 @@ router.get('/geolocation/reverse', async (req, res) => {
           const data = await response.json();
           if (data && data.display_name) {
             console.log(`✅ [REVERSE GEOCODE] Success:`, data.display_name);
-            return res.json({
+            const result = {
               success: true,
               data: data,
-              address: data.address
-            });
+              address: data.address,
+              cached: false
+            };
+            cacheLocation(latitude, longitude, result);
+            return res.json(result);
           }
         }
       } catch (fetchErr) {
@@ -437,7 +484,7 @@ router.get('/geolocation/reverse', async (req, res) => {
     // If Nominatim fails, return coordinates with success=true (graceful fallback)
     // Frontend will display coordinates instead of error
     console.log(`ℹ️ [REVERSE GEOCODE] Returning coordinates as fallback`);
-    return res.json({
+    const fallbackResult = {
       success: true,
       data: {
         display_name: `${latitude}, ${longitude}`,
@@ -446,8 +493,11 @@ router.get('/geolocation/reverse', async (req, res) => {
           longitude: longitude
         }
       },
-      fallback: true
-    });
+      fallback: true,
+      cached: false
+    };
+    cacheLocation(latitude, longitude, fallbackResult);
+    return res.json(fallbackResult);
   } catch (error) {
     console.error('❌ [REVERSE GEOCODE] Error:', error.message);
     res.status(500).json({

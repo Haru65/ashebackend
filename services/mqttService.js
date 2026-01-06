@@ -2845,79 +2845,109 @@ class MQTTService {
   // Uses free APIs with timeout fallback to coordinate-based names
   async reverseGeocodeLocation(lat, lon) {
     try {
-      // Helper: Create abort controller with timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      // Try local geocoding cache first (for frequently accessed locations)
+      const localLocationName = this.getLocalLocationName(lat, lon);
+      if (localLocationName) {
+        console.log(`📍 Found location in local cache: ${localLocationName}`);
+        return localLocationName;
+      }
       
-      try {
-        // Try local geocoding cache first (for frequently accessed locations)
-        const localLocationName = this.getLocalLocationName(lat, lon);
-        if (localLocationName) {
-          console.log(`📍 Found location in local cache: ${localLocationName}`);
-          return localLocationName;
-        }
-        
-        // Primary: Nominatim with high zoom for precise city-level location
-        console.log(`🌐 Attempting Nominatim reverse geocoding for ${lat}, ${lon}...`);
-        const nominatimResp = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`,
-          {
-            headers: {
-              'Accept': 'application/json',
-              'User-Agent': 'ASHECONTROL-IoT-Device-Service'
-            },
-            signal: controller.signal,
-            timeout: 8000
-          }
-        );
-        
-        if (nominatimResp.ok) {
-          const data = await nominatimResp.json();
-          if (data && data.address) {
-            const parts = [];
+      // Primary: Nominatim with high zoom for precise city-level location
+      console.log(`🌐 Attempting Nominatim reverse geocoding for ${lat}, ${lon}...`);
+      
+      // Retry logic for Nominatim (timeout issues are common on cloud platforms like Render)
+      let nominatimResp = null;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 12000); // 12 second timeout (increased for Render)
+          
+          try {
+            nominatimResp = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`,
+              {
+                headers: {
+                  'Accept': 'application/json',
+                  'User-Agent': 'ASHECONTROL-IoT-Device-Service/1.0'
+                },
+                signal: controller.signal
+              }
+            );
             
-            // Add detailed address components in order of specificity (most specific first)
-            // Zone/Area/Neighbourhood
-            if (data.address.neighbourhood) parts.push(data.address.neighbourhood);
-            else if (data.address.suburb) parts.push(data.address.suburb);
-            else if (data.address.city_district) parts.push(data.address.city_district);
-            
-            // City/Town/Village
-            if (data.address.city) parts.push(data.address.city);
-            else if (data.address.town) parts.push(data.address.town);
-            else if (data.address.village) parts.push(data.address.village);
-            else if (data.address.hamlet) parts.push(data.address.hamlet);
-            
-            // District/County level
-            if (data.address.county) parts.push(data.address.county);
-            else if (data.address.state_district) parts.push(data.address.state_district);
-            
-            // State/Province
-            if (data.address.state) parts.push(data.address.state);
-            
-            // Country (optional - only add if not already in parts)
-            if (data.address.country && parts.length < 4) parts.push(data.address.country);
-            
-            if (parts.length > 0) {
-              // Remove duplicates while preserving order
-              const locationName = Array.from(new Set(parts)).join(', ');
-              this.cacheLocalLocation(lat, lon, locationName);
-              console.log(`✅ Nominatim reverse geocoding: ${locationName}`);
-              return locationName;
+            clearTimeout(timeoutId);
+            break; // Success, exit retry loop
+          } catch (fetchError) {
+            clearTimeout(timeoutId);
+            if (attempt < 2) {
+              console.log(`  ⚠️ Nominatim attempt ${attempt} failed, retrying...`);
+              await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay before retry
+            } else {
+              throw fetchError;
             }
           }
+        } catch (err) {
+          if (attempt === 2) throw err;
         }
-        
-        console.log(`ℹ️ Nominatim returned empty result, trying OpenWeather...`);
-        // Fallback: OpenWeather (completely free, no API key)
-        return await this.reverseGeocodeLocationOpenWeather(lat, lon);
-      } finally {
-        clearTimeout(timeoutId);
       }
+  
+      if (nominatimResp && nominatimResp.ok) {
+        const data = await nominatimResp.json();
+        if (data && data.address) {
+          const parts = [];
+          
+          // Add detailed address components in order of specificity (most specific first)
+          // Zone/Area/Neighbourhood
+          if (data.address.neighbourhood) parts.push(data.address.neighbourhood);
+          else if (data.address.suburb) parts.push(data.address.suburb);
+          else if (data.address.city_district) parts.push(data.address.city_district);
+          
+          // City/Town/Village
+          if (data.address.city) parts.push(data.address.city);
+          else if (data.address.town) parts.push(data.address.town);
+          else if (data.address.village) parts.push(data.address.village);
+          else if (data.address.hamlet) parts.push(data.address.hamlet);
+          
+          // District/County level
+          if (data.address.county) parts.push(data.address.county);
+          else if (data.address.state_district) parts.push(data.address.state_district);
+          
+          // State/Province
+          if (data.address.state) parts.push(data.address.state);
+          
+          // Country (optional - only add if not already in parts)
+          if (data.address.country && parts.length < 4) parts.push(data.address.country);
+          
+          if (parts.length > 0) {
+            // Remove duplicates while preserving order
+            const locationName = Array.from(new Set(parts)).join(', ');
+            this.cacheLocalLocation(lat, lon, locationName);
+            console.log(`✅ Nominatim reverse geocoding successful: ${locationName}`);
+            return locationName;
+          }
+        }
+      }
+      
+      console.log(`⚠️ Nominatim failed or returned empty result, trying fallback methods...`);
+      // Fallback: Pre-defined common locations (works even when all APIs fail)
+      const commonLocationName = this.getCommonLocation(lat, lon);
+      if (commonLocationName) {
+        console.log(`📍 Using pre-defined location: ${commonLocationName}`);
+        this.cacheLocalLocation(lat, lon, commonLocationName);
+        return commonLocationName;
+      }
+      
+      // Fallback: OpenWeather (completely free, no API key)
+      console.log(`🌐 Trying OpenWeather as final fallback...`);
+      return await this.reverseGeocodeLocationOpenWeather(lat, lon);
     } catch (error) {
-      console.warn(`⚠️ Reverse geocoding failed for ${lat}, ${lon}:`, error.message);
-      // All reverse geocoding attempts have failed
-      console.warn(`⚠️ All reverse geocoding attempts failed for ${lat}, ${lon}`);
+      console.warn(`⚠️ Reverse geocoding error for ${lat}, ${lon}:`, error.message);
+      // Try pre-defined locations as last resort
+      const commonLocationName = this.getCommonLocation(lat, lon);
+      if (commonLocationName) {
+        console.log(`📍 Using pre-defined location (error fallback): ${commonLocationName}`);
+        return commonLocationName;
+      }
+      console.warn(`⚠️ All geocoding methods failed for ${lat}, ${lon}`);
       return null;
     }
   }
@@ -2926,22 +2956,26 @@ class MQTTService {
   async reverseGeocodeLocationOpenWeather(lat, lon) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout (increased for Render)
       
       try {
         console.log(`🌐 Attempting OpenWeather reverse geocoding for ${lat}, ${lon}...`);
         const response = await fetch(
-          `https://api.openweathermap.org/geo/1.0/reverse?lat=${lat}&lon=${lon}&limit=1&format=json`,
+          `https://api.openweathermap.org/geo/1.0/reverse?lat=${lat}&lon=${lon}&limit=1`,
           {
             headers: {
-              'Accept': 'application/json'
+              'Accept': 'application/json',
+              'User-Agent': 'ASHECONTROL-IoT-Device-Service/1.0'
             },
-            signal: controller.signal,
-            timeout: 5000
+            signal: controller.signal
           }
         );
         
-        if (!response.ok) throw new Error(`OpenWeather API error: ${response.status}`);
+        if (!response.ok) {
+          console.warn(`⚠️ OpenWeather API error: ${response.status}`);
+          return null;
+        }
+        
         const data = await response.json();
         
         if (data && data.length > 0) {
@@ -2986,23 +3020,29 @@ class MQTTService {
       }
     }
     
-    // Pre-defined common locations disabled for now - will use API reverse geocoding
-    // const commonLocations = [
-    //   { lat: 19.05, lon: 72.87, name: 'Mumbai, Maharashtra, India' },  // Mumbai
-    //   { lat: 28.70, lon: 77.10, name: 'Delhi, India' },                 // Delhi
-    //   { lat: 13.34, lon: 74.74, name: 'Mangalore, Karnataka, India' },  // Mangalore
-    //   { lat: 15.50, lon: 73.83, name: 'Goa, India' },                   // Goa
-    // ];
-    
-    // Check if coordinates match any common location (within 0.1 degree = ~11km)
-    // for (const location of commonLocations) {
-    //   if (Math.abs(lat - location.lat) < 0.1 && Math.abs(lon - location.lon) < 0.1) {
-    //     return location.name;
-    //   }
-    // }
-    
     return null;
   }
+
+  // Get pre-defined common locations as fallback when APIs fail
+  getCommonLocation(lat, lon) {
+    const commonLocations = [
+      { lat: 19.05, lon: 72.87, name: 'Mumbai, Maharashtra, India', tolerance: 0.05 },  // Mumbai
+      { lat: 28.70, lon: 77.10, name: 'Delhi, India', tolerance: 0.05 },                 // Delhi
+      { lat: 13.34, lon: 74.74, name: 'Mangalore, Karnataka, India', tolerance: 0.05 },  // Mangalore
+      { lat: 15.50, lon: 73.83, name: 'Goa, India', tolerance: 0.05 },                   // Goa
+      { lat: 12.97, lon: 77.59, name: 'Bangalore, Karnataka, India', tolerance: 0.05 },  // Bangalore
+      { lat: 18.52, lon: 73.86, name: 'Pune, Maharashtra, India', tolerance: 0.05 },    // Pune
+    ];
+    
+    // Check if coordinates match any common location (within tolerance)
+    for (const location of commonLocations) {
+      if (Math.abs(lat - location.lat) < location.tolerance && Math.abs(lon - location.lon) < location.tolerance) {
+        console.log(`📍 Matched pre-defined location: ${location.name}`);
+        return location.name;
+      }
+    }
+    
+    return null;
 
   // Cache resolved locations for 24 hours
   cacheLocalLocation(lat, lon, name) {

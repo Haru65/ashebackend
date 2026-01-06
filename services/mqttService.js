@@ -192,12 +192,17 @@ class MQTTService {
           // Save telemetry data FIRST to perform reverse geocoding
           await this.saveTelemetryData(deviceId, payload); // ✅ Save first to get location from geocoding
           
-          // Fetch the just-saved telemetry record to get the reverse-geocoded location
-          const Telemetry = require('../models/telemetry');
-          const latestTelemetry = await Telemetry.findOne({ deviceId: deviceId }).sort({ timestamp: -1 });
-          if (latestTelemetry && latestTelemetry.location) {
-            console.log(`📍 Updated device location from telemetry: ${latestTelemetry.location}`);
-            deviceInfo.location = latestTelemetry.location;
+          // Try to fetch the just-saved telemetry record to get the reverse-geocoded location
+          try {
+            const Telemetry = require('../models/telemetry');
+            const latestTelemetry = await Telemetry.findOne({ deviceId: deviceId }).sort({ timestamp: -1 }).timeout(5000);
+            if (latestTelemetry && latestTelemetry.location) {
+              console.log(`📍 Updated device location from telemetry: ${latestTelemetry.location}`);
+              deviceInfo.location = latestTelemetry.location;
+            }
+          } catch (telemetryError) {
+            console.warn(`⚠️ Could not fetch telemetry location (non-blocking):`, telemetryError.message);
+            // Continue with processing - don't break the flow
           }
           
           this.deviceData.device = deviceInfo;
@@ -242,7 +247,13 @@ class MQTTService {
       const connectionDuration = Date.now() - lastConnectionTime;
       // Log all closure events to understand pattern
       console.log(`⚠️ MQTT broker connection closed after ${(connectionDuration/1000).toFixed(1)}s (reconnect attempt: ${reconnectAttempts})`);
+      this.connectionStatus.device = false;
       // This is normal behavior - mqtt.js will auto-reconnect based on reconnectPeriod
+    });
+
+    this.client.on('disconnect', () => {
+      console.log(`🔌 MQTT broker disconnected`);
+      this.connectionStatus.device = false;
     });
 
     this.client.on('error', err => {
@@ -253,7 +264,8 @@ class MQTTService {
     });
 
     this.client.on('offline', () => {
-      // Reduce noise - only log if we haven't already logged reconnect
+      console.log(`📴 MQTT broker went offline`);
+      this.connectionStatus.device = false;
       // This event often fires along with 'close'
     });
 
@@ -2075,12 +2087,15 @@ class MQTTService {
   }
 
   getConnectionStatus() {
-    // Only check if we have recent device activity
-    // Don't rely on MQTT broker status as it can be unreliable
+    // Check both MQTT broker connection AND recent device activity
+    // Show connected if MQTT client is connected, OR if we have recent device activity
+    const mqttConnected = this.client && this.client.connected;
     const deviceActive = this.isAnyDeviceActive();
     
     return {
-      device: deviceActive
+      device: mqttConnected || deviceActive,
+      mqtt: mqttConnected,
+      activity: deviceActive
     };
   }
 

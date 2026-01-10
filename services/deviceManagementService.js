@@ -85,6 +85,34 @@ class DeviceManagementService {
         throw new Error(`Device ${deviceId} not found`);
       }
 
+      // Log DPOL-specific fields if present
+      if (settings.depolarizationStartTimeStamp || settings.depolarizationStopTimeStamp || settings.dpolInterval) {
+        console.log(`📝 [DPOL SAVE] Storing DPOL settings for ${deviceId}:`, {
+          depolarizationStartTimeStamp: settings.depolarizationStartTimeStamp,
+          depolarizationStopTimeStamp: settings.depolarizationStopTimeStamp,
+          dpolInterval: settings.dpolInterval
+        });
+      }
+
+      // Log Interrupt/Auto-specific fields if present
+      if (settings.interruptStartTimeStamp || settings.interruptStopTimeStamp || settings.interruptOnTime !== undefined || settings.interruptOffTime !== undefined) {
+        console.log(`📝 [INTERRUPT SAVE] Storing Interrupt settings for ${deviceId}:`, {
+          interruptStartTimeStamp: settings.interruptStartTimeStamp,
+          interruptStopTimeStamp: settings.interruptStopTimeStamp,
+          interruptOnTime: settings.interruptOnTime,
+          interruptOffTime: settings.interruptOffTime
+        });
+      }
+
+      // Log INST-specific fields if present
+      if (settings.instantStartTimeStamp || settings.instantEndTimeStamp || settings.instantMode !== undefined) {
+        console.log(`📝 [INST SAVE] Storing INST settings for ${deviceId}:`, {
+          instantStartTimeStamp: settings.instantStartTimeStamp,
+          instantEndTimeStamp: settings.instantEndTimeStamp,
+          instantMode: settings.instantMode
+        });
+      }
+
       // PROTECTION: If settings came from MQTT and we recently received user config,
       // don't overwrite configuration settings that were just set by user
       // This prevents stale device telemetry from overwriting fresh user commands
@@ -149,6 +177,41 @@ class DeviceManagementService {
       const savedDevice = await device.save();
       console.log(`✅ Device settings stored for ${deviceId}`);
       
+      // Log saved DPOL values for verification
+      if (savedDevice.configuration.deviceSettings.depolarizationStartTimeStamp || 
+          savedDevice.configuration.deviceSettings.depolarizationStopTimeStamp ||
+          savedDevice.configuration.deviceSettings.dpolInterval) {
+        console.log(`✅ [DPOL VERIFY] Confirmed DPOL saved in database:`, {
+          depolarizationStartTimeStamp: savedDevice.configuration.deviceSettings.depolarizationStartTimeStamp,
+          depolarizationStopTimeStamp: savedDevice.configuration.deviceSettings.depolarizationStopTimeStamp,
+          dpolInterval: savedDevice.configuration.deviceSettings.dpolInterval
+        });
+      }
+
+      // Log saved Interrupt values for verification
+      if (savedDevice.configuration.deviceSettings.interruptStartTimeStamp || 
+          savedDevice.configuration.deviceSettings.interruptStopTimeStamp ||
+          savedDevice.configuration.deviceSettings.interruptOnTime !== undefined ||
+          savedDevice.configuration.deviceSettings.interruptOffTime !== undefined) {
+        console.log(`✅ [INTERRUPT VERIFY] Confirmed Interrupt saved in database:`, {
+          interruptStartTimeStamp: savedDevice.configuration.deviceSettings.interruptStartTimeStamp,
+          interruptStopTimeStamp: savedDevice.configuration.deviceSettings.interruptStopTimeStamp,
+          interruptOnTime: savedDevice.configuration.deviceSettings.interruptOnTime,
+          interruptOffTime: savedDevice.configuration.deviceSettings.interruptOffTime
+        });
+      }
+
+      // Log saved INST values for verification
+      if (savedDevice.configuration.deviceSettings.instantStartTimeStamp || 
+          savedDevice.configuration.deviceSettings.instantEndTimeStamp ||
+          savedDevice.configuration.deviceSettings.instantMode !== undefined) {
+        console.log(`✅ [INST VERIFY] Confirmed INST saved in database:`, {
+          instantStartTimeStamp: savedDevice.configuration.deviceSettings.instantStartTimeStamp,
+          instantEndTimeStamp: savedDevice.configuration.deviceSettings.instantEndTimeStamp,
+          instantMode: savedDevice.configuration.deviceSettings.instantMode
+        });
+      }
+      
       return savedDevice;
     } catch (error) {
       console.error('❌ Error storing device settings:', error);
@@ -192,13 +255,13 @@ class DeviceManagementService {
           "Reference OP": settings.referenceOP !== undefined ? settings.referenceOP : 60,
           "Interrupt ON Time": settings.interruptOnTime !== undefined ? settings.interruptOnTime : 86400,
           "Interrupt OFF Time": settings.interruptOffTime !== undefined ? settings.interruptOffTime : 86400,
-          "Interrupt Start TimeStamp": settings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-          "Interrupt Stop TimeStamp": settings.interruptStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-          "Depolarization Start TimeStamp": settings.depolarizationStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-          "Depolarization Stop TimeStamp": settings.depolarizationStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+          "Interrupt Start TimeStamp": settings.interruptStartTimeStamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+          "Interrupt Stop TimeStamp": settings.interruptStopTimeStamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+          "Depolarization Start TimeStamp": settings.depolarizationStartTimeStamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+          "Depolarization Stop TimeStamp": settings.depolarizationStopTimeStamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
           "Instant Mode": settings.instantMode !== undefined ? settings.instantMode : 0,
-          "Instant Start TimeStamp": settings.instantStartTimestamp || "19:04:00",
-          "Instant End TimeStamp": settings.instantEndTimestamp || "00:00:00",
+          "Instant Start TimeStamp": settings.instantStartTimeStamp || "19:04:00",
+          "Instant End TimeStamp": settings.instantEndTimeStamp || "00:00:00",
           "logging_interval": settings.loggingInterval || "00:10:00",
           "logging_interval_format": settings.loggingInterval || "00:10:00",
           "Depolarization_interval": settings.dpolInterval || "00:00:00"
@@ -242,13 +305,13 @@ class DeviceManagementService {
           "Reference OV": settings.referenceOP || 60,
           "Interrupt ON Time": settings.interruptOnTime || 86400,
           "Interrupt OFF Time": settings.interruptOffTime || 86400,
-          "Interrupt Start TimeStamp": settings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-          "Interrupt Stop TimeStamp": settings.interruptStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-          "Depolarization Start TimeStamp": settings.depolarizationStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
-          "Depolarization Stop TimeStamp": settings.depolarizationStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+          "Interrupt Start TimeStamp": settings.interruptStartTimeStamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+          "Interrupt Stop TimeStamp": settings.interruptStopTimeStamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+          "Depolarization Start TimeStamp": settings.depolarizationStartTimeStamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+          "Depolarization Stop TimeStamp": settings.depolarizationStopTimeStamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
           "Instant Mode": settings.instantMode || 0,
-          "Instant Start TimeStamp": settings.instantStartTimestamp || "19:04:00",
-          "Instant End TimeStamp": settings.instantEndTimestamp || "00:00:00",
+          "Instant Start TimeStamp": settings.instantStartTimeStamp || "19:04:00",
+          "Instant End TimeStamp": settings.instantEndTimeStamp || "00:00:00",
           "logging_interval": settings.logging_interval !== undefined ? settings.logging_interval : 600,  // numeric seconds
           "logging_interval_format": settings.logging_interval_format || settings.loggingInterval || "00:10:00",  // time format
           "Depolarization_interval": settings.dpolInterval || "00:00:00"
@@ -274,11 +337,67 @@ class DeviceManagementService {
         throw new Error(`Device ${deviceId} not found`);
       }
 
+      // Log DPOL-specific parameters if present
+      if (parameters['Depolarization Start TimeStamp'] || parameters['Depolarization Stop TimeStamp'] || parameters['Depolarization_interval']) {
+        console.log(`📡 [DPOL RECEIVE] Received DPOL parameters from frontend for ${deviceId}:`, {
+          'Depolarization Start TimeStamp': parameters['Depolarization Start TimeStamp'],
+          'Depolarization Stop TimeStamp': parameters['Depolarization Stop TimeStamp'],
+          'Depolarization_interval': parameters['Depolarization_interval']
+        });
+      }
+
+      // Log Interrupt/Auto-specific parameters if present
+      if (parameters['Interrupt Start TimeStamp'] || parameters['Interrupt Stop TimeStamp'] || parameters['Interrupt ON Time'] || parameters['Interrupt OFF Time']) {
+        console.log(`📡 [INTERRUPT RECEIVE] Received Interrupt parameters from frontend for ${deviceId}:`, {
+          'Interrupt Start TimeStamp': parameters['Interrupt Start TimeStamp'],
+          'Interrupt Stop TimeStamp': parameters['Interrupt Stop TimeStamp'],
+          'Interrupt ON Time': parameters['Interrupt ON Time'],
+          'Interrupt OFF Time': parameters['Interrupt OFF Time']
+        });
+      }
+
+      // Log INST mode parameters if present
+      if (parameters['Instant Start TimeStamp'] || parameters['Instant End TimeStamp'] || parameters['Instant Mode'] !== undefined) {
+        console.log(`📡 [INST RECEIVE] Received INST parameters from frontend for ${deviceId}:`, {
+          'Instant Start TimeStamp': parameters['Instant Start TimeStamp'],
+          'Instant End TimeStamp': parameters['Instant End TimeStamp'],
+          'Instant Mode': parameters['Instant Mode']
+        });
+      }
+
       // Get current settings
       const currentSettings = device.configuration.deviceSettings || this.getDefaultDeviceSettings();
       
       // Map incoming parameters to internal field names
       const mappedParameters = this.mapParametersToInternalFields(parameters);
+      
+      // Log mapped DPOL fields
+      if (mappedParameters.depolarizationStartTimeStamp || mappedParameters.depolarizationStopTimeStamp || mappedParameters.dpolInterval) {
+        console.log(`🗺️  [DPOL MAP] Mapped DPOL parameters to internal format:`, {
+          depolarizationStartTimeStamp: mappedParameters.depolarizationStartTimeStamp,
+          depolarizationStopTimeStamp: mappedParameters.depolarizationStopTimeStamp,
+          dpolInterval: mappedParameters.dpolInterval
+        });
+      }
+
+      // Log mapped Interrupt fields
+      if (mappedParameters.interruptStartTimeStamp || mappedParameters.interruptStopTimeStamp || mappedParameters.interruptOnTime || mappedParameters.interruptOffTime) {
+        console.log(`🗺️  [INTERRUPT MAP] Mapped Interrupt parameters to internal format:`, {
+          interruptStartTimeStamp: mappedParameters.interruptStartTimeStamp,
+          interruptStopTimeStamp: mappedParameters.interruptStopTimeStamp,
+          interruptOnTime: mappedParameters.interruptOnTime,
+          interruptOffTime: mappedParameters.interruptOffTime
+        });
+      }
+
+      // Log mapped INST fields
+      if (mappedParameters.instantStartTimeStamp || mappedParameters.instantEndTimeStamp || mappedParameters.instantMode !== undefined) {
+        console.log(`🗺️  [INST MAP] Mapped INST parameters to internal format:`, {
+          instantStartTimeStamp: mappedParameters.instantStartTimeStamp,
+          instantEndTimeStamp: mappedParameters.instantEndTimeStamp,
+          instantMode: mappedParameters.instantMode
+        });
+      }
       
       // Update specific parameters
       const updatedSettings = {
@@ -470,9 +589,9 @@ class DeviceManagementService {
       "Interrupt OFF Time": "interruptOffTime",
       "Interrupt Start TimeStamp": "interruptStartTimeStamp",
       "Interrupt Stop TimeStamp": "interruptStopTimeStamp",
-
       "Depolarization Start TimeStamp": "depolarizationStartTimeStamp",
       "Depolarization Stop TimeStamp": "depolarizationStopTimeStamp",
+      "Depolarization_interval": "dpolInterval",
       "Instant Mode": "instantMode",
       "Instant Start TimeStamp": "instantStartTimeStamp",
       "Instant End TimeStamp": "instantEndTimeStamp"

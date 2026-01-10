@@ -61,13 +61,13 @@ const DeviceSchema = new Schema({
       electrode: { type: Number, default: 0 },
       event: { type: Number, default: 0 },
       manualModeAction: { type: Number, default: 0 },
-      // Fixed units: mV instead of V, A instead of mA
-      shuntVoltage: { type: Number, default: 0 }, // in mV
-      shuntCurrent: { type: Number, default: 0 }, // in A (not mA)
-      // REF values that should reflect to webpage and save to server
-      referenceFail: { type: Number, default: 0 },
-      referenceUP: { type: Number, default: 0 },
-      referenceOP: { type: Number, default: 0 },
+      // Voltage and current values stored as strings with decimal format (e.g., "25.50", "91.9")
+      shuntVoltage: { type: String, default: "0.00" }, // Stored as string with decimal: "25.50" V
+      shuntCurrent: { type: String, default: "0.0" }, // Stored as string with decimal: "91.9" mA
+      // Reference values stored as strings with 2 decimal places (e.g., "0.30", "1.23")
+      referenceFail: { type: String, default: "0.00" }, // Stored as string: "0.30" V
+      referenceUP: { type: String, default: "0.00" }, // Stored as string: "1.23" V
+      referenceOP: { type: String, default: "0.00" }, // Stored as string: "1.34" V
       // Digital inputs that were missing from frame
       di1: { type: Number, default: 0 },
       di2: { type: Number, default: 0 },

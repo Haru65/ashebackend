@@ -21,7 +21,7 @@ class MqttClientService {
 
   /**
    * Convert received shunt values from integer format (no decimal) to decimal format
-   * e.g., 689 → "68.9", 2550 → "25.50", 97 → "9.7"
+   * e.g., 689 → "68.9", 2550 → "25.50", 97 → "9.7", "919" → "91.9"
    * @param {number|string} value - The value to convert
    * @param {number} decimalPlaces - Number of decimal places (default 1 for current, 2 for voltage)
    * @returns {string} Formatted value with decimal
@@ -29,18 +29,21 @@ class MqttClientService {
   formatReceivedShuntValue(value, decimalPlaces = 1) {
     if (value === undefined || value === null) return null;
     
-    // Convert to string
-    let strValue = value.toString();
+    // Convert to string and remove any whitespace
+    let strValue = value.toString().trim();
     
-    // If already has decimal, return as-is
+    // Remove trailing .0 if present (handle case where value comes as "919.0")
     if (strValue.includes('.')) {
-      return strValue;
+      const numValue = parseFloat(strValue);
+      strValue = Math.round(numValue).toString();
     }
     
     // For integer values, we need to add the decimal point
     // Move decimal point from the right based on decimalPlaces
     // 689 with 1 decimal place → "68.9"
     // 2550 with 2 decimal places → "25.50"
+    // 919 with 1 decimal place → "91.9"
+    // 050 with 2 decimal places → "0.50"
     
     if (strValue.length <= decimalPlaces) {
       // Pad with leading zeros
@@ -50,7 +53,35 @@ class MqttClientService {
     const insertIndex = strValue.length - decimalPlaces;
     const formatted = strValue.slice(0, insertIndex) + '.' + strValue.slice(insertIndex);
     
-    console.log(`📊 Received Shunt value: ${value} → ${formatted}`);
+    console.log(`📊 [SHUNT] Converted value: ${value} (${typeof value}) → ${formatted} (decimalPlaces: ${decimalPlaces})`);
+    return formatted;
+  }
+
+  /**
+   * Convert reference voltage values from integer format (no decimal) to decimal format
+   * Divides by 100 to place decimal at 2 places from the right
+   * e.g., 030 → "0.30", 123 → "1.23", 134 → "1.34"
+   * @param {number|string} value - The value to convert
+   * @returns {string} Formatted value with 2 decimal places
+   */
+  formatReceivedReferenceValue(value) {
+    if (value === undefined || value === null) return null;
+    
+    // Convert to string and remove any existing padding
+    let strValue = value.toString().trim();
+    
+    // If already has decimal, return as-is
+    if (strValue.includes('.')) {
+      return strValue;
+    }
+    
+    // Convert string to number and divide by 100 to place decimal
+    // "030" → 30 → 30/100 = 0.30
+    // "123" → 123 → 123/100 = 1.23
+    const numValue = parseInt(strValue, 10);
+    const formatted = (numValue / 100).toFixed(2);
+    
+    console.log(`📊 Reference value converted: ${value} → ${formatted}`);
     return formatted;
   }
 
@@ -224,29 +255,64 @@ class MqttClientService {
           'configuration.deviceSettings.electrode': payload.Parameters?.Electrode !== undefined ? payload.Parameters.Electrode : undefined,
           'configuration.deviceSettings.event': payload.Parameters?.Event !== undefined ? payload.Parameters.Event : undefined,
           'configuration.deviceSettings.manualModeAction': payload.Parameters?.["Manual Mode Action"] !== undefined ? payload.Parameters["Manual Mode Action"] : undefined,
-          // Convert Shunt Voltage from integer (2550) to decimal ("25.50")
-          'configuration.deviceSettings.shuntVoltage': payload.Parameters?.["Shunt Voltage"] !== undefined ? this.formatReceivedShuntValue(payload.Parameters["Shunt Voltage"], 2) : undefined,
-          // Keep Shunt Current as raw integer (689) - display function will handle division by 10
-          'configuration.deviceSettings.shuntCurrent': payload.Parameters?.["Shunt Current"] !== undefined ? payload.Parameters["Shunt Current"] : undefined,
-          'configuration.deviceSettings.referenceFail': payload.Parameters?.["Reference Fail"] !== undefined ? payload.Parameters["Reference Fail"] : undefined,
-          'configuration.deviceSettings.referenceUP': payload.Parameters?.["Reference UP"] !== undefined ? payload.Parameters["Reference UP"] : undefined,
-          'configuration.deviceSettings.referenceOP': payload.Parameters?.["Reference OP"] !== undefined ? payload.Parameters["Reference OP"] : (payload.Parameters?.["Reference OV"] !== undefined ? payload.Parameters["Reference OV"] : undefined),
-          'configuration.deviceSettings.di1': payload.Parameters?.["DI1"] !== undefined ? payload.Parameters["DI1"] : undefined,
-          'configuration.deviceSettings.di2': payload.Parameters?.["DI2"] !== undefined ? payload.Parameters["DI2"] : undefined,
-          'configuration.deviceSettings.di3': payload.Parameters?.["DI3"] !== undefined ? payload.Parameters["DI3"] : undefined,
-          'configuration.deviceSettings.di4': payload.Parameters?.["DI4"] !== undefined ? payload.Parameters["DI4"] : undefined,
-          'configuration.deviceSettings.interruptOnTime': payload.Parameters?.["Interrupt ON Time"] !== undefined ? payload.Parameters["Interrupt ON Time"] : undefined,
-          'configuration.deviceSettings.interruptOffTime': payload.Parameters?.["Interrupt OFF Time"] !== undefined ? payload.Parameters["Interrupt OFF Time"] : undefined,
-          'configuration.deviceSettings.interruptStartTimestamp': payload.Parameters?.["Interrupt Start TimeStamp"] !== undefined ? payload.Parameters["Interrupt Start TimeStamp"] : undefined,
-          'configuration.deviceSettings.interruptStopTimestamp': payload.Parameters?.["Interrupt Stop TimeStamp"] !== undefined ? payload.Parameters["Interrupt Stop TimeStamp"] : undefined,
-          'configuration.deviceSettings.dpolInterval': payload.Parameters?.["DPOL Interval"] !== undefined ? payload.Parameters["DPOL Interval"] : undefined,
-          'configuration.deviceSettings.depolarizationStartTimestamp': payload.Parameters?.["Depolarization Start TimeStamp"] !== undefined ? payload.Parameters["Depolarization Start TimeStamp"] : undefined,
-          'configuration.deviceSettings.depolarizationStopTimestamp': payload.Parameters?.["Depolarization Stop TimeStamp"] !== undefined ? payload.Parameters["Depolarization Stop TimeStamp"] : undefined,
-          'configuration.deviceSettings.instantMode': payload.Parameters?.["Instant Mode"] !== undefined ? payload.Parameters["Instant Mode"] : undefined,
-          'configuration.deviceSettings.instantStartTimestamp': payload.Parameters?.["Instant Start TimeStamp"] !== undefined ? payload.Parameters["Instant Start TimeStamp"] : undefined,
-          'configuration.deviceSettings.instantEndTimestamp': payload.Parameters?.["Instant End TimeStamp"] !== undefined ? payload.Parameters["Instant End TimeStamp"] : undefined
-          }
+        }
       };
+
+      // Get shunt voltage value
+      const shuntVoltageRaw = payload.Parameters?.["Shunt Voltage"] ?? payload["Shunt Voltage"];
+      const shuntVoltageConverted = shuntVoltageRaw !== undefined ? this.formatReceivedShuntValue(shuntVoltageRaw, 2) : undefined;
+      if (shuntVoltageConverted !== undefined) {
+        updateData.$set['configuration.deviceSettings.shuntVoltage'] = shuntVoltageConverted;
+        console.log(`[MQTT] 🔋 Shunt Voltage: ${shuntVoltageRaw} → ${shuntVoltageConverted}`);
+      }
+
+      // Get shunt current value
+      const shuntCurrentRaw = payload.Parameters?.["Shunt Current"] ?? payload["Shunt Current"];
+      const shuntCurrentConverted = shuntCurrentRaw !== undefined ? this.formatReceivedShuntValue(shuntCurrentRaw, 1) : undefined;
+      if (shuntCurrentConverted !== undefined) {
+        updateData.$set['configuration.deviceSettings.shuntCurrent'] = shuntCurrentConverted;
+        console.log(`[MQTT] 🔌 Shunt Current: ${shuntCurrentRaw} → ${shuntCurrentConverted}`);
+      }
+
+      // Get reference fail value
+      const referenceFailRaw = payload.Parameters?.["Reference Fail"] ?? payload["Reference Fail"];
+      const referenceFailConverted = referenceFailRaw !== undefined ? this.formatReceivedReferenceValue(referenceFailRaw) : undefined;
+      if (referenceFailConverted !== undefined) {
+        updateData.$set['configuration.deviceSettings.referenceFail'] = referenceFailConverted;
+        console.log(`[MQTT] 📊 Reference Fail: ${referenceFailRaw} → ${referenceFailConverted}`);
+      }
+
+      // Get reference UP value
+      const referenceUPRaw = payload.Parameters?.["Reference UP"] ?? payload["Reference UP"];
+      const referenceUPConverted = referenceUPRaw !== undefined ? this.formatReceivedReferenceValue(referenceUPRaw) : undefined;
+      if (referenceUPConverted !== undefined) {
+        updateData.$set['configuration.deviceSettings.referenceUP'] = referenceUPConverted;
+        console.log(`[MQTT] 📊 Reference UP: ${referenceUPRaw} → ${referenceUPConverted}`);
+      }
+
+      // Get reference OP value
+      const referenceOPRaw = payload.Parameters?.["Reference OP"] ?? payload["Reference OV"] ?? payload["Reference OP"];
+      const referenceOPConverted = referenceOPRaw !== undefined ? this.formatReceivedReferenceValue(referenceOPRaw) : undefined;
+      if (referenceOPConverted !== undefined) {
+        updateData.$set['configuration.deviceSettings.referenceOP'] = referenceOPConverted;
+        console.log(`[MQTT] 📊 Reference OP: ${referenceOPRaw} → ${referenceOPConverted}`);
+      }
+
+      // Add remaining digital and configuration fields
+      updateData.$set['configuration.deviceSettings.di1'] = payload.Parameters?.["DI1"] !== undefined ? payload.Parameters["DI1"] : undefined;
+      updateData.$set['configuration.deviceSettings.di2'] = payload.Parameters?.["DI2"] !== undefined ? payload.Parameters["DI2"] : undefined;
+      updateData.$set['configuration.deviceSettings.di3'] = payload.Parameters?.["DI3"] !== undefined ? payload.Parameters["DI3"] : undefined;
+      updateData.$set['configuration.deviceSettings.di4'] = payload.Parameters?.["DI4"] !== undefined ? payload.Parameters["DI4"] : undefined;
+      updateData.$set['configuration.deviceSettings.interruptOnTime'] = payload.Parameters?.["Interrupt ON Time"] !== undefined ? payload.Parameters["Interrupt ON Time"] : undefined;
+      updateData.$set['configuration.deviceSettings.interruptOffTime'] = payload.Parameters?.["Interrupt OFF Time"] !== undefined ? payload.Parameters["Interrupt OFF Time"] : undefined;
+      updateData.$set['configuration.deviceSettings.interruptStartTimestamp'] = payload.Parameters?.["Interrupt Start TimeStamp"] !== undefined ? payload.Parameters["Interrupt Start TimeStamp"] : undefined;
+      updateData.$set['configuration.deviceSettings.interruptStopTimestamp'] = payload.Parameters?.["Interrupt Stop TimeStamp"] !== undefined ? payload.Parameters["Interrupt Stop TimeStamp"] : undefined;
+      updateData.$set['configuration.deviceSettings.dpolInterval'] = payload.Parameters?.["DPOL Interval"] !== undefined ? payload.Parameters["DPOL Interval"] : undefined;
+      updateData.$set['configuration.deviceSettings.depolarizationStartTimestamp'] = payload.Parameters?.["Depolarization Start TimeStamp"] !== undefined ? payload.Parameters["Depolarization Start TimeStamp"] : undefined;
+      updateData.$set['configuration.deviceSettings.depolarizationStopTimestamp'] = payload.Parameters?.["Depolarization Stop TimeStamp"] !== undefined ? payload.Parameters["Depolarization Stop TimeStamp"] : undefined;
+      updateData.$set['configuration.deviceSettings.instantMode'] = payload.Parameters?.["Instant Mode"] !== undefined ? payload.Parameters["Instant Mode"] : undefined;
+      updateData.$set['configuration.deviceSettings.instantStartTimestamp'] = payload.Parameters?.["Instant Start TimeStamp"] !== undefined ? payload.Parameters["Instant Start TimeStamp"] : undefined;
+      updateData.$set['configuration.deviceSettings.instantEndTimestamp'] = payload.Parameters?.["Instant End TimeStamp"] !== undefined ? payload.Parameters["Instant End TimeStamp"] : undefined;
 
       // Remove undefined values
       Object.keys(updateData.$set).forEach(key => {

@@ -105,7 +105,6 @@ class MQTTService {
     // Location tracking
     this.lastLocationSummaryEmit = 0;
     this.deviceLocations = new Map(); // deviceId -> {name, latitude, longitude}
-    this.deviceCoordinates = new Map(); // deviceId -> {lat, lon} - track for changes only
     this.locationCache = {}; // Coordinate-based location cache
   }
 
@@ -192,17 +191,12 @@ class MQTTService {
           // Save telemetry data FIRST to perform reverse geocoding
           await this.saveTelemetryData(deviceId, payload); // ✅ Save first to get location from geocoding
           
-          // Try to fetch the just-saved telemetry record to get the reverse-geocoded location
-          try {
-            const Telemetry = require('../models/telemetry');
-            const latestTelemetry = await Telemetry.findOne({ deviceId: deviceId }).sort({ timestamp: -1 }).timeout(5000);
-            if (latestTelemetry && latestTelemetry.location) {
-              console.log(`📍 Updated device location from telemetry: ${latestTelemetry.location}`);
-              deviceInfo.location = latestTelemetry.location;
-            }
-          } catch (telemetryError) {
-            console.warn(`⚠️ Could not fetch telemetry location (non-blocking):`, telemetryError.message);
-            // Continue with processing - don't break the flow
+          // Fetch the just-saved telemetry record to get the reverse-geocoded location
+          const Telemetry = require('../models/Telemetry');
+          const latestTelemetry = await Telemetry.findOne({ deviceId: deviceId }).sort({ timestamp: -1 });
+          if (latestTelemetry && latestTelemetry.location) {
+            console.log(`📍 Updated device location from telemetry: ${latestTelemetry.location}`);
+            deviceInfo.location = latestTelemetry.location;
           }
           
           this.deviceData.device = deviceInfo;
@@ -247,13 +241,7 @@ class MQTTService {
       const connectionDuration = Date.now() - lastConnectionTime;
       // Log all closure events to understand pattern
       console.log(`⚠️ MQTT broker connection closed after ${(connectionDuration/1000).toFixed(1)}s (reconnect attempt: ${reconnectAttempts})`);
-      this.connectionStatus.device = false;
       // This is normal behavior - mqtt.js will auto-reconnect based on reconnectPeriod
-    });
-
-    this.client.on('disconnect', () => {
-      console.log(`🔌 MQTT broker disconnected`);
-      this.connectionStatus.device = false;
     });
 
     this.client.on('error', err => {
@@ -264,8 +252,7 @@ class MQTTService {
     });
 
     this.client.on('offline', () => {
-      console.log(`📴 MQTT broker went offline`);
-      this.connectionStatus.device = false;
+      // Reduce noise - only log if we haven't already logged reconnect
       // This event often fires along with 'close'
     });
 
@@ -2087,15 +2074,12 @@ class MQTTService {
   }
 
   getConnectionStatus() {
-    // Check both MQTT broker connection AND recent device activity
-    // Show connected if MQTT client is connected, OR if we have recent device activity
-    const mqttConnected = this.client && this.client.connected;
+    // Only check if we have recent device activity
+    // Don't rely on MQTT broker status as it can be unreliable
     const deviceActive = this.isAnyDeviceActive();
     
     return {
-      device: mqttConnected || deviceActive,
-      mqtt: mqttConnected,
-      activity: deviceActive
+      device: deviceActive
     };
   }
 
@@ -2351,10 +2335,24 @@ class MQTTService {
       console.log(`📝 Data fields to be saved (${Object.keys(dataFields).length} fields):`, dataFields);
 
       // Create telemetry record with explicit data assignment
+      // IMPORTANT: EVENT field can be at root OR inside Parameters object
+      const params = payload.Parameters || payload;
+      
+      console.log(`🔍 EVENT EXTRACTION DEBUG:`, {
+        'payload.EVENT': payload.EVENT,
+        'payload.Event': payload.Event,
+        'params.EVENT': params.EVENT,
+        'params.Event': params.Event,
+        'has Parameters': !!payload.Parameters
+      });
+      
+      const extractedEvent = payload.EVENT || payload.Event || params.EVENT || params.Event || 'NORMAL';
+      console.log(`✅ Final extracted event: "${extractedEvent}"`);
+      
       const telemetryRecord = new Telemetry({
         deviceId: deviceId,
         timestamp: new Date(),
-        event: payload.EVENT || payload.Event || 'NORMAL',
+        event: extractedEvent,
         location: location  // Add location field for easy access in frontend
       });
       
@@ -2377,6 +2375,7 @@ class MQTTService {
       
       console.log(`✅ Save completed successfully`);
       console.log(`   Document ID: ${saveResult._id}`);
+      console.log(`   Saved event field: "${saveResult.event}"`);
       console.log(`   Data field type after save: ${typeof saveResult.data}`);
       console.log(`   Data field instanceof Map: ${saveResult.data instanceof Map}`);
       console.log(`   Saved telemetry data for device ${deviceId} with ${Object.keys(dataFields).length} data fields`);
@@ -2411,7 +2410,9 @@ class MQTTService {
       }
       
       // Check alarms for this device data
-      const event = payload.EVENT || payload.Event || 'NORMAL';
+      // IMPORTANT: EVENT field can be at root OR inside Parameters object
+      const eventParams = payload.Parameters || payload;
+      const event = payload.EVENT || payload.Event || eventParams.EVENT || eventParams.Event || 'NORMAL';
       await alarmMonitoringService.checkAlarmsForDevice(payload, deviceId, event);
       
       // Check if payload contains device settings and save them
@@ -2745,15 +2746,47 @@ class MQTTService {
         'Set Fail', 'Set UP', 'Set OP',
         'Ref Fail', 'RefFail', 'SetFail'
       ];
+
+      // Shunt parameters that need conversion
+      const SHUNT_PARAMS = {
+        'Shunt Voltage': 2,  // Divide by 100 (2 decimal places)
+        'Shunt Current': 1   // Divide by 10 (1 decimal place)
+      };
       
       for (const param of DEVICE_PARAMETERS) {
         if (payload[param] !== undefined) {
           let value = payload[param];
           
+          // Convert Shunt Voltage and Shunt Current from integer format to decimal
+          // Shunt Voltage: 050 → "0.50", 2550 → "25.50" (divide by 100, 2 decimal places)
+          // Shunt Current: 919 → "91.9", 999 → "99.9" (divide by 10, 1 decimal place)
+          if (SHUNT_PARAMS[param]) {
+            const decimalPlaces = SHUNT_PARAMS[param];
+            if (typeof value === 'string' || typeof value === 'number') {
+              let strValue = value.toString().trim();
+              
+              // Remove trailing decimal if already formatted
+              if (strValue.includes('.')) {
+                const numValue = parseFloat(strValue);
+                strValue = Math.round(numValue).toString();
+              }
+              
+              // Pad with leading zeros if needed
+              if (strValue.length <= decimalPlaces) {
+                strValue = strValue.padStart(decimalPlaces + 1, '0');
+              }
+              
+              // Insert decimal point
+              const insertIndex = strValue.length - decimalPlaces;
+              value = strValue.slice(0, insertIndex) + '.' + strValue.slice(insertIndex);
+              console.log(`🔄 [SHUNT] Converted ${param} from device format ${payload[param]} to ${value}`);
+            }
+          }
+          
           // Convert all Reference/Set values from integer format back to decimal format
           // Examples: 380 → 3.80, 160 → 1.60, 030 → 0.30
           // If value is already in decimal range (< 5), it's already decimal format - don't convert
-          if (REFERENCE_PARAMS.includes(param) && typeof value === 'number') {
+          else if (REFERENCE_PARAMS.includes(param) && typeof value === 'number') {
             // If already in decimal range (< 5), it's already formatted - just toFixed
             if (value < 5) {
               value = parseFloat(value).toFixed(2);
@@ -2863,32 +2896,8 @@ class MQTTService {
   // Function to reverse geocode coordinates to location name
   // Uses free APIs with timeout fallback to coordinate-based names
   // IMPORTANT: This function has internal timeout to prevent blocking MQTT pipeline
-  // THROTTLED: Only call once per unique coordinate per minute
   async reverseGeocodeLocation(lat, lon) {
     try {
-      const coordKey = `${Math.round(lat * 10000) / 10000},${Math.round(lon * 10000) / 10000}`;
-      const now = Date.now();
-      
-      // ⚡ THROTTLE: Check if we recently geocoded this exact coordinate
-      if (this.lastGeocodingAttempts && this.lastGeocodingAttempts.has(coordKey)) {
-        const lastAttempt = this.lastGeocodingAttempts.get(coordKey);
-        const timeSinceLastAttempt = now - lastAttempt;
-        
-        if (timeSinceLastAttempt < 60000) { // Less than 1 minute
-          console.log(`⏱️ THROTTLED: Skipping geocoding for ${coordKey} (last attempted ${timeSinceLastAttempt}ms ago)`);
-          return null; // Return null to avoid re-geocoding the same coordinates
-        }
-      }
-      
-      // Initialize the tracking map if it doesn't exist
-      if (!this.lastGeocodingAttempts) {
-        this.lastGeocodingAttempts = new Map();
-      }
-      
-      // Record this geocoding attempt
-      this.lastGeocodingAttempts.set(coordKey, now);
-      console.log(`🌐 GEOCODING INITIATED for ${coordKey}`);
-      
       // Set a hard timeout for the entire geocoding operation (max 20 seconds)
       // This prevents any single geocoding attempt from blocking the system
       const gecodingPromise = this._performReverseGeocoding(lat, lon);
@@ -2896,9 +2905,7 @@ class MQTTService {
         setTimeout(() => reject(new Error('Geocoding timeout exceeded')), 20000)
       );
       
-      const result = await Promise.race([gecodingPromise, timeoutPromise]);
-      console.log(`✅ GEOCODING COMPLETED for ${coordKey}: ${result}`);
-      return result;
+      return await Promise.race([gecodingPromise, timeoutPromise]);
     } catch (error) {
       console.warn(`⚠️ Reverse geocoding failed for ${lat}, ${lon}:`, error.message);
       // Try pre-defined locations as last resort
@@ -2923,7 +2930,7 @@ class MQTTService {
       }
       
       // Primary: Nominatim with high zoom for precise city-level location
-      // (suppress logging during background geocoding to reduce console spam)
+      console.log(`🌐 Attempting Nominatim reverse geocoding for ${lat}, ${lon}...`);
       
       // Retry logic for Nominatim (timeout issues are common on cloud platforms like Render)
       let nominatimResp = null;
@@ -2949,7 +2956,7 @@ class MQTTService {
           } catch (fetchError) {
             clearTimeout(timeoutId);
             if (attempt < 2) {
-              // Suppress retry logging to reduce spam
+              console.log(`  ⚠️ Nominatim attempt ${attempt} failed, retrying...`);
               await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay before retry
             } else {
               throw fetchError;
@@ -2966,54 +2973,54 @@ class MQTTService {
           const parts = [];
           
           // Add detailed address components in order of specificity (most specific first)
-          // Subdistrict/Neighborhood (most specific)
+          // Zone/Area/Neighbourhood
           if (data.address.neighbourhood) parts.push(data.address.neighbourhood);
-          if (data.address.suburb) parts.push(data.address.suburb);
-          if (data.address.city_district) parts.push(data.address.city_district);
+          else if (data.address.suburb) parts.push(data.address.suburb);
+          else if (data.address.city_district) parts.push(data.address.city_district);
           
-          // City/Town/Village (second level)
+          // City/Town/Village
           if (data.address.city) parts.push(data.address.city);
-          if (data.address.town) parts.push(data.address.town);
-          if (data.address.village) parts.push(data.address.village);
-          if (data.address.hamlet) parts.push(data.address.hamlet);
+          else if (data.address.town) parts.push(data.address.town);
+          else if (data.address.village) parts.push(data.address.village);
+          else if (data.address.hamlet) parts.push(data.address.hamlet);
           
-          // District/County level (third level)
+          // District/County level
           if (data.address.county) parts.push(data.address.county);
-          if (data.address.state_district) parts.push(data.address.state_district);
+          else if (data.address.state_district) parts.push(data.address.state_district);
           
-          // State/Province (fourth level)
+          // State/Province
           if (data.address.state) parts.push(data.address.state);
           
           // Country (optional - only add if not already in parts)
-          if (data.address.country && parts.length < 5) parts.push(data.address.country);
+          if (data.address.country && parts.length < 4) parts.push(data.address.country);
           
           if (parts.length > 0) {
-            // Remove duplicates while preserving order, keep top 3-4 components for readability
-            const uniqueParts = Array.from(new Set(parts));
-            const locationName = uniqueParts.slice(0, 3).join(', ');
+            // Remove duplicates while preserving order
+            const locationName = Array.from(new Set(parts)).join(', ');
             this.cacheLocalLocation(lat, lon, locationName);
-            // Only log on success, suppress during background geocoding
+            console.log(`✅ Nominatim reverse geocoding successful: ${locationName}`);
             return locationName;
           }
         }
       }
       
-      // Suppress logs during background geocoding to reduce spam
+      console.log(`⚠️ Nominatim failed or returned empty result, trying fallback methods...`);
       // Fallback: Pre-defined common locations (works even when all APIs fail)
       const commonLocationName = this.getCommonLocation(lat, lon);
       if (commonLocationName) {
+        console.log(`📍 Using pre-defined location: ${commonLocationName}`);
         this.cacheLocalLocation(lat, lon, commonLocationName);
         return commonLocationName;
       }
       
       // Fallback: OpenWeather (completely free, no API key)
+      console.log(`🌐 Trying OpenWeather as final fallback...`);
       return await this.reverseGeocodeLocationOpenWeather(lat, lon);
     } catch (error) {
       throw error;
     }
   }
 
-  // Fallback: OpenWeather - Free, no API key required
   async reverseGeocodeLocationOpenWeather(lat, lon) {
     try {
       const controller = new AbortController();
@@ -3033,6 +3040,7 @@ class MQTTService {
         );
         
         if (!response.ok) {
+          console.warn(`⚠️ OpenWeather API error: ${response.status}`);
           return null;
         }
         
@@ -3050,10 +3058,12 @@ class MQTTService {
           if (parts.length > 0) {
             const locationName = Array.from(new Set(parts)).join(', ');
             this.cacheLocalLocation(lat, lon, locationName);
+            console.log(`✅ OpenWeather resolved location: ${locationName}`);
             return locationName;
           }
         }
         
+        console.log(`⚠️ OpenWeather returned no address data`);
         return null;
       } finally {
         clearTimeout(timeoutId);
@@ -3083,26 +3093,16 @@ class MQTTService {
 
   // Get pre-defined common locations as fallback when APIs fail
   getCommonLocation(lat, lon) {
-    // More detailed locations with neighborhoods/areas
     const commonLocations = [
-      // Mumbai areas and neighborhoods
-      { lat: 19.076, lon: 72.877, name: 'Sion, Mumbai, Maharashtra, India', tolerance: 0.01 },
-      { lat: 19.055, lon: 72.872, name: 'Currey Road, Mumbai, Maharashtra, India', tolerance: 0.01 },
-      { lat: 19.015, lon: 72.856, name: 'Worli, Mumbai, Maharashtra, India', tolerance: 0.01 },
-      { lat: 19.047, lon: 72.821, name: 'Fort, Mumbai, Maharashtra, India', tolerance: 0.01 },
-      { lat: 19.089, lon: 72.836, name: 'Kala Ghoda, Mumbai, Maharashtra, India', tolerance: 0.01 },
-      { lat: 19.118, lon: 72.829, name: 'Fort District, Mumbai, Maharashtra, India', tolerance: 0.01 },
-      { lat: 19.050, lon: 72.870, name: 'Mumbai, Maharashtra, India', tolerance: 0.05 },  // General Mumbai
-      
-      // Other major cities
-      { lat: 28.70, lon: 77.10, name: 'New Delhi, India', tolerance: 0.05 },
-      { lat: 13.34, lon: 74.74, name: 'Mangalore, Karnataka, India', tolerance: 0.05 },
-      { lat: 15.50, lon: 73.83, name: 'Goa, India', tolerance: 0.05 },
-      { lat: 12.97, lon: 77.59, name: 'Bangalore, Karnataka, India', tolerance: 0.05 },
-      { lat: 18.52, lon: 73.86, name: 'Pune, Maharashtra, India', tolerance: 0.05 },
+      { lat: 19.05, lon: 72.87, name: 'Mumbai, Maharashtra, India', tolerance: 0.05 },  // Mumbai
+      { lat: 28.70, lon: 77.10, name: 'Delhi, India', tolerance: 0.05 },                 // Delhi
+      { lat: 13.34, lon: 74.74, name: 'Mangalore, Karnataka, India', tolerance: 0.05 },  // Mangalore
+      { lat: 15.50, lon: 73.83, name: 'Goa, India', tolerance: 0.05 },                   // Goa
+      { lat: 12.97, lon: 77.59, name: 'Bangalore, Karnataka, India', tolerance: 0.05 },  // Bangalore
+      { lat: 18.52, lon: 73.86, name: 'Pune, Maharashtra, India', tolerance: 0.05 },    // Pune
     ];
     
-    // Check specific locations first (smaller tolerance)
+    // Check if coordinates match any common location (within tolerance)
     for (const location of commonLocations) {
       if (Math.abs(lat - location.lat) < location.tolerance && Math.abs(lon - location.lon) < location.tolerance) {
         console.log(`📍 Matched pre-defined location: ${location.name}`);
@@ -3146,52 +3146,29 @@ class MQTTService {
         latitude = payload.LATITUDE;
         longitude = payload.LONGITUDE;
         
-        // ⚡ CRITICAL FIX: Only geocode if coordinates have changed
-        // Round coordinates to 4 decimal places (~11 meters precision) to avoid unnecessary geocoding
-        // due to minor GPS precision variations (every second instead of every minute)
-        const roundedLat = Math.round(latitude * 10000) / 10000;
-        const roundedLon = Math.round(longitude * 10000) / 10000;
+        // ⚡ CRITICAL FIX: Don't block on geocoding - emit immediately with coordinates
+        // Reverse geocoding happens in background
+        locationName = `${latitude}, ${longitude}`;
+        console.log(`📍 Device ${deviceId} coordinates: ${latitude}, ${longitude}`);
         
-        // Check if we've already processed these rounded coordinates for this device
-        const lastCoords = this.deviceCoordinates.get(deviceId);
-        const coordinatesChanged = !lastCoords || 
-                                  Math.round(lastCoords.lat * 10000) / 10000 !== roundedLat || 
-                                  Math.round(lastCoords.lon * 10000) / 10000 !== roundedLon;
-        
-        if (coordinatesChanged) {
-          // Store rounded coordinates to prevent re-triggering on minor GPS variations
-          this.deviceCoordinates.set(deviceId, { lat: roundedLat, lon: roundedLon });
-          
-          console.log(`📍 Device ${deviceId} coordinates changed: ${roundedLat}, ${roundedLon} (from: ${latitude}, ${longitude})`);
-          
-          // Trigger reverse geocoding in background (non-blocking)
-          setImmediate(() => {
-            this.reverseGeocodeLocation(roundedLat, roundedLon)
-              .then(resolvedLocation => {
-                if (resolvedLocation) {
-                  console.log(`✅ Device ${deviceId} location resolved: ${resolvedLocation}`);
-                  // Update device locations map with resolved location
-                  if (this.deviceLocations.has(deviceId)) {
-                    const existing = this.deviceLocations.get(deviceId);
-                    existing.location = resolvedLocation;
-                    this.deviceLocations.set(deviceId, existing);
-                  }
-                  locationName = resolvedLocation;
+        // Trigger reverse geocoding in background (non-blocking)
+        setImmediate(() => {
+          this.reverseGeocodeLocation(latitude, longitude)
+            .then(resolvedLocation => {
+              if (resolvedLocation && resolvedLocation !== locationName) {
+                console.log(`✅ Device ${deviceId} location resolved: ${resolvedLocation}`);
+                // Update device locations map with resolved location
+                if (this.deviceLocations.has(deviceId)) {
+                  const existing = this.deviceLocations.get(deviceId);
+                  existing.location = resolvedLocation;
+                  this.deviceLocations.set(deviceId, existing);
                 }
-              })
-              .catch(error => {
-                console.warn(`⚠️ Background geocoding failed for device ${deviceId}:`, error.message);
-              });
-          });
-        } else {
-          console.log(`📍 Device ${deviceId} coordinates unchanged, skipping geocoding`);
-          // Use existing location if available
-          if (this.deviceLocations.has(deviceId)) {
-            locationName = this.deviceLocations.get(deviceId).location || `${latitude}, ${longitude}`;
-          } else {
-            locationName = `${latitude}, ${longitude}`;
-          }
-        }
+              }
+            })
+            .catch(error => {
+              console.warn(`⚠️ Background geocoding failed for device ${deviceId}:`, error.message);
+            });
+        });
       } else {
         console.log(`⚠️ Device ${deviceId} has invalid or missing LATITUDE/LONGITUDE in payload`);
         return;

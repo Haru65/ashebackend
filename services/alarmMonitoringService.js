@@ -1,6 +1,7 @@
 const Device = require('../models/Device');
 const DeviceHistory = require('../models/DeviceHistory');
 const Alarm = require('../models/Alarm');
+const AlarmTrigger = require('../models/AlarmTrigger');
 const EmailService = require('./emailService');
 const NotificationService = require('./notificationService');
 
@@ -60,8 +61,34 @@ class AlarmMonitoringService {
       let shouldTrigger = false;
       let triggerReason = '';
 
+      // Check 0: Check REF Status values (OP, UP, FAIL)
+      // REF status values are string enums that indicate reference probe status
+      const params = deviceData.Parameters || deviceData;
+      const ref1Status = params['REF1 STS'] || params['ref1_sts'] || '';
+      const ref2Status = params['REF2 STS'] || params['ref2_sts'] || '';
+      const ref3Status = params['REF3 STS'] || params['ref3_sts'] || '';
+      
+      // Valid REF status values that should trigger alarm
+      const validRefStatuses = ['OP', 'UP', 'FAIL'];
+      
+      // Check if any REF status has a valid value (OP, UP, or FAIL)
+      if (validRefStatuses.includes(ref1Status.toUpperCase?.() || ref1Status)) {
+        shouldTrigger = true;
+        triggerReason = `REF1 STS is '${ref1Status}' (valid status detected)`;
+      }
+      
+      if (!shouldTrigger && validRefStatuses.includes(ref2Status.toUpperCase?.() || ref2Status)) {
+        shouldTrigger = true;
+        triggerReason = `REF2 STS is '${ref2Status}' (valid status detected)`;
+      }
+      
+      if (!shouldTrigger && validRefStatuses.includes(ref3Status.toUpperCase?.() || ref3Status)) {
+        shouldTrigger = true;
+        triggerReason = `REF3 STS is '${ref3Status}' (valid status detected)`;
+      }
+
       // Check 1: Event status is abnormal
-      if (event && event !== 'NORMAL') {
+      if (!shouldTrigger && event && event !== 'NORMAL') {
         shouldTrigger = true;
         triggerReason = `EVENT status is ${event} (expected NORMAL)`;
       }
@@ -100,6 +127,9 @@ class AlarmMonitoringService {
           'REF1': { value: ref1, upper: ref1_upper, lower: ref1_lower },
           'REF2': { value: ref2, upper: ref2_upper, lower: ref2_lower },
           'REF3': { value: ref3, upper: ref3_upper, lower: ref3_lower },
+          'REF1 STS': ref1Status,
+          'REF2 STS': ref2Status,
+          'REF3 STS': ref3Status,
           'DCV': { value: dcv, upper: dcv_upper, lower: dcv_lower },
           'DCI': { value: dci, upper: dci_upper, lower: dci_lower },
           'ACV': { value: acv, upper: acv_upper, lower: acv_lower }
@@ -174,13 +204,17 @@ class AlarmMonitoringService {
    */
   async sendAlarmNotification(alarm, device, deviceData, reason) {
     try {
+      // ALWAYS log alarm trigger to database history (regardless of throttling)
+      // This ensures every trigger is recorded for audit trail
+      await this.logAlarmTrigger(alarm, device, deviceData, reason);
+
       const alarmKey = `${alarm._id.toString()}`;
 
-      // Prevent duplicate notifications within 5 minutes
+      // Prevent duplicate notifications within 1 hour
       if (this.triggeredAlarms.has(alarmKey)) {
         const lastTrigger = this.triggeredAlarms.get(alarmKey);
         const timeSinceLastTrigger = Date.now() - lastTrigger;
-        if (timeSinceLastTrigger < 5 * 60 * 1000) { // 5 minutes
+        if (timeSinceLastTrigger < 60 * 60 * 1000) { // 1 hour
           console.log(`[Alarm Monitor] ℹ️ Alarm '${alarm.name}' already triggered recently, skipping notification`);
           return;
         }
@@ -230,9 +264,6 @@ class AlarmMonitoringService {
         }
       }
 
-      // Log alarm trigger to database
-      await this.logAlarmTrigger(alarm, device, deviceData, reason);
-
     } catch (error) {
       console.error('[Alarm Monitor] Error sending alarm notification:', error);
     }
@@ -247,6 +278,22 @@ class AlarmMonitoringService {
    */
   async logAlarmTrigger(alarm, device, deviceData, reason) {
     try {
+      // Extract all relevant parameters from device data
+      const params = deviceData.Parameters || deviceData;
+      const triggeredValues = {
+        'REF1 STS': params['REF1 STS'] || '',
+        'REF2 STS': params['REF2 STS'] || '',
+        'REF3 STS': params['REF3 STS'] || '',
+        'REF1': params.REF1 || params.ref1 || '',
+        'REF2': params.REF2 || params.ref2 || '',
+        'REF3': params.REF3 || params.ref3 || '',
+        'DCV': params.DCV || params.dcv || 0,
+        'DCI': params.DCI || params.dci || 0,
+        'ACV': params.ACV || params.acv || 0,
+        'EVENT': params.EVENT || params.Event || 'NORMAL'
+      };
+
+      // Save to DeviceHistory (existing behavior)
       const historyEntry = new DeviceHistory({
         deviceId: device.deviceId,
         timestamp: new Date(),
@@ -256,16 +303,31 @@ class AlarmMonitoringService {
           alarmName: alarm.name,
           reason: reason,
           device_params: alarm.device_params,
-          triggered_values: {
-            dcv: deviceData.dcv || deviceData.voltage,
-            dci: deviceData.dci || deviceData.current,
-            acv: deviceData.acv || deviceData.acVoltage
-          }
+          triggered_values: triggeredValues
         },
         topic: `devices/${device.deviceId}/alarm`
       });
       await historyEntry.save();
-      console.log(`[Alarm Monitor] 📝 Alarm trigger logged for alarm '${alarm.name}'`);
+      console.log(`[Alarm Monitor] 📝 Alarm trigger logged to DeviceHistory for alarm '${alarm.name}'`);
+
+      // Save to AlarmTrigger model (new detailed logging)
+      await AlarmTrigger.recordTrigger({
+        alarm_id: alarm._id,
+        alarm_name: alarm.name,
+        device_id: device.deviceId,
+        device_name: device.deviceName || device.deviceId,
+        trigger_reason: reason,
+        triggered_values: triggeredValues,
+        alarm_config: {
+          severity: alarm.severity,
+          parameter: alarm.parameter,
+          device_params: alarm.device_params
+        },
+        event_status: params.EVENT || params.Event || 'NORMAL',
+        notification_status: 'SENT'
+      });
+
+      console.log(`[Alarm Monitor] 💾 Alarm trigger saved to AlarmTrigger for alarm '${alarm.name}'`);
     } catch (error) {
       console.error('[Alarm Monitor] Error logging alarm trigger:', error);
     }

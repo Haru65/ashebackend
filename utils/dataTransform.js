@@ -27,15 +27,6 @@ function transformDeviceData(payload, topic) {
     });
   }
   
-  // Add EVENT status
-  if (params.EVENT !== undefined) {
-    metrics.push({
-      type: 'EVENT',
-      value: params.EVENT,
-      icon: 'bi-exclamation-circle'
-    });
-  }
-  
   // Add Reference voltages (REF1, REF2, REF3) with OPEN display for > 5.00V
   if (params.REF1 !== undefined) {
     const ref1Value = parseFloat(params.REF1);
@@ -163,15 +154,6 @@ function transformDeviceData(payload, topic) {
       type: 'ACV',
       value: params.ACV,
       icon: 'bi-battery'
-    });
-  }
-  
-  // Add AC Current
-  if (params.ACI !== undefined) {
-    metrics.push({
-      type: 'ACI',
-      value: params.ACI,
-      icon: 'bi-lightning'
     });
   }
   

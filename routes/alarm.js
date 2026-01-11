@@ -8,6 +8,12 @@ router.delete('/', alarmController.clearAllAlarms.bind(alarmController));
 // Alarm history route (IMPORTANT: Place before device/:deviceName to avoid conflicts)
 router.get('/history/log', alarmController.getAlarmHistory.bind(alarmController));
 
+// Alarm trigger history routes - MUST come before /:id routes
+// Specific routes first, then parameterized routes
+router.get('/triggers/recent', alarmController.getRecentAlarmTriggers.bind(alarmController));
+router.get('/triggers/device/:deviceId', alarmController.getDeviceTriggerHistory.bind(alarmController));
+router.get('/triggers/:alarmId', alarmController.getAlarmTriggerHistory.bind(alarmController));
+
 // Device-specific alarm routes (IMPORTANT: Place before :id routes to avoid conflicts)
 router.get('/device/:deviceName', alarmController.getAlarmsByDevice.bind(alarmController));
 router.delete('/device/:deviceName', alarmController.deleteDeviceAlarms.bind(alarmController));

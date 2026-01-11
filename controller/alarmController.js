@@ -599,6 +599,119 @@ class AlarmController {
       });
     }
   }
+
+  /**
+   * Get recent alarm triggers
+   * Returns the most recent alarm triggers across all alarms
+   */
+  async getRecentAlarmTriggers(req, res) {
+    try {
+      const AlarmTrigger = require('../models/AlarmTrigger');
+      const limit = parseInt(req.query.limit) || 50;
+      const sinceHours = parseInt(req.query.hours) || 24;
+      
+      // Calculate since time
+      const since = new Date();
+      since.setHours(since.getHours() - sinceHours);
+      
+      const triggers = await AlarmTrigger.getRecentTriggers(since);
+      
+      res.json({
+        success: true,
+        data: triggers,
+        total: triggers.length,
+        timeRange: `Last ${sinceHours} hours`,
+        message: `Found ${triggers.length} recent alarm trigger(s)`
+      });
+    } catch (error) {
+      console.error('Error fetching recent alarm triggers:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching recent alarm triggers',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get alarm trigger history for a specific alarm
+   * Shows all times this alarm has been triggered
+   */
+  async getAlarmTriggerHistory(req, res) {
+    try {
+      const AlarmTrigger = require('../models/AlarmTrigger');
+      const { alarmId } = req.params;
+      const limit = parseInt(req.query.limit) || 50;
+      const page = parseInt(req.query.page) || 1;
+      const skip = (page - 1) * limit;
+      
+      // Get trigger history
+      const triggers = await AlarmTrigger.find({ alarm_id: alarmId })
+        .sort({ triggered_at: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean();
+      
+      // Get total count
+      const total = await AlarmTrigger.countDocuments({ alarm_id: alarmId });
+      
+      res.json({
+        success: true,
+        data: triggers,
+        total: total,
+        page: page,
+        pages: Math.ceil(total / limit),
+        message: `Found ${triggers.length} trigger record(s) for this alarm`
+      });
+    } catch (error) {
+      console.error('Error fetching alarm trigger history:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching alarm trigger history',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get all alarm triggers for a specific device
+   * Shows all alarms that have been triggered for this device
+   */
+  async getDeviceTriggerHistory(req, res) {
+    try {
+      const AlarmTrigger = require('../models/AlarmTrigger');
+      const { deviceId } = req.params;
+      const limit = parseInt(req.query.limit) || 50;
+      const page = parseInt(req.query.page) || 1;
+      const skip = (page - 1) * limit;
+      
+      // Get trigger history
+      const triggers = await AlarmTrigger.find({ device_id: deviceId })
+        .sort({ triggered_at: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean();
+      
+      // Get total count
+      const total = await AlarmTrigger.countDocuments({ device_id: deviceId });
+      
+      res.json({
+        success: true,
+        data: triggers,
+        total: total,
+        page: page,
+        pages: Math.ceil(total / limit),
+        message: `Found ${triggers.length} alarm trigger(s) for device ${deviceId}`
+      });
+    } catch (error) {
+      console.error('Error fetching device alarm trigger history:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching device alarm trigger history',
+        error: error.message
+      });
+    }
+  }
 }
 
 module.exports = new AlarmController();

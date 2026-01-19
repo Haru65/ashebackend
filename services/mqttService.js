@@ -2198,6 +2198,11 @@ class MQTTService {
       // Extract all data fields from payload, including Parameters if nested
       const dataFields = {};
       
+      console.log(`\n🔍 DATA EXTRACTION DEBUG:`);
+      console.log(`   Payload has Parameters: ${!!payload.Parameters}`);
+      console.log(`   Parameters is object: ${typeof payload.Parameters === 'object'}`);
+      console.log(`   Parameters keys: ${payload.Parameters ? Object.keys(payload.Parameters).length : 0}`);
+      
       // Handle nested Parameters structure (real device format)
       if (payload.Parameters && typeof payload.Parameters === 'object') {
         console.log(`✓ Found nested Parameters object with ${Object.keys(payload.Parameters).length} fields`);
@@ -2363,13 +2368,18 @@ class MQTTService {
         deviceId: telemetryRecord.deviceId,
         timestamp: telemetryRecord.timestamp,
         event: telemetryRecord.event,
-        data: telemetryRecord.data,
+        dataType: typeof telemetryRecord.data,
+        isMap: telemetryRecord.data instanceof Map,
+        dataSize: telemetryRecord.data.size,
+        dataSampleKeys: Array.from(telemetryRecord.data.keys()).slice(0, 5),
         location: telemetryRecord.location,
         dataFieldsCount: telemetryRecord.data.size
       });
 
       console.log(`\n💾 SAVING TO DATABASE...`);
-      console.log(`   dataFields before save: ${JSON.stringify(dataFields).substring(0, 200)}...`);
+      console.log(`   Saving ${Object.keys(dataFields).length} data fields`);
+      console.log(`   Fields: ${Object.keys(dataFields).join(', ')}`);
+      console.log(`   Sample values: ${JSON.stringify(Object.fromEntries(Object.entries(dataFields).slice(0, 3)))}`);
       
       const saveResult = await telemetryRecord.save();
       
@@ -2378,35 +2388,19 @@ class MQTTService {
       console.log(`   Saved event field: "${saveResult.event}"`);
       console.log(`   Data field type after save: ${typeof saveResult.data}`);
       console.log(`   Data field instanceof Map: ${saveResult.data instanceof Map}`);
-      console.log(`   Saved telemetry data for device ${deviceId} with ${Object.keys(dataFields).length} data fields`);
-      console.log('📊 Saved fields:', Object.keys(dataFields).join(', '));
-      if (location) {
-        console.log(`📍 Saved location: ${location}`);
-      }
+      console.log(`   Data size after save: ${saveResult.data?.size || 0}`);
       
-      // Verify the saved record by fetching it back IMMEDIATELY using raw query first
-      console.log(`\n🔍 VERIFICATION PHASE:`);
-      console.log(`   Fetching saved record from DB using findById...`);
-      
-      const savedRecord = await Telemetry.findById(telemetryRecord._id);
-      console.log(`   Record fetched, data type: ${typeof savedRecord.data}`);
-      console.log(`   Data is Map: ${savedRecord.data instanceof Map}`);
-      console.log(`   Raw data value:`, savedRecord.data);
-      
-      const savedDataObj = savedRecord.data instanceof Map 
-        ? Object.fromEntries(savedRecord.data)
-        : (savedRecord.data || {});
-      
-      console.log(`\n📊 VERIFICATION RESULTS:`);
-      console.log(`   recordId: ${savedRecord._id}`);
-      console.log(`   dataFieldsCount: ${Object.keys(savedDataObj).length}`);
-      console.log(`   dataKeys: ${Object.keys(savedDataObj).join(', ') || '(EMPTY)'}`);
-      
-      if (Object.keys(savedDataObj).length > 0) {
-        console.log(`   ✅ Data was properly saved!`);
-        console.log(`   Sample data:`, Object.fromEntries(Object.entries(savedDataObj).slice(0, 5)));
+      // Verify by fetching the record back
+      const verifyRecord = await Telemetry.findById(saveResult._id);
+      console.log(`\n✅ VERIFICATION - Record fetched back from DB:`);
+      console.log(`   Data type: ${typeof verifyRecord.data}`);
+      console.log(`   Is Map: ${verifyRecord.data instanceof Map}`);
+      console.log(`   Data size: ${verifyRecord.data instanceof Map ? verifyRecord.data.size : Object.keys(verifyRecord.data).length}`);
+      if (verifyRecord.data instanceof Map) {
+        console.log(`   Sample keys: ${Array.from(verifyRecord.data.keys()).slice(0, 5).join(', ')}`);
+        console.log(`   Sample values: ${Array.from(verifyRecord.data.values()).slice(0, 5).map(v => String(v).substring(0, 10)).join(', ')}`);
       } else {
-        console.log(`   ❌ WARNING: Saved data is EMPTY! Check if dataFields was populated correctly`);
+        console.log(`   Object keys: ${Object.keys(verifyRecord.data).slice(0, 5).join(', ')}`);
       }
       
       // Check alarms for this device data

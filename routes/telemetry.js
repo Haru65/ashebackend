@@ -41,6 +41,7 @@ router.get('/', authenticateToken, async (req, res) => {
       deviceId,
       startDate,
       endDate,
+      mode,
       limit = 100,
       offset = 0
     } = req.query;
@@ -59,6 +60,59 @@ router.get('/', authenticateToken, async (req, res) => {
       }
       if (endDate) {
         query.timestamp.$lte = new Date(endDate + 'T23:59:59.999Z');
+      }
+    }
+
+    // Add mode/event filtering if specified
+    if (mode && mode.trim() !== '') {
+      const modeUpper = String(mode).toUpperCase().trim();
+      let eventPatterns = [];
+      let eventCodes = [];
+      
+      console.log(`🔍 Mode filter requested: "${mode}" (normalized: "${modeUpper}")`);
+      
+      if (modeUpper === 'NORMAL') {
+        eventCodes = [0, '0'];
+        eventPatterns = ['NORMAL'];
+      } else if (modeUpper === 'INT') {
+        eventCodes = [1, '1'];
+        eventPatterns = ['INT', 'INTERRUPT'];
+      } else if (modeUpper === 'DPOL') {
+        // Accept both DPOL and DEPOL variants - critical for matching database values
+        eventCodes = [3, '3'];
+        eventPatterns = ['DPOL', 'DEPOL'];
+      } else if (modeUpper === 'INST') {
+        eventCodes = [4, '4'];
+        eventPatterns = ['INST', 'INSTANT'];
+      }
+      
+      if (eventCodes.length > 0 || eventPatterns.length > 0) {
+        // Build flexible query to match both exact values and regex patterns
+        // This handles: numeric codes (0,1,3,4), string codes ('0','1'), 
+        // and full text values ('INT ON', 'DPOL', 'NORMAL', etc.)
+        const conditions = [];
+        
+        // Match numeric or string codes
+        if (eventCodes.length > 0) {
+          conditions.push({ event: { $in: eventCodes } });
+        }
+        
+        // Match text patterns (handles "INT ON", "DPOL", "INST OFF", etc.)
+        if (eventPatterns.length > 0) {
+          const regexStr = eventPatterns.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+          conditions.push({ event: { $regex: regexStr, $options: 'i' } });
+        }
+        
+        // Combine all conditions with OR
+        if (conditions.length === 1) {
+          query.event = conditions[0].event;
+        } else if (conditions.length > 1) {
+          query.$or = conditions;
+        }
+        
+        console.log(`✅ Mode filter applied: "${modeUpper}"`);
+        console.log(`   Event codes to match: ${eventCodes.join(', ')}`);
+        console.log(`   Event patterns to match: ${eventPatterns.join(', ')}`);
       }
     }
 
@@ -83,7 +137,8 @@ router.get('/', authenticateToken, async (req, res) => {
           dataType: typeof telemetryObj.data,
           isMap: telemetryObj.data instanceof Map,
           dataKeys: telemetryObj.data ? Object.keys(telemetryObj.data) : [],
-          dataLength: telemetryObj.data ? Object.keys(telemetryObj.data).length : 0
+          dataLength: telemetryObj.data ? Object.keys(telemetryObj.data).length : 0,
+          rawData: telemetryObj.data
         });
         
         // Convert Map data to plain object and flatten all fields
@@ -91,13 +146,23 @@ router.get('/', authenticateToken, async (req, res) => {
         
         if (telemetryObj.data) {
           if (telemetryObj.data instanceof Map) {
+            // Map case
             dataObj = Object.fromEntries(telemetryObj.data);
             console.log(`  ✓ Converted Map to object: ${Object.keys(dataObj).length} fields`);
+            console.log(`    Map entries: ${Array.from(telemetryObj.data.keys()).join(', ')}`);
           } else if (typeof telemetryObj.data === 'object') {
             // Handle plain object (should be the case for new records)
             dataObj = telemetryObj.data;
             console.log(`  ✓ Using plain object: ${Object.keys(dataObj).length} fields`);
+            console.log(`    Object keys: ${Object.keys(dataObj).join(', ')}`);
           }
+        }
+        
+        // Log the final dataObj to debug
+        if (Object.keys(dataObj).length > 0) {
+          console.log(`  Sample data fields:`, Object.fromEntries(Object.entries(dataObj).slice(0, 5)));
+        } else {
+          console.warn(`  ⚠️ WARNING: No data fields found in record!`);
         }
         
         const enrichedRecord = {
@@ -128,6 +193,10 @@ router.get('/', authenticateToken, async (req, res) => {
     const totalCount = await Telemetry.countDocuments(query);
 
     console.log('✅ Telemetry results:', enrichedTelemetryData.length, 'records');
+    if (enrichedTelemetryData.length > 0) {
+      console.log('   First record fields count:', Object.keys(enrichedTelemetryData[0]).length);
+      console.log('   First record sample:', JSON.stringify(enrichedTelemetryData[0], null, 2).substring(0, 300));
+    }
     if (enrichedTelemetryData.length > 0) {
       console.log('   Sample record keys:', Object.keys(enrichedTelemetryData[0]));
       console.log('   Sample record (first 20 fields):', JSON.stringify(

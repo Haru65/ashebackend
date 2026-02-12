@@ -296,49 +296,89 @@ class EmailService {
     
     const subject = `🚨 ${alarm.severity.toUpperCase()} ALARM: ${alarm.name} - ${alarm.unit_no}`;
     
-    // Build device parameters table with REF1, REF2, REF3, DCV, DCI, ACV
+    // Build device parameters table with all available values
     const deviceParams = alarm.device_params || {};
     const parametersTableHTML = `
-      <h3>Device Parameters:</h3>
+      <h3>Device Parameters & Telemetry Values:</h3>
       <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
         <thead>
           <tr style="background-color: #f8f9fa; border-bottom: 2px solid #dee2e6;">
             <th style="padding: 10px; text-align: left; border: 1px solid #dee2e6;">Parameter</th>
             <th style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Current Value</th>
-            <th style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Threshold</th>
+            <th style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Unit/Reference</th>
           </tr>
         </thead>
         <tbody>
           <tr style="border-bottom: 1px solid #dee2e6;">
-            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>DCV</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">0</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.dcv || 0}</td>
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>DCV (DC Voltage)</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.dcv || 'N/A'}</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Volts</td>
           </tr>
           <tr style="border-bottom: 1px solid #dee2e6;">
-            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>DCI</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">0</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.dci || 0}</td>
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>DCI (DC Current)</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.dci || 'N/A'}</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Amperes</td>
           </tr>
           <tr style="border-bottom: 1px solid #dee2e6;">
-            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>ACV</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">0</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.acv || 0}</td>
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>ACV (AC Voltage)</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.acv || 'N/A'}</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Volts</td>
           </tr>
           <tr style="border-bottom: 1px solid #dee2e6;">
-            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>REF1</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">-</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.dcv || 0}</td>
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>ACI (AC Current)</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.aci || 'N/A'}</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Amperes</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #dee2e6; background-color: #fff3cd;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>REF1 (Reference 1)</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.ref1 || 'N/A'}</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Threshold</td>
           </tr>
           <tr style="border-bottom: 1px solid #dee2e6;">
-            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>REF2</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">-</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.dci || 0}</td>
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>REF2 (Reference 2)</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.ref2 || 'N/A'}</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Threshold</td>
           </tr>
           <tr style="border-bottom: 1px solid #dee2e6;">
-            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>REF3</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">-</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.acv || 0}</td>
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>REF3 (Reference 3)</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.ref3 || 'N/A'}</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Threshold</td>
           </tr>
+          <tr style="border-bottom: 1px solid #dee2e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>Digital Input 1</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.di1 || 'N/A'}</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">OPEN/CLOSE</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #dee2e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>Digital Input 2</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.di2 || 'N/A'}</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">OPEN/CLOSE</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #dee2e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>Digital Input 3</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.di3 || 'N/A'}</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">OPEN/CLOSE</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #dee2e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>Digital Input 4</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.di4 || 'N/A'}</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">OPEN/CLOSE</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #dee2e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>Digital Output</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.do1 || 'N/A'}</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">ON/OFF</td>
+          </tr>
+          ${deviceParams.event ? `<tr style="border-bottom: 1px solid #dee2e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>Event Type</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.event}</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Status</td>
+          </tr>` : ''}
+          ${deviceParams.mode ? `<tr style="border-bottom: 1px solid #dee2e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>Device Mode</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.mode}</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Configuration</td>
+          </tr>` : ''}
         </tbody>
       </table>
     `;
@@ -548,28 +588,83 @@ class EmailService {
             <p>${alarmData.reason || 'No reason provided'}</p>
             
             ${alarmData.device_params ? `
-            <h3>Device Parameters:</h3>
+            <h3>Device Parameters & Telemetry Values:</h3>
             <table style="border-collapse: collapse; width: 100%; margin-top: 10px;">
               <tr style="background-color: #e9ecef;">
                 <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Parameter</th>
                 <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Current Value</th>
-                <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Threshold</th>
+                <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Unit</th>
               </tr>
               <tr>
-                <td style="border: 1px solid #ddd; padding: 8px;">DCV</td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.dcv || 0}</td>
-                <td style="border: 1px solid #ddd; padding: 8px;">Ref 1: ${alarmData.device_params.ref_1 || 0}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;"><strong>DCV (DC Voltage)</strong></td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.dcv || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">Volts</td>
+              </tr>
+              <tr style="background-color: #f9f9f9;">
+                <td style="border: 1px solid #ddd; padding: 8px;"><strong>DCI (DC Current)</strong></td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.dci || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">Amperes</td>
               </tr>
               <tr>
-                <td style="border: 1px solid #ddd; padding: 8px;">DCI</td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.dci || 0}</td>
-                <td style="border: 1px solid #ddd; padding: 8px;">Ref 2: ${alarmData.device_params.ref_2 || 0}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;"><strong>ACV (AC Voltage)</strong></td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.acv || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">Volts</td>
+              </tr>
+              <tr style="background-color: #f9f9f9;">
+                <td style="border: 1px solid #ddd; padding: 8px;"><strong>ACI (AC Current)</strong></td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.aci || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">Amperes</td>
+              </tr>
+              <tr style="background-color: #fff3cd;">
+                <td style="border: 1px solid #ddd; padding: 8px;"><strong>REF1 (Reference 1)</strong></td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.ref_1 || alarmData.device_params.ref1 || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">Threshold</td>
+              </tr>
+              <tr style="background-color: #f9f9f9;">
+                <td style="border: 1px solid #ddd; padding: 8px;"><strong>REF2 (Reference 2)</strong></td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.ref_2 || alarmData.device_params.ref2 || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">Threshold</td>
               </tr>
               <tr>
-                <td style="border: 1px solid #ddd; padding: 8px;">ACV</td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.acv || 0}</td>
-                <td style="border: 1px solid #ddd; padding: 8px;">Ref 3: ${alarmData.device_params.ref_3 || 0}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;"><strong>REF3 (Reference 3)</strong></td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.ref_3 || alarmData.device_params.ref3 || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">Threshold</td>
               </tr>
+              <tr style="background-color: #f9f9f9;">
+                <td style="border: 1px solid #ddd; padding: 8px;"><strong>Digital Input 1</strong></td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.di1 || alarmData.device_params.DI1 || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">OPEN/CLOSE</td>
+              </tr>
+              <tr>
+                <td style="border: 1px solid #ddd; padding: 8px;"><strong>Digital Input 2</strong></td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.di2 || alarmData.device_params.DI2 || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">OPEN/CLOSE</td>
+              </tr>
+              <tr style="background-color: #f9f9f9;">
+                <td style="border: 1px solid #ddd; padding: 8px;"><strong>Digital Input 3</strong></td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.di3 || alarmData.device_params.DI3 || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">OPEN/CLOSE</td>
+              </tr>
+              <tr>
+                <td style="border: 1px solid #ddd; padding: 8px;"><strong>Digital Input 4</strong></td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.di4 || alarmData.device_params.DI4 || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">OPEN/CLOSE</td>
+              </tr>
+              <tr style="background-color: #f9f9f9;">
+                <td style="border: 1px solid #ddd; padding: 8px;"><strong>Digital Output</strong></td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.do1 || alarmData.device_params.DO1 || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">ON/OFF</td>
+              </tr>
+              ${alarmData.device_params.event || alarmData.device_params.EVENT ? `<tr>
+                <td style="border: 1px solid #ddd; padding: 8px;"><strong>Event Type</strong></td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.event || alarmData.device_params.EVENT || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">Status</td>
+              </tr>` : ''}
+              ${alarmData.device_params.mode || alarmData.device_params.MODE ? `<tr style="background-color: #f9f9f9;">
+                <td style="border: 1px solid #ddd; padding: 8px;"><strong>Device Mode</strong></td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.mode || alarmData.device_params.MODE || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">Configuration</td>
+              </tr>` : ''}
             </table>
             ` : ''}
           </div>

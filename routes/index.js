@@ -9,6 +9,7 @@ const emailRoutes = require('./email');
 const deviceSyncRoutes = require('./deviceSync');
 const deviceAcknowledgmentRoutes = require('./deviceAcknowledgment');
 const deviceManagementRoutes = require('./deviceManagement');
+const zoneRoutes = require('./zone');
 
 const router = express.Router();
 
@@ -16,6 +17,7 @@ const router = express.Router();
 router.use('/auth', authRoutes);
 router.use('/api', deviceRoutes);
 router.use('/api', deviceConfigRoutes);
+router.use('/api', zoneRoutes);
 router.use('/api/telemetry', telemetryRoutes);
 router.use('/api/email', emailRoutes);
 router.use('/api/device-sync', deviceSyncRoutes);

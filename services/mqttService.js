@@ -1023,31 +1023,31 @@ class MQTTService {
       const numValue = parseFloat(setupValue);
       const electrodeType = currentSettings["Electrode"] || electrode || 0;
 
-      // Mapping: Electrode 0 (Cu/CuSO4) and 2 (Ag/AgCl) → range 0.6 to 1.0
-      // Mapping: Electrode 1 (Zinc) → range -0.5 to 0.0
+      // Mapping: Electrode 0 (Cu/CuSO4) and 2 (Ag/AgCl) → range -0.6 to -1.0
+      // Mapping: Electrode 1 (Zinc) → range 0.1 to 0.5
       
       if (electrodeType === 0 || electrodeType === 2) {
-        // Cu/CuSO4 or Ag/AgCl: 0.6 to 1.0
-        if (numValue < 0.6 || numValue > 1.0) {
+        // Cu/CuSO4 or Ag/AgCl: -0.6 to -1.0 (min: -1.0, max: -0.6)
+        if (numValue < -1.0 || numValue > -0.6) {
           return {
             valid: false,
             value: setupValue,
-            message: `❌ Set UP value ${numValue} is out of range for electrode ${electrodeType}. Required range: 0.6 to 1.0 for Cu/CuSO4 or Ag/AgCl electrodes.`,
+            message: `❌ Set UP value ${numValue} is out of range for electrode ${electrodeType}. Required range: -0.6 to -1.0 for Cu/CuSO4 or Ag/AgCl electrodes.`,
             electrode: electrodeType,
-            minValue: 0.6,
-            maxValue: 1.0
+            minValue: -1.0,
+            maxValue: -0.6
           };
         }
       } else if (electrodeType === 1) {
-        // Zinc: -0.5 to 0.0
-        if (numValue < -0.5 || numValue > 0.0) {
+        // Zinc: 0.1 to 0.5
+        if (numValue < 0.1 || numValue > 0.5) {
           return {
             valid: false,
             value: setupValue,
-            message: `❌ Set UP value ${numValue} is out of range for electrode ${electrodeType}. Required range: -0.5 to 0.0 for Zinc electrode.`,
+            message: `❌ Set UP value ${numValue} is out of range for electrode ${electrodeType}. Required range: 0.1 to 0.5 for Zinc electrode.`,
             electrode: electrodeType,
-            minValue: -0.5,
-            maxValue: 0.0
+            minValue: 0.1,
+            maxValue: 0.5
           };
         }
       }
@@ -1064,31 +1064,31 @@ class MQTTService {
       const numValue = parseFloat(setopValue);
       const electrodeType = currentSettings["Electrode"] || electrode || 0;
 
-      // Mapping: Electrode 0 (Cu/CuSO4) and 2 (Ag/AgCl) → range 1.20 to 3.00
-      // Mapping: Electrode 1 (Zinc) → range 0.10 to 1.90
+      // Mapping: Electrode 0 (Cu/CuSO4) and 2 (Ag/AgCl) → range -1.2 to -3.0
+      // Mapping: Electrode 1 (Zinc) → range -0.1 to -1.9
       
       if (electrodeType === 0 || electrodeType === 2) {
-        // Cu/CuSO4 or Ag/AgCl: 1.20 to 3.00
-        if (numValue < 1.20 || numValue > 3.00) {
+        // Cu/CuSO4 or Ag/AgCl: -1.2 to -3.0 (min: -3.0, max: -1.2)
+        if (numValue < -3.0 || numValue > -1.2) {
           return {
             valid: false,
             value: setopValue,
-            message: `❌ Set OP value ${numValue} is out of range for electrode ${electrodeType}. Required range: 1.20 to 3.00 for Cu/CuSO4 or Ag/AgCl electrodes.`,
+            message: `❌ Set OP value ${numValue} is out of range for electrode ${electrodeType}. Required range: -1.2 to -3.0 for Cu/CuSO4 or Ag/AgCl electrodes.`,
             electrode: electrodeType,
-            minValue: 1.20,
-            maxValue: 3.00
+            minValue: -3.0,
+            maxValue: -1.2
           };
         }
       } else if (electrodeType === 1) {
-        // Zinc: 0.10 to 1.90
-        if (numValue < 0.10 || numValue > 1.90) {
+        // Zinc: -0.1 to -1.9 (min: -1.9, max: -0.1)
+        if (numValue < -1.9 || numValue > -0.1) {
           return {
             valid: false,
             value: setopValue,
-            message: `❌ Set OP value ${numValue} is out of range for electrode ${electrodeType}. Required range: 0.10 to 1.90 for Zinc electrode.`,
+            message: `❌ Set OP value ${numValue} is out of range for electrode ${electrodeType}. Required range: -0.1 to -1.9 for Zinc electrode.`,
             electrode: electrodeType,
-            minValue: 0.10,
-            maxValue: 1.90
+            minValue: -1.9,
+            maxValue: -0.1
           };
         }
       }
@@ -2743,18 +2743,23 @@ class MQTTService {
 
       // Shunt parameters that need conversion
       const SHUNT_PARAMS = {
-        'Shunt Voltage': 2,  // Divide by 100 (2 decimal places)
-        'Shunt Current': 1   // Divide by 10 (1 decimal place)
+        'Shunt Voltage': 2   // Divide by 100 (2 decimal places)
+        // 'Shunt Current' no longer needs conversion - it's now 0-999 integer format
       };
       
       for (const param of DEVICE_PARAMETERS) {
         if (payload[param] !== undefined) {
           let value = payload[param];
           
-          // Convert Shunt Voltage and Shunt Current from integer format to decimal
+          // Shunt Current: Now in 0-999 integer format (no conversion needed, store as string)
+          if (param === 'Shunt Current') {
+            value = String(value).padStart(3, '0');
+            console.log(`🔄 [SHUNT] Stored Shunt Current from device format ${payload[param]} to ${value}`);
+          }
+          
+          // Convert Shunt Voltage from integer format to decimal
           // Shunt Voltage: 050 → "0.50", 2550 → "25.50" (divide by 100, 2 decimal places)
-          // Shunt Current: 919 → "91.9", 999 → "99.9" (divide by 10, 1 decimal place)
-          if (SHUNT_PARAMS[param]) {
+          else if (SHUNT_PARAMS[param]) {
             const decimalPlaces = SHUNT_PARAMS[param];
             if (typeof value === 'string' || typeof value === 'number') {
               let strValue = value.toString().trim();
@@ -3170,6 +3175,11 @@ class MQTTService {
       
       // Only emit if we have valid coordinates
       if (latitude !== null && longitude !== null) {
+        // Extract telemetry values for map popup
+        const dcv = payload.DCV || (payload.Parameters && payload.Parameters.DCV) || '';
+        const dci = payload.DCI || (payload.Parameters && payload.Parameters.DCI) || '';
+        const ref1 = payload.REF1 || (payload.Parameters && payload.Parameters.REF1) || '';
+        
         const deviceLocationData = {
           deviceId: deviceId,
           name: deviceName,
@@ -3178,7 +3188,10 @@ class MQTTService {
           location: locationName,
           timestamp: payload.TimeStamp || new Date().toISOString(),
           isActive: true,
-          lastSeen: Date.now()
+          lastSeen: Date.now(),
+          dcv: dcv ? String(dcv) : '',  // DC Voltage
+          dci: dci ? String(dci) : '',  // DC Current
+          ref1: ref1 ? String(ref1) : ''  // REF 1 Value
         };
         
         // Store device location for summary emission
@@ -3186,7 +3199,10 @@ class MQTTService {
           name: deviceLocationData.name,
           latitude: deviceLocationData.latitude,
           longitude: deviceLocationData.longitude,
-          location: locationName
+          location: locationName,
+          dcv: deviceLocationData.dcv,
+          dci: deviceLocationData.dci,
+          ref1: deviceLocationData.ref1
         });
         
         console.log(`📍 Device ${deviceId} location data:`, deviceLocationData);
@@ -3238,7 +3254,10 @@ class MQTTService {
               latitude: deviceLocation.latitude,
               longitude: deviceLocation.longitude,
               lastSeen: lastActivity,
-              isActive: true
+              isActive: true,
+              dcv: deviceLocation.dcv || '',
+              dci: deviceLocation.dci || '',
+              ref1: deviceLocation.ref1 || ''
             });
           }
         }

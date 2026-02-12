@@ -63,27 +63,22 @@ function formatShuntVoltageForDevice(value) {
 
 /**
  * Helper function: Format Shunt Current for MQTT device
- * Input: 16800 (already scaled) or 168 (to be used as-is)
- * Output: numeric value (may be scaled by 10 if small)
+ * Input: 999 (0-999 Amperes)
+ * Output: numeric value (0-999, no conversion needed)
  */
 function formatShuntCurrentForDevice(value) {
   if (value === undefined || value === null) return undefined;
   let numVal;
   if (typeof value === 'string') {
-    numVal = parseFloat(value);
+    numVal = parseInt(value);
   } else if (typeof value === 'number') {
     numVal = value;
   } else {
     return value;
   }
   if (!isNaN(numVal)) {
-    // If value is already large (>100), assume it's been scaled and just return it
-    if (numVal > 100) {
-      return Math.round(numVal);
-    } else {
-      // Otherwise multiply by 10 (16.8 * 10 = 168)
-      return Math.round(numVal * 10);
-    }
+    // Return as-is (0-999 Amperes, no scaling needed)
+    return Math.round(numVal);
   }
   return value;
 }
@@ -1026,18 +1021,17 @@ class DeviceConfigController {
 
       console.log(`🔧 Configuring Shunt Current for device ${deviceId}:`, shuntCurrent);
 
-      // Parse and validate current range (0.00 to 99.99)
-      const current = parseFloat(shuntCurrent);
-      if (current < 0.00 || current > 99.99) {
+      // Parse and validate current range (0 to 999 Amperes)
+      const current = parseInt(shuntCurrent);
+      if (isNaN(current) || current < 0 || current > 999) {
         return res.status(400).json({
           success: false,
-          message: 'Shunt current must be between 0.00 and 99.99'
+          message: 'Shunt current must be between 0 and 999 Amperes'
         });
       }
 
-      // Convert decimal format (68.9) to device format (689)
-      // Device expects values 0-999 where 999 = 99.9A
-      const deviceFormatValue = Math.round(current * 10);
+      // Device expects values 0-999 (no decimals, direct Amperes)
+      const deviceFormatValue = current;
       
       const config = { shuntCurrent: deviceFormatValue };
 

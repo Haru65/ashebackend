@@ -39,6 +39,9 @@ const DeviceSchema = new Schema({
   deviceId: { type: String, required: true, unique: true, index: true },
   deviceName: { type: String, required: false, index: true },
   location: { type: String, required: false },
+  zoneId: { type: String, required: false, index: true }, // Reference to Zone document
+  clusterName: { type: String, required: false, index: true }, // Cluster name (deprecated - use zone)
+  deviceType: { type: String, required: false, default: 'IoT Sensor' }, // Type of device
   mqtt: { type: MqttConfigSchema, default: {} },
   sensors: { type: SensorSchema, default: {} },
   status: {

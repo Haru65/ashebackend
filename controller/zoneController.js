@@ -10,12 +10,19 @@ class ZoneController {
       
       const zones = await Zone.find({}).sort({ createdAt: -1 });
       
-      console.log(`✅ Retrieved ${zones.length} zones`);
+      // Transform zones to include both id and _id for frontend compatibility
+      const transformedZones = zones.map(zone => ({
+        ...zone.toObject(),
+        _id: zone._id.toString(),  // Ensure _id is a string
+        id: zone.id || zone._id.toString()  // Use custom id if available, otherwise use MongoDB _id
+      }));
+      
+      console.log(`✅ Retrieved ${transformedZones.length} zones`);
       
       res.json({
         success: true,
-        count: zones.length,
-        zones: zones
+        count: transformedZones.length,
+        zones: transformedZones
       });
     } catch (error) {
       console.error('❌ Error fetching zones:', error);
@@ -33,9 +40,17 @@ class ZoneController {
   static async getZoneById(req, res) {
     try {
       const { zoneId } = req.params;
+      const mongoose = require('mongoose');
+      
       console.log(`🔍 Fetching zone: ${zoneId}`);
       
-      const zone = await Zone.findOne({ id: zoneId });
+      // Try to find by custom 'id' field first
+      let zone = await Zone.findOne({ id: zoneId });
+      
+      // If not found by custom id, try by MongoDB '_id' (if valid ObjectID)
+      if (!zone && mongoose.Types.ObjectId.isValid(zoneId)) {
+        zone = await Zone.findById(zoneId);
+      }
       
       if (!zone) {
         return res.status(404).json({
@@ -169,10 +184,19 @@ class ZoneController {
   static async deleteZone(req, res) {
     try {
       const { zoneId } = req.params;
+      const mongoose = require('mongoose');
 
       console.log(`🗑️ Deleting zone: ${zoneId}`);
 
-      const zone = await Zone.findOneAndDelete({ id: zoneId });
+      // Try to find by custom 'id' field first
+      let zone = await Zone.findOneAndDelete({ id: zoneId });
+
+      // If not found by custom id, try by MongoDB _id (if it's a valid ObjectID)
+      if (!zone) {
+        if (mongoose.Types.ObjectId.isValid(zoneId)) {
+          zone = await Zone.findByIdAndDelete(zoneId);
+        }
+      }
 
       if (!zone) {
         return res.status(404).json({

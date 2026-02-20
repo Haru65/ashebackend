@@ -240,6 +240,7 @@ class DeviceController {
         }
 
         return {
+          id: device._id ? device._id.toString() : device.deviceId,
           deviceId: device.deviceId,
           name: device.deviceName || device.deviceId,
           location: location,
@@ -269,13 +270,19 @@ class DeviceController {
     }
   }
 
-  // Delete a device by deviceId
+  // Delete a device by deviceId or MongoDB _id
   static async deleteDevice(req, res) {
     try {
       const { deviceId } = req.params;
 
-      // Check if device exists
-      const device = await Device.findOne({ deviceId });
+      // Try to find device by deviceId first, then by MongoDB _id
+      let device = await Device.findOne({ deviceId });
+      
+      // If not found by deviceId, try by MongoDB _id
+      if (!device) {
+        device = await Device.findById(deviceId);
+      }
+      
       if (!device) {
         return res.status(404).json({
           success: false,
@@ -284,20 +291,20 @@ class DeviceController {
         });
       }
 
-      // Remove device from database
-      await Device.deleteOne({ deviceId });
+      // Remove device from database using the document's _id
+      await Device.deleteOne({ _id: device._id });
 
       // Also remove any historical data for this device
       const DeviceHistory = require('../models/DeviceHistory');
-      await DeviceHistory.deleteMany({ deviceId });
+      await DeviceHistory.deleteMany({ deviceId: device.deviceId });
 
-      console.log(`🗑️  Device deleted: ${device.deviceName || deviceId} (ID: ${deviceId})`);
+      console.log(`🗑️  Device deleted: ${device.deviceName || device.deviceId} (ID: ${device.deviceId})`);
 
       res.json({
         success: true,
         message: 'Device deleted successfully',
-        deviceId: deviceId,
-        deviceName: device.deviceName || deviceId
+        deviceId: device.deviceId,
+        deviceName: device.deviceName || device.deviceId
       });
     } catch (error) {
       console.error('Error deleting device:', error);

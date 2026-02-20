@@ -67,6 +67,8 @@ router.post('/devices', async (req, res) => {
       deviceName, 
       location, 
       deviceType,
+      zoneId,
+      clusterName,
       icon, 
       color, 
       description,
@@ -97,6 +99,9 @@ router.post('/devices', async (req, res) => {
       deviceId,
       deviceName,
       location: location || 'Unknown Location',
+      deviceType: deviceType || 'IoT Sensor',
+      zoneId: zoneId || null,
+      clusterName: clusterName || null,
       mqtt: {
         brokerUrl: mqttBroker,
         topicPrefix: topicPrefix || `devices/${deviceId}`,
@@ -133,6 +138,8 @@ router.post('/devices', async (req, res) => {
     console.log(`   📥 Data Topic: ${dataTopic || `devices/${deviceId}/data`}`);
     console.log(`   📤 Command Topic: ${commandTopic || `devices/${deviceId}/commands`}`);
     console.log(`   🔐 Username: ${mqttUsername}`);
+    if (zoneId) console.log(`   🗂️ Zone ID: ${zoneId}`);
+    if (clusterName) console.log(`   📍 Cluster: ${clusterName}`);
     
     res.status(201).json({
       success: true,
@@ -142,6 +149,8 @@ router.post('/devices', async (req, res) => {
         name: newDevice.deviceName,
         location: newDevice.location,
         status: newDevice.status.state,
+        zoneId: newDevice.zoneId,
+        clusterName: newDevice.clusterName,
         route: `/devices/${newDevice.deviceId}`,
         mqtt: {
           broker: newDevice.mqtt.brokerUrl,
@@ -191,7 +200,7 @@ router.get('/devices', async (req, res) => {
     const Telemetry = require('../models/telemetry');
     
     const devices = await Device.find({})
-      .select('deviceId deviceName location mqtt sensors status metadata')
+      .select('deviceId deviceName location zoneId clusterName deviceType mqtt sensors status metadata')
       .sort({ 'status.lastSeen': -1 })
       .lean();
     
@@ -242,10 +251,12 @@ router.get('/devices', async (req, res) => {
         sensorId: device.deviceId, // Use deviceId as sensor identifier
         name: device.deviceName || `Device ${device.deviceId}`,
         icon: device.metadata?.icon || 'bi-device',
-        type: 'IoT Sensor',
+        type: device.deviceType || 'IoT Sensor',
         location: location,
         status: status,
         lastSeen: lastSeen,
+        zoneId: device.zoneId || null,
+        clusterName: device.clusterName || null,
         metrics: [
           { type: 'battery', value: device.sensors?.battery || 0, icon: 'bi-battery-full' },
           { type: 'signal', value: device.sensors?.signal || 0, icon: 'bi-wifi' },

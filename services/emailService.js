@@ -294,10 +294,23 @@ class EmailService {
     const timestamp = new Date().toLocaleString();
     const severityColor = this.getSeverityColor(alarm.severity);
     
-    const subject = `🚨 ${alarm.severity.toUpperCase()} ALARM: ${alarm.name} - ${alarm.unit_no}`;
+    const subject = `🚨 ${alarm.severity.toUpperCase()} ALARM: ${alarm.name} - ${alarm.unit_no || alarm.device_name}`;
     
-    // Build device parameters table with all available values
-    const deviceParams = alarm.device_params || {};
+    // Use telemetry values for current readings, fall back to device_params or empty
+    const telemetryData = alarm.telemetry_values || alarm.device_params || {};
+    
+    // Helper function to safely get telemetry value with multiple possible field names
+    const getTelemetryValue = (fieldNames) => {
+      if (Array.isArray(fieldNames)) {
+        for (const field of fieldNames) {
+          if (telemetryData[field] !== undefined && telemetryData[field] !== null) {
+            return telemetryData[field];
+          }
+        }
+      }
+      return 'N/A';
+    };
+
     const parametersTableHTML = `
       <h3>Device Parameters & Telemetry Values:</h3>
       <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
@@ -305,79 +318,76 @@ class EmailService {
           <tr style="background-color: #f8f9fa; border-bottom: 2px solid #dee2e6;">
             <th style="padding: 10px; text-align: left; border: 1px solid #dee2e6;">Parameter</th>
             <th style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Current Value</th>
-            <th style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Unit/Reference</th>
           </tr>
         </thead>
         <tbody>
+          <tr style="border-bottom: 1px solid #dee2e6; background-color: #ffe6e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>🔴 REF1 Status</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6; font-weight: bold;">${getTelemetryValue(['REF1 STS', 'ref1_sts', 'REF1_STS'])}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #dee2e6; background-color: #ffe6e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>🔴 REF2 Status</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6; font-weight: bold;">${getTelemetryValue(['REF2 STS', 'ref2_sts', 'REF2_STS'])}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #dee2e6; background-color: #ffe6e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>🔴 REF3 Status</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6; font-weight: bold;">${getTelemetryValue(['REF3 STS', 'ref3_sts', 'REF3_STS'])}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #dee2e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>REF1 (Measurement)</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${getTelemetryValue(['REF1', 'ref1', 'REF_1'])}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #dee2e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>REF2 (Measurement)</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${getTelemetryValue(['REF2', 'ref2', 'REF_2'])}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #dee2e6;">
+            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>REF3 (Measurement)</strong></td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${getTelemetryValue(['REF3', 'ref3', 'REF_3'])}</td>
+          </tr>
           <tr style="border-bottom: 1px solid #dee2e6;">
             <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>DCV (DC Voltage)</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.dcv || 'N/A'}</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Volts</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${getTelemetryValue(['dcv', 'DCV'])}</td>
           </tr>
           <tr style="border-bottom: 1px solid #dee2e6;">
             <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>DCI (DC Current)</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.dci || 'N/A'}</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Amperes</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${getTelemetryValue(['dci', 'DCI'])}</td>
           </tr>
           <tr style="border-bottom: 1px solid #dee2e6;">
             <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>ACV (AC Voltage)</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.acv || 'N/A'}</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Volts</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${getTelemetryValue(['acv', 'ACV'])}</td>
           </tr>
           <tr style="border-bottom: 1px solid #dee2e6;">
             <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>ACI (AC Current)</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.aci || 'N/A'}</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Amperes</td>
-          </tr>
-          <tr style="border-bottom: 1px solid #dee2e6; background-color: #fff3cd;">
-            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>REF1 (Reference 1)</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.ref1 || 'N/A'}</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Threshold</td>
-          </tr>
-          <tr style="border-bottom: 1px solid #dee2e6;">
-            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>REF2 (Reference 2)</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.ref2 || 'N/A'}</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Threshold</td>
-          </tr>
-          <tr style="border-bottom: 1px solid #dee2e6;">
-            <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>REF3 (Reference 3)</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.ref3 || 'N/A'}</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Threshold</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${getTelemetryValue(['aci', 'ACI'])}</td>
           </tr>
           <tr style="border-bottom: 1px solid #dee2e6;">
             <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>Digital Input 1</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.di1 || 'N/A'}</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">OPEN/CLOSE</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${getTelemetryValue(['di1', 'DI1'])}</td>
           </tr>
           <tr style="border-bottom: 1px solid #dee2e6;">
             <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>Digital Input 2</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.di2 || 'N/A'}</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">OPEN/CLOSE</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${getTelemetryValue(['di2', 'DI2'])}</td>
           </tr>
           <tr style="border-bottom: 1px solid #dee2e6;">
             <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>Digital Input 3</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.di3 || 'N/A'}</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">OPEN/CLOSE</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${getTelemetryValue(['di3', 'DI3'])}</td>
           </tr>
           <tr style="border-bottom: 1px solid #dee2e6;">
             <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>Digital Input 4</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.di4 || 'N/A'}</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">OPEN/CLOSE</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${getTelemetryValue(['di4', 'DI4'])}</td>
           </tr>
           <tr style="border-bottom: 1px solid #dee2e6;">
             <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>Digital Output</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.do1 || 'N/A'}</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">ON/OFF</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${getTelemetryValue(['do1', 'DO1', 'dpo', 'DPO'])}</td>
           </tr>
-          ${deviceParams.event ? `<tr style="border-bottom: 1px solid #dee2e6;">
+          ${telemetryData.event ? `<tr style="border-bottom: 1px solid #dee2e6;">
             <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>Event Type</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.event}</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Status</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${telemetryData.event}</td>
           </tr>` : ''}
-          ${deviceParams.mode ? `<tr style="border-bottom: 1px solid #dee2e6;">
+          ${telemetryData.mode ? `<tr style="border-bottom: 1px solid #dee2e6;">
             <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>Device Mode</strong></td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${deviceParams.mode}</td>
-            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Configuration</td>
+            <td style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">${telemetryData.mode}</td>
           </tr>` : ''}
         </tbody>
       </table>
@@ -386,19 +396,27 @@ class EmailService {
     const content = `
       <div class="alarm-details">
         <h3>Alarm Details</h3>
-        <p><strong>Unit Number:</strong> ${alarm.unit_no}</p>
-        <p><strong>Location:</strong> ${alarm.location}</p>
+        <p><strong>Unit Number:</strong> ${alarm.unit_no || alarm.deviceId || 'N/A'}</p>
+        <p><strong>Location:</strong> ${alarm.location || 'N/A'}</p>
         <p><strong>Date & Time:</strong> ${timestamp}</p>
-        <p><strong>Alarm Type:</strong> ${alarm.alarm_type}</p>
+        <p><strong>Alarm Type:</strong> ${alarm.alarm_type || alarm.name}</p>
         <p><strong>Device:</strong> ${alarm.device_name}</p>
-        <p><strong>Parameter:</strong> ${alarm.parameter}</p>
+        <p><strong>Parameter:</strong> ${alarm.parameter || 'N/A'}</p>
         <p><strong>Severity:</strong> <span style="color: ${severityColor}; font-weight: bold;">${alarm.severity.toUpperCase()}</span></p>
+      </div>
+      
+      <div style="background-color: #ffe6e6; padding: 15px; border-radius: 5px; margin: 15px 0; border-left: 4px solid #dc3545;">
+        <h3 style="margin-top: 0; color: #dc3545;">🔴 Alarm Source Detection</h3>
+        <p style="margin: 5px 0;"><strong>REF1 Status:</strong> ${getTelemetryValue(['REF1 STS', 'ref1_sts', 'REF1_STS'])} (Values: OP=Operating, UP=Up, FAIL=Failed)</p>
+        <p style="margin: 5px 0;"><strong>REF2 Status:</strong> ${getTelemetryValue(['REF2 STS', 'ref2_sts', 'REF2_STS'])} (Values: OP=Operating, UP=Up, FAIL=Failed)</p>
+        <p style="margin: 5px 0;"><strong>REF3 Status:</strong> ${getTelemetryValue(['REF3 STS', 'ref3_sts', 'REF3_STS'])} (Values: OP=Operating, UP=Up, FAIL=Failed)</p>
+        <p style="margin: 5px 0; font-size: 12px; color: #666;"><em>Note: Any REF Status showing OP, UP, or FAIL will trigger alarm (Priority Check 0)</em></p>
       </div>
       
       ${parametersTableHTML}
       
       <div style="text-align: center;">
-        <a href="${process.env.FRONTEND_URL}${alarm.link}" class="btn">View Device Details</a>
+        <a href="${process.env.FRONTEND_URL}${alarm.link || ''}" class="btn">View Device Details</a>
       </div>
     `;
 

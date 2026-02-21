@@ -207,18 +207,25 @@ router.get('/devices', async (req, res) => {
     console.log(`📋 GET /api/devices - Found ${devices.length} devices in database`);
     console.log('📋 Device IDs:', devices.map(d => d.deviceId));
     
-    // Fetch latest telemetry for each device to get fresh location data
+    // Fetch latest telemetry for each device to get fresh location data and sensor readings
     const formattedDevices = await Promise.all(devices.map(async (device) => {
       let location = device.location || 'N/A';
-      let status = device.status?.state || 'offline';
-      let lastSeen = device.status?.lastSeen ? new Date(device.status.lastSeen).toLocaleString() : 'Never';
+      let status = 'offline';
+      let lastSeen = 'Never';
+      let currentData = {};
       
-      // Try to get latest telemetry location and status
       try {
+        // Get device status from Device document first
+        const fullDevice = await Device.findOne({ deviceId: device.deviceId }).select('status.state status.lastSeen');
+        if (fullDevice) {
+          status = fullDevice.status?.state || 'offline';
+          lastSeen = fullDevice.status?.lastSeen ? new Date(fullDevice.status.lastSeen).toLocaleString() : 'Never';
+        }
+        
+        // Get latest telemetry for location and sensor data
         const latestTelemetry = await Telemetry.findOne({ deviceId: device.deviceId })
-          .select('location status lastSeen timestamp')
-          .sort({ timestamp: -1 })
-          .lean();
+          .select('location status timestamp data event')
+          .sort({ timestamp: -1 });
         
         if (latestTelemetry) {
           // Update location if available from telemetry
@@ -233,9 +240,30 @@ router.get('/devices', async (req, res) => {
           if (latestTelemetry.timestamp) {
             lastSeen = new Date(latestTelemetry.timestamp).toLocaleString();
           }
+          
+          // Extract sensor data from telemetry - CRITICAL: Ensure data is properly extracted
+          if (latestTelemetry.data) {
+            console.log(`🔍 Device ${device.deviceId} telemetry data type:`, {
+              isMap: latestTelemetry.data instanceof Map,
+              typeOf: typeof latestTelemetry.data,
+              keys: latestTelemetry.data instanceof Map 
+                ? Array.from(latestTelemetry.data.keys()).length 
+                : Object.keys(latestTelemetry.data || {}).length
+            });
+            
+            if (latestTelemetry.data instanceof Map) {
+              currentData = Object.fromEntries(latestTelemetry.data);
+            } else if (typeof latestTelemetry.data === 'object' && latestTelemetry.data !== null) {
+              // If it's a plain object, use it directly
+              currentData = latestTelemetry.data;
+            }
+            
+            const dataKeys = Object.keys(currentData);
+            console.log(`📊 Device ${device.deviceId} has ${dataKeys.length} sensor fields: ${dataKeys.slice(0, 10).join(', ')}${dataKeys.length > 10 ? '...' : ''}`);
+          }
         }
       } catch (err) {
-        console.warn(`⚠️ Could not fetch latest telemetry for ${device.deviceId}`);
+        console.warn(`⚠️ Error fetching telemetry for ${device.deviceId}:`, err.message);
       }
       
       // Reverse geocode if location is coordinates
@@ -248,13 +276,15 @@ router.get('/devices', async (req, res) => {
       
       return {
         id: device.deviceId,
-        sensorId: device.deviceId, // Use deviceId as sensor identifier
+        deviceId: device.deviceId,
+        sensorId: device.deviceId,
         name: device.deviceName || `Device ${device.deviceId}`,
         icon: device.metadata?.icon || 'bi-device',
         type: device.deviceType || 'IoT Sensor',
         location: location,
         status: status,
         lastSeen: lastSeen,
+        currentData: currentData,
         zoneId: device.zoneId || null,
         clusterName: device.clusterName || null,
         metrics: [

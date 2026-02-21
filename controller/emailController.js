@@ -1,4 +1,6 @@
 const EmailService = require('../services/emailService');
+const Alarm = require('../models/Alarm');
+const Telemetry = require('../models/telemetry');
 
 class EmailController {
   constructor() {
@@ -311,25 +313,43 @@ class EmailController {
   }
 
   /**
-   * Helper method to get alarm by ID
+   * Helper method to get alarm by ID with current telemetry data
    */
   async getAlarmById(alarmId) {
-    // This should integrate with your existing alarm controller
-    // For now, returning mock data
-    return {
-      id: alarmId,
-      name: "High Temperature Alert",
-      device_name: "Sensor A",
-      unit_no: "U001",
-      location: "Room 101",
-      parameter: "Temperature",
-      alarm_type: "Critical Temperature",
-      status: "Active",
-      severity: "critical",
-      pv_values: { pv1: 85.2, pv2: 34.1, pv3: 12.5, pv4: 67.8, pv5: 23.4, pv6: 45.6 },
-      link: "/device-details/1",
-      created_at: "2025-10-21 10:00:00"
-    };
+    try {
+      // Fetch actual alarm from database
+      const alarm = await Alarm.findById(alarmId).lean();
+      
+      if (!alarm) {
+        console.warn(`Alarm with ID ${alarmId} not found`);
+        return null;
+      }
+
+      // Fetch latest telemetry for this device to get current values
+      const latestTelemetry = await Telemetry.findOne({
+        deviceId: alarm.deviceId || alarm.device_name
+      })
+        .sort({ timestamp: -1 })
+        .lean();
+
+      // Merge telemetry data with alarm
+      if (latestTelemetry && latestTelemetry.data) {
+        // Convert Map to object if needed
+        const telemetryData = latestTelemetry.data instanceof Map 
+          ? Object.fromEntries(latestTelemetry.data)
+          : latestTelemetry.data;
+        
+        // Add telemetry values to alarm object for email formatting
+        alarm.telemetry_values = telemetryData;
+        alarm.location = alarm.location || latestTelemetry.location;
+        alarm.event = alarm.event || latestTelemetry.event;
+      }
+
+      return alarm;
+    } catch (error) {
+      console.error(`Error fetching alarm ${alarmId}:`, error);
+      return null;
+    }
   }
 }
 

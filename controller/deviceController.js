@@ -230,6 +230,42 @@ class DeviceController {
       // Transform the data to match the expected frontend format
       const transformedDevices = await Promise.all(devices.map(async (device) => {
         let location = device.location || 'N/A';
+        let currentData = {};
+
+        // Fetch latest telemetry data and extract only DCV, DCI, REF1
+        try {
+          const latestTelemetry = await Telemetry.findOne({ deviceId: device.deviceId })
+            .select('data location timestamp status')
+            .sort({ timestamp: -1 });
+          
+          if (latestTelemetry) {
+            // Use telemetry location if available
+            if (latestTelemetry.location) {
+              location = latestTelemetry.location;
+            }
+            
+            // Extract only DCV, DCI, REF1 from telemetry data
+            if (latestTelemetry.data) {
+              let allData = {};
+              if (latestTelemetry.data instanceof Map) {
+                allData = Object.fromEntries(latestTelemetry.data);
+              } else if (typeof latestTelemetry.data === 'object' && latestTelemetry.data !== null) {
+                allData = latestTelemetry.data;
+              }
+              
+              // Extract only the required fields
+              currentData = {
+                DCV: allData.DCV || 'N/A',
+                DCI: allData.DCI || 'N/A',
+                REF1: allData.REF1 || 'N/A'
+              };
+              
+              console.log(`📊 Device ${device.deviceId} extracted sensor values:`, currentData);
+            }
+          }
+        } catch (err) {
+          console.warn(`⚠️ Could not fetch telemetry for ${device.deviceId}:`, err.message);
+        }
 
         // Reverse geocode if location is coordinates
         const coordMatch = location.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
@@ -246,7 +282,7 @@ class DeviceController {
           location: location,
           status: device.status?.state || 'offline',
           lastSeen: device.status?.lastSeen || null,
-          currentData: device.sensors || {},
+          currentData: currentData,  // Only DCV, DCI, REF1
           mqttTopic: device.mqtt?.topics?.data || `devices/${device.deviceId}/data`,
           icon: device.metadata?.icon || null,
           color: device.metadata?.color || null,

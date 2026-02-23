@@ -210,17 +210,22 @@ class AlarmMonitoringService {
 
       const alarmKey = `${alarm._id.toString()}`;
 
-      // Prevent duplicate notifications within 1 hour
-      if (this.triggeredAlarms.has(alarmKey)) {
+      // Check if this is the first trigger for this alarm
+      if (!this.triggeredAlarms.has(alarmKey)) {
+        // First trigger - send email immediately without any wait
+        console.log(`[Alarm Monitor] 📧 First trigger for alarm '${alarm.name}', sending email immediately`);
+      } else {
+        // Not first trigger - apply 30-minute throttle
         const lastTrigger = this.triggeredAlarms.get(alarmKey);
         const timeSinceLastTrigger = Date.now() - lastTrigger;
-        if (timeSinceLastTrigger < 60 * 60 * 1000) { // 1 hour
-          console.log(`[Alarm Monitor] ℹ️ Alarm '${alarm.name}' already triggered recently, skipping notification`);
+        if (timeSinceLastTrigger < 30 * 60 * 1000) { // 30 minutes
+          const minutesRemaining = 30 - Math.floor(timeSinceLastTrigger / 60 / 1000);
+          console.log(`[Alarm Monitor] ℹ️ Alarm '${alarm.name}' throttled, next email in ${minutesRemaining} mins`);
           return;
         }
       }
 
-      // Record this alarm trigger
+      // Record this alarm trigger (for next throttle check)
       this.triggeredAlarms.set(alarmKey, Date.now());
 
       // Get email addresses from alarm configuration
@@ -232,6 +237,7 @@ class AlarmMonitoringService {
       }
 
       // Prepare email data
+      const params = deviceData.Parameters || deviceData;
       const emailData = {
         alarmName: alarm.name,
         deviceName: device.deviceName || device.deviceId,
@@ -240,27 +246,37 @@ class AlarmMonitoringService {
         reason: reason,
         timestamp: new Date().toLocaleString(),
         device_params: {
-          ref_1: { upper: alarm.device_params?.ref_1_upper || 0, lower: alarm.device_params?.ref_1_lower || 0 },
-          ref_2: { upper: alarm.device_params?.ref_2_upper || 0, lower: alarm.device_params?.ref_2_lower || 0 },
-          ref_3: { upper: alarm.device_params?.ref_3_upper || 0, lower: alarm.device_params?.ref_3_lower || 0 },
-          dcv: { upper: alarm.device_params?.dcv_upper || 0, lower: alarm.device_params?.dcv_lower || 0, value: deviceData.dcv || deviceData.voltage || 0 },
-          dci: { upper: alarm.device_params?.dci_upper || 0, lower: alarm.device_params?.dci_lower || 0, value: deviceData.dci || deviceData.current || 0 },
-          acv: { upper: alarm.device_params?.acv_upper || 0, lower: alarm.device_params?.acv_lower || 0, value: deviceData.acv || deviceData.acVoltage || 0 }
+          ref_1: { upper: alarm.device_params?.ref_1_upper || 0, lower: alarm.device_params?.ref_1_lower || 0, value: params.REF1 || params.ref1 || 0 },
+          ref_2: { upper: alarm.device_params?.ref_2_upper || 0, lower: alarm.device_params?.ref_2_lower || 0, value: params.REF2 || params.ref2 || 0 },
+          ref_3: { upper: alarm.device_params?.ref_3_upper || 0, lower: alarm.device_params?.ref_3_lower || 0, value: params.REF3 || params.ref3 || 0 },
+          dcv: { upper: alarm.device_params?.dcv_upper || 0, lower: alarm.device_params?.dcv_lower || 0, value: params.DCV || params.dcv || 0 },
+          dci: { upper: alarm.device_params?.dci_upper || 0, lower: alarm.device_params?.dci_lower || 0, value: params.DCI || params.dci || 0 },
+          acv: { upper: alarm.device_params?.acv_upper || 0, lower: alarm.device_params?.acv_lower || 0, value: params.ACV || params.acv || 0 },
+          di1: params.DI1 || params.di1 || 'N/A',
+          di2: params.DI2 || params.di2 || 'N/A',
+          di3: params.DI3 || params.di3 || 'N/A',
+          di4: params.DI4 || params.di4 || 'N/A',
+          do1: params.DO || params.do || 'N/A',
+          event: params.EVENT || params.Event || 'NORMAL',
+          mode: params.MODE || params.mode || 'N/A'
         }
       };
 
       // Send emails to all configured recipients
       for (const email of emailAddresses) {
         try {
+          console.log(`[Alarm Monitor] 📧 Attempting to send email to ${email}...`);
           await this.emailService.sendEmail({
             to: email,
             subject: `🚨 ALARM: ${alarm.name} - ${device.deviceName}`,
             template: 'alarm',
             data: emailData
           });
-          console.log(`[Alarm Monitor] ✉️ Email sent to ${email} for alarm '${alarm.name}'`);
+          console.log(`[Alarm Monitor] ✉️ Email successfully sent to ${email} for alarm '${alarm.name}'`);
         } catch (emailError) {
-          console.error(`[Alarm Monitor] ❌ Failed to send email to ${email}:`, emailError.message);
+          console.error(`[Alarm Monitor] ❌ FAILED to send email to ${email}:`, emailError.message);
+          // Log the full error stack for debugging
+          console.error(`[Alarm Monitor] Error details:`, emailError.stack);
         }
       }
 

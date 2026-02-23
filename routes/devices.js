@@ -38,11 +38,22 @@ const reverseGeocode = async (lat, lon) => {
     });
 
     if (response.data && response.data.address) {
-      // Try to get the most relevant address part
+      // Try to get the most relevant address part - prioritize specific locations
       const addr = response.data.address;
-      const location = addr.city || addr.town || addr.village || addr.suburb || addr.county || response.data.display_name;
+      // Priority: village > town > suburb > city_district > hamlet > neighbourhood > city > county
+      const location = 
+        addr.village || 
+        addr.town || 
+        addr.suburb || 
+        addr.city_district || 
+        addr.hamlet ||
+        addr.neighbourhood ||
+        addr.city || 
+        addr.county || 
+        response.data.display_name.split(',')[0]; // Get first part of display_name
       
       console.log(`📍 Geocoded ${cacheKey} to: ${location}`);
+      console.log(`   Full address:`, response.data.display_name);
       geoCache.set(cacheKey, location);
       return location;
     }
@@ -364,6 +375,53 @@ router.get('/devices/:deviceId/status', async (req, res) => {
   } catch (error) {
     console.error('Error fetching device status:', error);
     res.status(500).json({ error: 'Failed to fetch device status' });
+  }
+});
+
+/**
+ * POST /api/devices/reverse-geocode
+ * Reverse geocode coordinates to location name
+ * Body: { lat: number, lng: number, deviceId?: string }
+ */
+router.post('/reverse-geocode', async (req, res) => {
+  try {
+    const { lat, lng, deviceId } = req.body;
+    
+    // Validate coordinates
+    if (lat === null || lat === undefined || lng === null || lng === undefined) {
+      return res.status(400).json({ 
+        error: 'Invalid coordinates. lat and lng are required' 
+      });
+    }
+
+    // Perform reverse geocoding
+    const location = await reverseGeocode(lat, lng);
+    
+    // If deviceId provided, update the device location in database for consistency
+    if (deviceId) {
+      try {
+        const device = await Device.findOne({ deviceId });
+        if (device && (!device.location || device.location.includes(','))) {
+          // Only update if location is not set or is coordinates
+          await Device.updateOne(
+            { deviceId },
+            { location: location }
+          );
+          console.log(`💾 Stored geocoded location for device ${deviceId}: ${location}`);
+        }
+      } catch (dbError) {
+        console.warn(`Warning: Could not update device location: ${dbError.message}`);
+      }
+    }
+    
+    res.json({
+      success: true,
+      location,
+      coordinates: { lat, lng }
+    });
+  } catch (error) {
+    console.error('Error in reverse geocoding:', error);
+    res.status(500).json({ error: 'Failed to reverse geocode coordinates' });
   }
 });
 

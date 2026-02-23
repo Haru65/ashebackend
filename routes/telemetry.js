@@ -576,4 +576,200 @@ router.get('/geolocation/reverse', async (req, res) => {
   }
 });
 
+// Delete telemetry data with filtering
+router.delete('/', authenticateToken, async (req, res) => {
+  try {
+    console.log('🗑️ Telemetry DELETE / route hit');
+    console.log('   User:', req.user?.userId);
+    console.log('   Query:', req.query);
+
+    const {
+      deviceId,
+      startDate,
+      endDate,
+      mode,
+      confirmDelete
+    } = req.query;
+
+    // Require explicit confirmation for deletion
+    if (!confirmDelete || confirmDelete !== 'true') {
+      return res.status(400).json({
+        success: false,
+        error: 'Deletion must be explicitly confirmed with confirmDelete=true'
+      });
+    }
+
+    // Build query filter
+    const query = {};
+
+    // Filter by device ID if provided
+    if (deviceId && deviceId.trim() !== '') {
+      query.deviceId = deviceId;
+      console.log(`🔍 Filtering by deviceId: ${deviceId}`);
+    }
+
+    // Filter by date range if provided
+    if (startDate || endDate) {
+      query.timestamp = {};
+      if (startDate) {
+        query.timestamp.$gte = new Date(startDate);
+        console.log(`📅 Filtering from: ${startDate}`);
+      }
+      if (endDate) {
+        query.timestamp.$lte = new Date(endDate + 'T23:59:59.999Z');
+        console.log(`📅 Filtering to: ${endDate}`);
+      }
+    }
+
+    // Filter by event/mode type if provided
+    if (mode && mode.trim() !== '') {
+      const modeUpper = String(mode).toUpperCase().trim();
+      let eventPatterns = [];
+      let eventCodes = [];
+
+      console.log(`🔍 Mode filter for deletion: "${mode}" (normalized: "${modeUpper}")`);
+
+      if (modeUpper === 'NORMAL') {
+        eventCodes = [0, '0'];
+        eventPatterns = ['NORMAL'];
+      } else if (modeUpper === 'INT') {
+        eventCodes = [1, '1'];
+        eventPatterns = ['INT', 'INTERRUPT'];
+      } else if (modeUpper === 'DPOL') {
+        eventCodes = [3, '3'];
+        eventPatterns = ['DPOL', 'DEPOL'];
+      } else if (modeUpper === 'INST') {
+        eventCodes = [4, '4'];
+        eventPatterns = ['INST', 'INSTANT'];
+      }
+
+      if (eventCodes.length > 0 || eventPatterns.length > 0) {
+        const conditions = [];
+
+        if (eventCodes.length > 0) {
+          conditions.push({ event: { $in: eventCodes } });
+        }
+
+        if (eventPatterns.length > 0) {
+          const regexStr = eventPatterns.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+          conditions.push({ event: { $regex: regexStr, $options: 'i' } });
+        }
+
+        if (conditions.length === 1) {
+          query.event = conditions[0].event;
+        } else if (conditions.length > 1) {
+          query.$or = conditions;
+        }
+
+        console.log(`✅ Mode filter applied: "${modeUpper}"`);
+        console.log(`   Event codes to match: ${eventCodes.join(', ')}`);
+        console.log(`   Event patterns to match: ${eventPatterns.join(', ')}`);
+      }
+    }
+
+    // Validate that at least some filter is provided (safety check)
+    if (Object.keys(query).length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'At least one filter parameter (deviceId, startDate, endDate, or mode) must be provided to prevent accidental deletion of all data'
+      });
+    }
+
+    console.log('🗑️ Telemetry deletion query:', JSON.stringify(query, null, 2));
+
+    // Count records before deletion
+    const countBefore = await Telemetry.countDocuments(query);
+    console.log(`📊 Records matching deletion criteria: ${countBefore}`);
+
+    // Perform deletion
+    const result = await Telemetry.deleteMany(query);
+
+    console.log(`✅ Deletion successful:`);
+    console.log(`   Deleted: ${result.deletedCount} records`);
+    console.log(`   Acknowledged: ${result.acknowledged}`);
+
+    res.json({
+      success: true,
+      message: `Successfully deleted ${result.deletedCount} telemetry record(s)`,
+      data: {
+        deletedCount: result.deletedCount,
+        filters: {
+          deviceId: deviceId || null,
+          startDate: startDate || null,
+          endDate: endDate || null,
+          mode: mode || null
+        },
+        timestamp: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error deleting telemetry data:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete telemetry data',
+      details: error.message
+    });
+  }
+});
+
+// Delete telemetry data for specific device
+router.delete('/device/:deviceId', authenticateToken, async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const { startDate, endDate, confirmDelete } = req.query;
+
+    console.log(`🗑️ DELETE /device/${deviceId} route hit`);
+    console.log('   User:', req.user?.userId);
+
+    // Require explicit confirmation
+    if (!confirmDelete || confirmDelete !== 'true') {
+      return res.status(400).json({
+        success: false,
+        error: 'Deletion must be explicitly confirmed with confirmDelete=true'
+      });
+    }
+
+    const query = { deviceId };
+
+    if (startDate || endDate) {
+      query.timestamp = {};
+      if (startDate) {
+        query.timestamp.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        query.timestamp.$lte = new Date(endDate + 'T23:59:59.999Z');
+      }
+    }
+
+    console.log(`🗑️ Deletion query for device ${deviceId}:`, query);
+
+    const result = await Telemetry.deleteMany(query);
+
+    console.log(`✅ Deleted ${result.deletedCount} records for device ${deviceId}`);
+
+    res.json({
+      success: true,
+      message: `Successfully deleted ${result.deletedCount} records for device ${deviceId}`,
+      data: {
+        deviceId,
+        deletedCount: result.deletedCount,
+        dateRange: {
+          startDate: startDate || null,
+          endDate: endDate || null
+        },
+        timestamp: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error deleting device telemetry:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete device telemetry data',
+      details: error.message
+    });
+  }
+});
+
 module.exports = router;

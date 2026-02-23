@@ -13,6 +13,7 @@ const socketService = require('./services/socketService');
 const deviceStatusMonitor = require('./services/deviceStatusMonitor');
 const { initializeServices, shutdownServices } = require('./initIoTServices');
 const UserLifecycleMonitor = require('./middleware/userLifecycleMonitor');
+const EmailService = require('./services/emailService');
 
 // Import routes
 const routes = require('./routes');
@@ -77,12 +78,41 @@ const startDeviceStatusMonitoring = () => {
   deviceStatusMonitor.start();
 };
 
+// Initialize and verify email service
+const initializeEmailService = () => {
+  try {
+    const emailService = new EmailService();
+    const providerStatus = emailService.getProviderStatus();
+    
+    console.log('\n📧 === EMAIL SERVICE STATUS ===');
+    console.log('Gmail:', providerStatus.gmail.configured ? '✅ Configured' : '❌ NOT configured');
+    console.log('Outlook:', providerStatus.outlook.configured ? '✅ Configured' : '❌ NOT configured');
+    console.log('SMTP:', providerStatus.smtp.configured ? '✅ Configured' : '❌ NOT configured');
+    
+    if (!providerStatus.gmail.configured && !providerStatus.outlook.configured && !providerStatus.smtp.configured) {
+      console.error('\n⚠️ WARNING: No email provider configured!');
+      console.error('   Please set email environment variables on Render:');
+      console.error('   - GMAIL_USER and GMAIL_APP_PASSWORD');
+      console.error('   - OR OUTLOOK_USER and OUTLOOK_PASSWORD');
+      console.error('   - OR SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD');
+      console.error('   Email notifications will FAIL until configured.\n');
+    } else {
+      console.log('✅ Email service ready for sending notifications\n');
+    }
+  } catch (error) {
+    console.error('❌ Error initializing email service:', error.message);
+  }
+};
+
 // Start the server
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log('📊 Device Configuration initialized');
   console.log('⏳ Waiting for real MQTT data from device 123...');
+  
+  // Check email service immediately on startup
+  initializeEmailService();
   
   // NOTE: Commented out initializeServices as mqttService.js already handles MQTT connection
   // If you need the generic MQTT client for multiple devices, use different clientIds

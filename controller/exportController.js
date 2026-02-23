@@ -77,12 +77,25 @@ class ExportController {
           res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
           res.setHeader('Content-Disposition', `attachment; filename="${exportResult.filename}"`);
           res.setHeader('Content-Length', buffer.length);
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
 
           res.send(buffer);
           console.log(`✅ Excel file sent successfully: ${exportResult.filename}`);
         } catch (bufferError) {
           console.error('❌ Error creating Excel buffer:', bufferError);
-          throw bufferError;
+          console.error('❌ Error message:', bufferError.message);
+          console.error('❌ Error name:', bufferError.name);
+          console.error('❌ Error stack:', bufferError.stack);
+          
+          // Return error response instead of sending file
+          if (!res.headersSent) {
+            res.status(500).json({
+              success: false,
+              error: 'Failed to generate Excel file buffer',
+              details: bufferError.message,
+              errorName: bufferError.name
+            });
+          }
         }
       }
 

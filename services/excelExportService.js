@@ -211,7 +211,7 @@ class ExcelExportService {
         telemetryData.forEach((record, index) => {
           const row = {
             deviceId: record.deviceId,
-            timestamp: record.timestamp,
+            timestamp: record.timestamp instanceof Date ? record.timestamp.toISOString() : record.timestamp,
             event: record.event || 'NORMAL',
             status: record.status || 'online',
             location: record.location || 'N/A'
@@ -219,16 +219,31 @@ class ExcelExportService {
 
           // Extract all dynamic fields directly from the flattened record
           Array.from(allDataKeys).forEach(key => {
+            let value = undefined;
+            
             // First check if field exists directly in record
             if (record[key] !== undefined) {
-              row[key] = record[key];
+              value = record[key];
             }
             // Fall back to checking data object (backward compatibility)
             else if (record.data) {
               const dataObj = record.data instanceof Map ? 
                 Object.fromEntries(record.data) : record.data;
               
-              row[key] = dataObj[key];
+              value = dataObj[key];
+            }
+
+            // Ensure the value is serializable
+            if (value !== undefined && value !== null) {
+              if (value instanceof Date) {
+                row[key] = value.toISOString();
+              } else if (typeof value === 'object') {
+                row[key] = JSON.stringify(value);
+              } else {
+                row[key] = value;
+              }
+            } else {
+              row[key] = value; // Keep null/undefined as is
             }
           });
 
@@ -252,6 +267,7 @@ class ExcelExportService {
         console.log(`✅ All ${telemetryData.length} data rows added successfully`);
       } catch (rowError) {
         console.error('❌ Error adding rows to worksheet:', rowError.message);
+        console.error('❌ Row error:', rowError);
         throw rowError;
       }
 
@@ -346,6 +362,23 @@ class ExcelExportService {
         }))
       });
 
+      // Clear any potential circular references in the workbook
+      workbook.worksheets.forEach(worksheet => {
+        worksheet.eachRow({ includeEmpty: false }, (row) => {
+          row.eachCell((cell) => {
+            // Ensure cell values are serializable
+            if (cell.value && typeof cell.value === 'object') {
+              if (!(cell.value instanceof Date)) {
+                console.warn(`⚠️ Non-Date object in cell ${cell.address}:`, typeof cell.value);
+                cell.value = String(cell.value);
+              }
+            }
+          });
+        });
+      });
+
+      console.log('✅ Workbook sanitized');
+
       const buffer = await workbook.xlsx.writeBuffer();
       
       console.log(`✅ Excel buffer generated: ${buffer.length} bytes`);
@@ -355,7 +388,15 @@ class ExcelExportService {
       console.error('❌ Buffer error name:', error.name);
       console.error('❌ Buffer error code:', error.code);
       console.error('❌ Buffer error stack:', error.stack);
-      throw error;
+      
+      // Try alternative approach if primary fails
+      try {
+        console.log('🔄 Attempting alternative buffer generation...');
+        return await workbook.xlsx.writeBuffer();
+      } catch (retryError) {
+        console.error('❌ Retry failed:', retryError.message);
+        throw error;
+      }
     }
   }
 }

@@ -192,8 +192,8 @@ class MQTTService {
           await this.saveTelemetryData(deviceId, payload); // ✅ Save first to get location from geocoding
           
           // Fetch the just-saved telemetry record to get the reverse-geocoded location
-          const telemetry = require('../models/telemetry');
-          const latestTelemetry = await telemetry.findOne({ deviceId: deviceId }).sort({ timestamp: -1 });
+          const Telemetry = require('../models/Telemetry');
+          const latestTelemetry = await Telemetry.findOne({ deviceId: deviceId }).sort({ timestamp: -1 });
           if (latestTelemetry && latestTelemetry.location) {
             console.log(`📍 Updated device location from telemetry: ${latestTelemetry.location}`);
             deviceInfo.location = latestTelemetry.location;
@@ -1023,31 +1023,31 @@ class MQTTService {
       const numValue = parseFloat(setupValue);
       const electrodeType = currentSettings["Electrode"] || electrode || 0;
 
-      // Mapping: Electrode 0 (Cu/CuSO4) and 2 (Ag/AgCl) → range -0.6 to -1.0
-      // Mapping: Electrode 1 (Zinc) → range 0.1 to 0.5
+      // Mapping: Electrode 0 (Cu/CuSO4) and 2 (Ag/AgCl) → range 0.6 to 1.0
+      // Mapping: Electrode 1 (Zinc) → range -0.5 to 0.0
       
       if (electrodeType === 0 || electrodeType === 2) {
-        // Cu/CuSO4 or Ag/AgCl: -0.6 to -1.0 (min: -1.0, max: -0.6)
-        if (numValue < -1.0 || numValue > -0.6) {
+        // Cu/CuSO4 or Ag/AgCl: 0.6 to 1.0
+        if (numValue < 0.6 || numValue > 1.0) {
           return {
             valid: false,
             value: setupValue,
-            message: `❌ Set UP value ${numValue} is out of range for electrode ${electrodeType}. Required range: -0.6 to -1.0 for Cu/CuSO4 or Ag/AgCl electrodes.`,
+            message: `❌ Set UP value ${numValue} is out of range for electrode ${electrodeType}. Required range: 0.6 to 1.0 for Cu/CuSO4 or Ag/AgCl electrodes.`,
             electrode: electrodeType,
-            minValue: -1.0,
-            maxValue: -0.6
+            minValue: 0.6,
+            maxValue: 1.0
           };
         }
       } else if (electrodeType === 1) {
-        // Zinc: 0.1 to 0.5
-        if (numValue < 0.1 || numValue > 0.5) {
+        // Zinc: -0.5 to 0.0
+        if (numValue < -0.5 || numValue > 0.0) {
           return {
             valid: false,
             value: setupValue,
-            message: `❌ Set UP value ${numValue} is out of range for electrode ${electrodeType}. Required range: 0.1 to 0.5 for Zinc electrode.`,
+            message: `❌ Set UP value ${numValue} is out of range for electrode ${electrodeType}. Required range: -0.5 to 0.0 for Zinc electrode.`,
             electrode: electrodeType,
-            minValue: 0.1,
-            maxValue: 0.5
+            minValue: -0.5,
+            maxValue: 0.0
           };
         }
       }
@@ -1064,31 +1064,31 @@ class MQTTService {
       const numValue = parseFloat(setopValue);
       const electrodeType = currentSettings["Electrode"] || electrode || 0;
 
-      // Mapping: Electrode 0 (Cu/CuSO4) and 2 (Ag/AgCl) → range -1.2 to -3.0
-      // Mapping: Electrode 1 (Zinc) → range -0.1 to -1.9
+      // Mapping: Electrode 0 (Cu/CuSO4) and 2 (Ag/AgCl) → range 1.20 to 3.00
+      // Mapping: Electrode 1 (Zinc) → range 0.10 to 1.90
       
       if (electrodeType === 0 || electrodeType === 2) {
-        // Cu/CuSO4 or Ag/AgCl: -1.2 to -3.0 (min: -3.0, max: -1.2)
-        if (numValue < -3.0 || numValue > -1.2) {
+        // Cu/CuSO4 or Ag/AgCl: 1.20 to 3.00
+        if (numValue < 1.20 || numValue > 3.00) {
           return {
             valid: false,
             value: setopValue,
-            message: `❌ Set OP value ${numValue} is out of range for electrode ${electrodeType}. Required range: -1.2 to -3.0 for Cu/CuSO4 or Ag/AgCl electrodes.`,
+            message: `❌ Set OP value ${numValue} is out of range for electrode ${electrodeType}. Required range: 1.20 to 3.00 for Cu/CuSO4 or Ag/AgCl electrodes.`,
             electrode: electrodeType,
-            minValue: -3.0,
-            maxValue: -1.2
+            minValue: 1.20,
+            maxValue: 3.00
           };
         }
       } else if (electrodeType === 1) {
-        // Zinc: -0.1 to -1.9 (min: -1.9, max: -0.1)
-        if (numValue < -1.9 || numValue > -0.1) {
+        // Zinc: 0.10 to 1.90
+        if (numValue < 0.10 || numValue > 1.90) {
           return {
             valid: false,
             value: setopValue,
-            message: `❌ Set OP value ${numValue} is out of range for electrode ${electrodeType}. Required range: -0.1 to -1.9 for Zinc electrode.`,
+            message: `❌ Set OP value ${numValue} is out of range for electrode ${electrodeType}. Required range: 0.10 to 1.90 for Zinc electrode.`,
             electrode: electrodeType,
-            minValue: -1.9,
-            maxValue: -0.1
+            minValue: 0.10,
+            maxValue: 1.90
           };
         }
       }
@@ -2198,11 +2198,6 @@ class MQTTService {
       // Extract all data fields from payload, including Parameters if nested
       const dataFields = {};
       
-      console.log(`\n🔍 DATA EXTRACTION DEBUG:`);
-      console.log(`   Payload has Parameters: ${!!payload.Parameters}`);
-      console.log(`   Parameters is object: ${typeof payload.Parameters === 'object'}`);
-      console.log(`   Parameters keys: ${payload.Parameters ? Object.keys(payload.Parameters).length : 0}`);
-      
       // Handle nested Parameters structure (real device format)
       if (payload.Parameters && typeof payload.Parameters === 'object') {
         console.log(`✓ Found nested Parameters object with ${Object.keys(payload.Parameters).length} fields`);
@@ -2340,24 +2335,10 @@ class MQTTService {
       console.log(`📝 Data fields to be saved (${Object.keys(dataFields).length} fields):`, dataFields);
 
       // Create telemetry record with explicit data assignment
-      // IMPORTANT: EVENT field can be at root OR inside Parameters object
-      const params = payload.Parameters || payload;
-      
-      console.log(`🔍 EVENT EXTRACTION DEBUG:`, {
-        'payload.EVENT': payload.EVENT,
-        'payload.Event': payload.Event,
-        'params.EVENT': params.EVENT,
-        'params.Event': params.Event,
-        'has Parameters': !!payload.Parameters
-      });
-      
-      const extractedEvent = payload.EVENT || payload.Event || params.EVENT || params.Event || 'NORMAL';
-      console.log(`✅ Final extracted event: "${extractedEvent}"`);
-      
       const telemetryRecord = new Telemetry({
         deviceId: deviceId,
         timestamp: new Date(),
-        event: extractedEvent,
+        event: payload.EVENT || payload.Event || 'NORMAL',
         location: location  // Add location field for easy access in frontend
       });
       
@@ -2368,45 +2349,53 @@ class MQTTService {
         deviceId: telemetryRecord.deviceId,
         timestamp: telemetryRecord.timestamp,
         event: telemetryRecord.event,
-        dataType: typeof telemetryRecord.data,
-        isMap: telemetryRecord.data instanceof Map,
-        dataSize: telemetryRecord.data.size,
-        dataSampleKeys: Array.from(telemetryRecord.data.keys()).slice(0, 5),
+        data: telemetryRecord.data,
         location: telemetryRecord.location,
         dataFieldsCount: telemetryRecord.data.size
       });
 
       console.log(`\n💾 SAVING TO DATABASE...`);
-      console.log(`   Saving ${Object.keys(dataFields).length} data fields`);
-      console.log(`   Fields: ${Object.keys(dataFields).join(', ')}`);
-      console.log(`   Sample values: ${JSON.stringify(Object.fromEntries(Object.entries(dataFields).slice(0, 3)))}`);
+      console.log(`   dataFields before save: ${JSON.stringify(dataFields).substring(0, 200)}...`);
       
       const saveResult = await telemetryRecord.save();
       
       console.log(`✅ Save completed successfully`);
       console.log(`   Document ID: ${saveResult._id}`);
-      console.log(`   Saved event field: "${saveResult.event}"`);
       console.log(`   Data field type after save: ${typeof saveResult.data}`);
       console.log(`   Data field instanceof Map: ${saveResult.data instanceof Map}`);
-      console.log(`   Data size after save: ${saveResult.data?.size || 0}`);
+      console.log(`   Saved telemetry data for device ${deviceId} with ${Object.keys(dataFields).length} data fields`);
+      console.log('📊 Saved fields:', Object.keys(dataFields).join(', '));
+      if (location) {
+        console.log(`📍 Saved location: ${location}`);
+      }
       
-      // Verify by fetching the record back
-      const verifyRecord = await Telemetry.findById(saveResult._id);
-      console.log(`\n✅ VERIFICATION - Record fetched back from DB:`);
-      console.log(`   Data type: ${typeof verifyRecord.data}`);
-      console.log(`   Is Map: ${verifyRecord.data instanceof Map}`);
-      console.log(`   Data size: ${verifyRecord.data instanceof Map ? verifyRecord.data.size : Object.keys(verifyRecord.data).length}`);
-      if (verifyRecord.data instanceof Map) {
-        console.log(`   Sample keys: ${Array.from(verifyRecord.data.keys()).slice(0, 5).join(', ')}`);
-        console.log(`   Sample values: ${Array.from(verifyRecord.data.values()).slice(0, 5).map(v => String(v).substring(0, 10)).join(', ')}`);
+      // Verify the saved record by fetching it back IMMEDIATELY using raw query first
+      console.log(`\n🔍 VERIFICATION PHASE:`);
+      console.log(`   Fetching saved record from DB using findById...`);
+      
+      const savedRecord = await Telemetry.findById(telemetryRecord._id);
+      console.log(`   Record fetched, data type: ${typeof savedRecord.data}`);
+      console.log(`   Data is Map: ${savedRecord.data instanceof Map}`);
+      console.log(`   Raw data value:`, savedRecord.data);
+      
+      const savedDataObj = savedRecord.data instanceof Map 
+        ? Object.fromEntries(savedRecord.data)
+        : (savedRecord.data || {});
+      
+      console.log(`\n📊 VERIFICATION RESULTS:`);
+      console.log(`   recordId: ${savedRecord._id}`);
+      console.log(`   dataFieldsCount: ${Object.keys(savedDataObj).length}`);
+      console.log(`   dataKeys: ${Object.keys(savedDataObj).join(', ') || '(EMPTY)'}`);
+      
+      if (Object.keys(savedDataObj).length > 0) {
+        console.log(`   ✅ Data was properly saved!`);
+        console.log(`   Sample data:`, Object.fromEntries(Object.entries(savedDataObj).slice(0, 5)));
       } else {
-        console.log(`   Object keys: ${Object.keys(verifyRecord.data).slice(0, 5).join(', ')}`);
+        console.log(`   ❌ WARNING: Saved data is EMPTY! Check if dataFields was populated correctly`);
       }
       
       // Check alarms for this device data
-      // IMPORTANT: EVENT field can be at root OR inside Parameters object
-      const eventParams = payload.Parameters || payload;
-      const event = payload.EVENT || payload.Event || eventParams.EVENT || eventParams.Event || 'NORMAL';
+      const event = payload.EVENT || payload.Event || 'NORMAL';
       await alarmMonitoringService.checkAlarmsForDevice(payload, deviceId, event);
       
       // Check if payload contains device settings and save them
@@ -2743,23 +2732,18 @@ class MQTTService {
 
       // Shunt parameters that need conversion
       const SHUNT_PARAMS = {
-        'Shunt Voltage': 2   // Divide by 100 (2 decimal places)
-        // 'Shunt Current' no longer needs conversion - it's now 0-999 integer format
+        'Shunt Voltage': 2,  // Divide by 100 (2 decimal places)
+        'Shunt Current': 1   // Divide by 10 (1 decimal place)
       };
       
       for (const param of DEVICE_PARAMETERS) {
         if (payload[param] !== undefined) {
           let value = payload[param];
           
-          // Shunt Current: Now in 0-999 integer format (no conversion needed, store as string)
-          if (param === 'Shunt Current') {
-            value = String(value).padStart(3, '0');
-            console.log(`🔄 [SHUNT] Stored Shunt Current from device format ${payload[param]} to ${value}`);
-          }
-          
-          // Convert Shunt Voltage from integer format to decimal
+          // Convert Shunt Voltage and Shunt Current from integer format to decimal
           // Shunt Voltage: 050 → "0.50", 2550 → "25.50" (divide by 100, 2 decimal places)
-          else if (SHUNT_PARAMS[param]) {
+          // Shunt Current: 919 → "91.9", 999 → "99.9" (divide by 10, 1 decimal place)
+          if (SHUNT_PARAMS[param]) {
             const decimalPlaces = SHUNT_PARAMS[param];
             if (typeof value === 'string' || typeof value === 'number') {
               let strValue = value.toString().trim();
@@ -3175,11 +3159,6 @@ class MQTTService {
       
       // Only emit if we have valid coordinates
       if (latitude !== null && longitude !== null) {
-        // Extract telemetry values for map popup
-        const dcv = payload.DCV || (payload.Parameters && payload.Parameters.DCV) || '';
-        const dci = payload.DCI || (payload.Parameters && payload.Parameters.DCI) || '';
-        const ref1 = payload.REF1 || (payload.Parameters && payload.Parameters.REF1) || '';
-        
         const deviceLocationData = {
           deviceId: deviceId,
           name: deviceName,
@@ -3188,10 +3167,7 @@ class MQTTService {
           location: locationName,
           timestamp: payload.TimeStamp || new Date().toISOString(),
           isActive: true,
-          lastSeen: Date.now(),
-          dcv: dcv ? String(dcv) : '',  // DC Voltage
-          dci: dci ? String(dci) : '',  // DC Current
-          ref1: ref1 ? String(ref1) : ''  // REF 1 Value
+          lastSeen: Date.now()
         };
         
         // Store device location for summary emission
@@ -3199,10 +3175,7 @@ class MQTTService {
           name: deviceLocationData.name,
           latitude: deviceLocationData.latitude,
           longitude: deviceLocationData.longitude,
-          location: locationName,
-          dcv: deviceLocationData.dcv,
-          dci: deviceLocationData.dci,
-          ref1: deviceLocationData.ref1
+          location: locationName
         });
         
         console.log(`📍 Device ${deviceId} location data:`, deviceLocationData);
@@ -3254,10 +3227,7 @@ class MQTTService {
               latitude: deviceLocation.latitude,
               longitude: deviceLocation.longitude,
               lastSeen: lastActivity,
-              isActive: true,
-              dcv: deviceLocation.dcv || '',
-              dci: deviceLocation.dci || '',
-              ref1: deviceLocation.ref1 || ''
+              isActive: true
             });
           }
         }

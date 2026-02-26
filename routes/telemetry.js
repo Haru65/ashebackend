@@ -581,7 +581,8 @@ router.delete('/', authenticateToken, async (req, res) => {
   try {
     console.log('🗑️ Telemetry DELETE / route hit');
     console.log('   User:', req.user?.userId);
-    console.log('   Query:', req.query);
+    console.log('   Raw Query Object:', JSON.stringify(req.query, null, 2));
+    console.log('   Query Keys:', Object.keys(req.query));
 
     const {
       deviceId,
@@ -590,6 +591,13 @@ router.delete('/', authenticateToken, async (req, res) => {
       mode,
       confirmDelete
     } = req.query;
+
+    // Log each parameter individually  
+    console.log(`   deviceId: "${deviceId}" (type: ${typeof deviceId}, empty: ${!deviceId})`);
+    console.log(`   startDate: "${startDate}" (type: ${typeof startDate}, empty: ${!startDate})`);
+    console.log(`   endDate: "${endDate}" (type: ${typeof endDate}, empty: ${!endDate})`);
+    console.log(`   mode: "${mode}" (type: ${typeof mode}, empty: ${!mode})`);
+    console.log(`   confirmDelete: "${confirmDelete}" (type: ${typeof confirmDelete})`);
 
     // Require explicit confirmation for deletion
     if (!confirmDelete || confirmDelete !== 'true') {
@@ -602,10 +610,16 @@ router.delete('/', authenticateToken, async (req, res) => {
     // Build query filter
     const query = {};
 
-    // Filter by device ID if provided
+    // Filter by device ID if provided - CRITICAL: Must match database format
     if (deviceId && deviceId.trim() !== '') {
       query.deviceId = deviceId;
-      console.log(`🔍 Filtering by deviceId: ${deviceId}`);
+      console.log(`✅ ADDING deviceId to query: "${deviceId}"`);
+      console.log(`   Query now contains deviceId: ${JSON.stringify(query)}`);
+    } else {
+      console.log(`⚠️ WARNING: deviceId not added to query!`);
+      console.log(`   deviceId value: ${deviceId}`);
+      console.log(`   deviceId type: ${typeof deviceId}`);
+      console.log(`   deviceId is falsy: ${!deviceId}`);
     }
 
     // Filter by date range if provided
@@ -641,6 +655,8 @@ router.delete('/', authenticateToken, async (req, res) => {
       } else if (modeUpper === 'INST') {
         eventCodes = [4, '4'];
         eventPatterns = ['INST', 'INSTANT'];
+      } else {
+        console.warn(`⚠️ Unknown mode value: "${mode}" (normalized: "${modeUpper}")`);
       }
 
       if (eventCodes.length > 0 || eventPatterns.length > 0) {
@@ -648,26 +664,34 @@ router.delete('/', authenticateToken, async (req, res) => {
 
         if (eventCodes.length > 0) {
           conditions.push({ event: { $in: eventCodes } });
+          console.log(`   Added numeric code condition: $in [${eventCodes.join(', ')}]`);
         }
 
         if (eventPatterns.length > 0) {
           const regexStr = eventPatterns.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
           conditions.push({ event: { $regex: regexStr, $options: 'i' } });
+          console.log(`   Added regex condition: /${regexStr}/i`);
         }
 
         if (conditions.length === 1) {
           query.event = conditions[0].event;
+          console.log(`   Single condition, applied directly to query.event`);
         } else if (conditions.length > 1) {
           query.$or = conditions;
+          console.log(`   Multiple conditions, using $or`);
         }
 
         console.log(`✅ Mode filter applied: "${modeUpper}"`);
         console.log(`   Event codes to match: ${eventCodes.join(', ')}`);
         console.log(`   Event patterns to match: ${eventPatterns.join(', ')}`);
+      } else {
+        console.warn(`⚠️ No event codes or patterns defined for mode: "${modeUpper}"`);
       }
+    } else {
+      console.log(`⚠️ Mode filter was empty or not provided`);
     }
 
-    // Validate that at least some filter is provided (safety check)
+    // Validate that at least SOME filter is provided (safety check)
     if (Object.keys(query).length === 0) {
       return res.status(400).json({
         success: false,
@@ -675,11 +699,114 @@ router.delete('/', authenticateToken, async (req, res) => {
       });
     }
 
+    // ADDITIONAL SAFETY CHECK: Require more restrictive filters
+    // Do NOT allow deletion with ONLY date range (too risky - could delete all devices)
+    const hasDeviceFilter = deviceId && deviceId.trim() !== '';
+    const hasModeFilter = mode && mode.trim() !== '';
+    const hasDateFilter = startDate || endDate;
+    
+    if (hasDateFilter && !hasDeviceFilter && !hasModeFilter) {
+      return res.status(400).json({
+        success: false,
+        error: '⚠️ Safety check: Cannot delete using ONLY date range. Please also select a Device filter OR a Mode filter to specify exactly which data to delete. This prevents accidental deletion of all devices in a date range.',
+        details: {
+          reason: 'Date range alone is too broad',
+          suggestion: 'Select at least one of: Specific Device ID or Specific Mode (INT, NORMAL, DPOL, INST)',
+          example: 'Delete only Device-01 records in this date range, or only INT events in this date range'
+        }
+      });
+    }
+
+    // Log validation passed
+    console.log('✅ Safety validation passed:');
+    console.log(`   Has Device Filter: ${hasDeviceFilter}`);
+    console.log(`   Has Mode Filter: ${hasModeFilter}`);
+    console.log(`   Has Date Filter: ${hasDateFilter}`);
+
     console.log('🗑️ Telemetry deletion query:', JSON.stringify(query, null, 2));
+    console.log('📋 DELETION FILTERS (same as display sorting):');
+    console.log(`   Date Range: ${startDate || 'No date filter'} to ${endDate || 'No date filter'}`);
+    console.log(`   Device: ${deviceId || 'All Devices'}`);
+    console.log(`   Mode: ${mode || 'All Modes'}`);
+    console.log(`   Sort: -timestamp (most recent first)`);
 
     // Count records before deletion
     const countBefore = await Telemetry.countDocuments(query);
     console.log(`📊 Records matching deletion criteria: ${countBefore}`);
+    
+    // SAFETY: Warn if trying to delete too many records at once
+    const MAX_DELETE_LIMIT = 5000; // Maximum records to delete in one operation
+    if (countBefore > MAX_DELETE_LIMIT) {
+      return res.status(400).json({
+        success: false,
+        error: `⚠️ Too many records to delete: ${countBefore} records match your criteria (max: ${MAX_DELETE_LIMIT})`,
+        details: {
+          recordsToDelete: countBefore,
+          maxAllowed: MAX_DELETE_LIMIT,
+          suggestion: 'Apply stricter filters (more specific device or mode, narrower date range) to reduce the number of records'
+        }
+      });
+    }
+    
+    // Show some sample records that will be deleted (for debugging)
+    if (countBefore > 0) {
+      const sampleRecords = await Telemetry.find(query).limit(3);
+      console.log(`📋 Sample of ${Math.min(3, countBefore)} records to be deleted:`);
+      sampleRecords.forEach((record, idx) => {
+        console.log(`   [${idx + 1}] ID: ${record._id}, Device: ${record.deviceId}, Event: ${record.event}, Timestamp: ${record.timestamp}`);
+      });
+      
+      // Additional debug: Show counts with different filter combinations
+      console.log(`📊 DEBUG: Record count analysis for Device: ${deviceId || 'All'}:`);
+      
+      // Count all records for this device
+      if (deviceId && deviceId.trim() !== '') {
+        const countAllForDevice = await Telemetry.countDocuments({ deviceId });
+        console.log(`   - All records for device: ${countAllForDevice}`);
+        
+        // Count by date range only for this device
+        if (startDate || endDate) {
+          const dateOnlyQuery = { deviceId };
+          if (startDate || endDate) {
+            dateOnlyQuery.timestamp = {};
+            if (startDate) dateOnlyQuery.timestamp.$gte = new Date(startDate);
+            if (endDate) dateOnlyQuery.timestamp.$lte = new Date(endDate + 'T23:59:59.999Z');
+          }
+          const countDateRangeForDevice = await Telemetry.countDocuments(dateOnlyQuery);
+          console.log(`   - Records in date range for device: ${countDateRangeForDevice}`);
+        }
+        
+        // Count by mode only for this device
+        if (mode && mode.trim() !== '') {
+          const modeOnlyQuery = { deviceId };
+          const modeUpper = String(mode).toUpperCase().trim();
+          let modePatterns = [];
+          if (modeUpper === 'INT') modePatterns = ['INT', 'INTERRUPT'];
+          else if (modeUpper === 'DPOL') modePatterns = ['DPOL', 'DEPOL'];
+          else if (modeUpper === 'INST') modePatterns = ['INST', 'INSTANT'];
+          else if (modeUpper === 'NORMAL') modePatterns = ['NORMAL'];
+          
+          const regexStr = modePatterns.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+          modeOnlyQuery.event = { $regex: regexStr, $options: 'i' };
+          const countModeForDevice = await Telemetry.countDocuments(modeOnlyQuery);
+          console.log(`   - Records for mode "${mode}" in device: ${countModeForDevice}`);
+        }
+      }
+    }
+
+    // FINAL VERIFICATION: Log the exact query being used for deletion
+    console.log('\n========== CRITICAL: FINAL QUERY BEFORE DELETION ==========');
+    console.log('📋 Query object keys:', Object.keys(query));
+    console.log('📋 deviceId in query?', 'deviceId' in query);
+    if ('deviceId' in query) {
+      console.log(`    ✅ YES - deviceId value: "${query.deviceId}"`);
+    } else {
+      console.log(`    ❌ NO - deviceId NOT in query!`);
+    }
+    console.log('📋 mode filter in query?', query.event !== undefined || query.$or !== undefined);
+    console.log('📋 timestamp filter in query?', query.timestamp !== undefined);
+    console.log('📋 Full query object:', JSON.stringify(query, null, 2));
+    console.log('=========================================================\n');
 
     // Perform deletion
     const result = await Telemetry.deleteMany(query);

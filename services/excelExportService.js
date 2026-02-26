@@ -4,7 +4,8 @@ const Device = require('../models/Device');
 
 class ExcelExportService {
   /**
-   * Export telemetry data to Excel
+   * Export telemetry data to Excel - Matches report page UI exactly
+   * Main telemetry sheet + separate sheets for each event type
    * @param {Object} options - Export options
    * @param {String} options.deviceId - Device ID to export (optional, exports all if not provided)
    * @param {Date} options.startDate - Start date for data range
@@ -64,19 +65,41 @@ class ExcelExportService {
 
       console.log('✅ Workbook created successfully');
 
-      // Create main telemetry worksheet
+      // Define the exact columns shown in the report UI
+      const reportColumns = [
+        'deviceId',
+        'location',
+        'status',
+        'logNo',
+        'timestamp',
+        'event',  // Mode from UI
+        'acv',
+        'aci',
+        'dcv',
+        'dci',
+        'ref1',
+        'ref2',
+        'ref3',
+        'di1',
+        'di2',
+        'di3',
+        'di4',
+        'do',
+        'latitude',
+        'longitude',
+        'ref1Status',
+        'ref2Status',
+        'ref3Status'
+      ];
+
+      // Create main telemetry worksheet with report columns
       const worksheet = workbook.addWorksheet('Telemetry Data', {
         pageSetup: { paperSize: 9, orientation: 'landscape' }
       });
 
       console.log('✅ Worksheet added to workbook');
 
-      // Get all unique data keys for dynamic columns
-      // These now come from flattened top-level fields (ref1, ref2, aci, acv, etc.)
-      const allDataKeys = new Set();
-      const fixedFields = ['deviceId', 'timestamp', 'event', 'status', 'location', 'name', 'type', 'lastSeen', '_id'];
-      
-      // Fields to exclude from report generation
+      // Fields to exclude from any dynamic field detection
       const excludedFields = new Set([
         // Depolarization fields
         'DEPOLARIZATION START TIMESTAMP',
@@ -140,63 +163,39 @@ class ExcelExportService {
         'ELECTRODE',
         'LOGGINGINTERVAL',
         'LOGGINGINTERVALFORMATTED',
-        'LOGGING INTERVAL',
-        'DI1',
-        'DI2',
-        'DI3',
-        'DI4'
+        'LOGGING INTERVAL'
       ]);
-      
-      telemetryData.forEach(record => {
-        Object.keys(record).forEach(key => {
-          // Include all fields except the fixed metadata ones and excluded fields
-          if (!fixedFields.includes(key) && !excludedFields.has(key.toUpperCase())) {
-            allDataKeys.add(key);
-          }
-        });
-      });
 
-      // Also check if data still exists as a Map/Object (for backward compatibility)
-      telemetryData.forEach(record => {
-        if (record.data && typeof record.data === 'object') {
-          if (record.data instanceof Map) {
-            // Handle Map data type
-            record.data.forEach((value, key) => {
-              if (!allDataKeys.has(key) && !excludedFields.has(key.toUpperCase())) {
-                allDataKeys.add(key);
-              }
-            });
-          } else {
-            // Handle regular object
-            Object.keys(record.data).forEach(key => {
-              if (!allDataKeys.has(key) && !excludedFields.has(key.toUpperCase())) {
-                allDataKeys.add(key);
-              }
-            });
-          }
-        }
-      });
-
-      // Define columns
+      // Define columns matching the report UI exactly
       const baseColumns = [
         { header: 'Device ID', key: 'deviceId', width: 15 },
-        { header: 'Timestamp', key: 'timestamp', width: 20 },
-        { header: 'Event', key: 'event', width: 15 },
+        { header: 'Location', key: 'location', width: 15 },
         { header: 'Status', key: 'status', width: 12 },
-        { header: 'Location', key: 'location', width: 15 }
+        { header: 'Log No', key: 'logNo', width: 12 },
+        { header: 'Timestamp', key: 'timestamp', width: 20 },
+        { header: 'Mode', key: 'event', width: 15 },
+        { header: 'ACV', key: 'acv', width: 12 },
+        { header: 'ACI', key: 'aci', width: 12 },
+        { header: 'DCV', key: 'dcv', width: 12 },
+        { header: 'DCI', key: 'dci', width: 12 },
+        { header: 'Ref 1', key: 'ref1', width: 12 },
+        { header: 'Ref 2', key: 'ref2', width: 12 },
+        { header: 'Ref 3', key: 'ref3', width: 12 },
+        { header: 'DI 1', key: 'di1', width: 12 },
+        { header: 'DI 2', key: 'di2', width: 12 },
+        { header: 'DI 3', key: 'di3', width: 12 },
+        { header: 'DI 4', key: 'di4', width: 12 },
+        { header: 'DO', key: 'do', width: 12 },
+        { header: 'Latitude', key: 'latitude', width: 15 },
+        { header: 'Longitude', key: 'longitude', width: 15 },
+        { header: 'Ref Status 1', key: 'ref1Status', width: 15 },
+        { header: 'Ref Status 2', key: 'ref2Status', width: 15 },
+        { header: 'Ref Status 3', key: 'ref3Status', width: 15 }
       ];
 
-      // Add dynamic data columns (sorted for consistency)
-      const dataColumns = Array.from(allDataKeys).sort().map(key => ({
-        header: key.toUpperCase().replace(/_/g, ' '),
-        key: key,
-        width: 15
-      }));
+      worksheet.columns = baseColumns;
 
-      worksheet.columns = [...baseColumns, ...dataColumns];
-
-      console.log(`📋 Columns configured: ${baseColumns.length + dataColumns.length} total (${baseColumns.length} base + ${dataColumns.length} data)`);
-      console.log('📋 Dynamic data fields:', Array.from(allDataKeys).sort());
+      console.log(`📋 Columns configured: ${baseColumns.length} columns matching report UI`);
 
       // Style the header row
       worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFF' } };
@@ -206,46 +205,64 @@ class ExcelExportService {
         fgColor: { argb: '366092' }
       };
 
+      // Helper function to get field value with multiple key variations
+      const getFieldValue = (record, ...possibleKeys) => {
+        // First check top level of record
+        for (const key of possibleKeys) {
+          if (record[key] !== undefined && record[key] !== null) {
+            return record[key];
+          }
+        }
+        
+        // Then check inside data Map (where actual sensor data is stored)
+        if (record.data) {
+          const dataMap = record.data;
+          
+          // Try exact matches with the provided keys (case-insensitive)
+          for (const key of possibleKeys) {
+            // Try uppercase
+            const upperKey = key.toUpperCase();
+            if (dataMap.has(upperKey)) {
+              return dataMap.get(upperKey);
+            }
+            // Try the key as-is
+            if (dataMap.has(key)) {
+              return dataMap.get(key);
+            }
+          }
+        }
+        
+        return null;
+      };
+
       // Add data rows
       try {
         telemetryData.forEach((record, index) => {
           const row = {
             deviceId: record.deviceId,
+            location: getFieldValue(record, 'location') || 'N/A',
+            status: getFieldValue(record, 'status') || 'online',
+            logNo: getFieldValue(record, 'logNo', 'log', 'LOG') || '',
             timestamp: record.timestamp instanceof Date ? record.timestamp.toISOString() : record.timestamp,
             event: record.event || 'NORMAL',
-            status: record.status || 'online',
-            location: record.location || 'N/A'
+            acv: getFieldValue(record, 'ACV', 'acv') || '',
+            aci: getFieldValue(record, 'ACI', 'aci') || '',
+            dcv: getFieldValue(record, 'DCV', 'dcv') || '',
+            dci: getFieldValue(record, 'DCI', 'dci') || '',
+            ref1: getFieldValue(record, 'REF1', 'ref1') || '',
+            ref2: getFieldValue(record, 'REF2', 'ref2') || '',
+            ref3: getFieldValue(record, 'REF3', 'ref3') || '',
+            di1: getFieldValue(record, 'DI1', 'di1', 'DIGITAL INPUT 1', 'Digital Input 1') || '',
+            di2: getFieldValue(record, 'DI2', 'di2', 'DIGITAL INPUT 2', 'Digital Input 2') || '',
+            di3: getFieldValue(record, 'DI3', 'di3', 'DIGITAL INPUT 3', 'Digital Input 3') || '',
+            di4: getFieldValue(record, 'DI4', 'di4', 'DIGITAL INPUT 4', 'Digital Input 4') || '',
+            do: getFieldValue(record, 'DO', 'do', 'DIGITAL OUTPUT', 'Digital Output') || '',
+            latitude: getFieldValue(record, 'LATITUDE', 'latitude', 'LAT', 'lat') || '',
+            longitude: getFieldValue(record, 'LONGITUDE', 'longitude', 'LONG', 'long') || '',
+            ref1Status: getFieldValue(record, 'REF1Status', 'ref1Status', 'REF1 STS', 'REF1STATUS') || '',
+            ref2Status: getFieldValue(record, 'REF2Status', 'ref2Status', 'REF2 STS', 'REF2STATUS') || '',
+            ref3Status: getFieldValue(record, 'REF3Status', 'ref3Status', 'REF3 STS', 'REF3STATUS') || ''
           };
-
-          // Extract all dynamic fields directly from the flattened record
-          Array.from(allDataKeys).forEach(key => {
-            let value = undefined;
-            
-            // First check if field exists directly in record
-            if (record[key] !== undefined) {
-              value = record[key];
-            }
-            // Fall back to checking data object (backward compatibility)
-            else if (record.data) {
-              const dataObj = record.data instanceof Map ? 
-                Object.fromEntries(record.data) : record.data;
-              
-              value = dataObj[key];
-            }
-
-            // Ensure the value is serializable
-            if (value !== undefined && value !== null) {
-              if (value instanceof Date) {
-                row[key] = value.toISOString();
-              } else if (typeof value === 'object') {
-                row[key] = JSON.stringify(value);
-              } else {
-                row[key] = value;
-              }
-            } else {
-              row[key] = value; // Keep null/undefined as is
-            }
-          });
 
           worksheet.addRow(row);
 
@@ -278,6 +295,97 @@ class ExcelExportService {
         }
       });
 
+      // Helper function to create event-specific worksheets
+      const createEventSheet = (eventType, events, eventSheetName) => {
+        if (events.length === 0) return;
+
+        const eventSheet = workbook.addWorksheet(eventSheetName);
+        eventSheet.columns = baseColumns;
+
+        eventSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFF' } };
+        eventSheet.getRow(1).fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: '366092' }
+        };
+
+        events.forEach((record, index) => {
+          const row = {
+            deviceId: record.deviceId,
+            location: getFieldValue(record, 'location') || 'N/A',
+            status: getFieldValue(record, 'status') || 'online',
+            logNo: getFieldValue(record, 'logNo', 'log', 'LOG') || '',
+            timestamp: record.timestamp instanceof Date ? record.timestamp.toISOString() : record.timestamp,
+            event: record.event || eventType,
+            acv: getFieldValue(record, 'ACV', 'acv') || '',
+            aci: getFieldValue(record, 'ACI', 'aci') || '',
+            dcv: getFieldValue(record, 'DCV', 'dcv') || '',
+            dci: getFieldValue(record, 'DCI', 'dci') || '',
+            ref1: getFieldValue(record, 'REF1', 'ref1') || '',
+            ref2: getFieldValue(record, 'REF2', 'ref2') || '',
+            ref3: getFieldValue(record, 'REF3', 'ref3') || '',
+            di1: getFieldValue(record, 'DI1', 'di1', 'DIGITAL INPUT 1', 'Digital Input 1') || '',
+            di2: getFieldValue(record, 'DI2', 'di2', 'DIGITAL INPUT 2', 'Digital Input 2') || '',
+            di3: getFieldValue(record, 'DI3', 'di3', 'DIGITAL INPUT 3', 'Digital Input 3') || '',
+            di4: getFieldValue(record, 'DI4', 'di4', 'DIGITAL INPUT 4', 'Digital Input 4') || '',
+            do: getFieldValue(record, 'DO', 'do', 'DIGITAL OUTPUT', 'Digital Output') || '',
+            latitude: getFieldValue(record, 'LATITUDE', 'latitude', 'LAT', 'lat') || '',
+            longitude: getFieldValue(record, 'LONGITUDE', 'longitude', 'LONG', 'long') || '',
+            ref1Status: getFieldValue(record, 'REF1Status', 'ref1Status', 'REF1 STS', 'REF1STATUS') || '',
+            ref2Status: getFieldValue(record, 'REF2Status', 'ref2Status', 'REF2 STS', 'REF2STATUS') || '',
+            ref3Status: getFieldValue(record, 'REF3Status', 'ref3Status', 'REF3 STS', 'REF3STATUS') || ''
+          };
+
+          eventSheet.addRow(row);
+
+          if (index % 2 === 1) {
+            const rowNum = index + 2;
+            eventSheet.getRow(rowNum).fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'F8F9FA' }
+            };
+          }
+        });
+
+        console.log(`✅ Event sheet "${eventSheetName}" created with ${events.length} records`);
+      };
+
+      // Separate events by type
+      const normalEvents = telemetryData.filter(r => {
+        const evt = r.event;
+        const eventNum = Number(evt);
+        const eventStr = String(evt || '').toUpperCase().trim();
+        return eventNum === 0 || evt === 0 || evt === '0' || eventStr === 'NORMAL' || eventStr.startsWith('NORMAL');
+      });
+
+      const dpolEvents = telemetryData.filter(r => {
+        const evt = r.event;
+        const eventNum = Number(evt);
+        const eventStr = String(evt || '').toUpperCase().trim();
+        return eventNum === 3 || evt === 3 || evt === '3' || eventStr === 'DPOL' || eventStr === 'DEPOL' || eventStr.startsWith('DPOL') || eventStr.startsWith('DEPOL');
+      });
+
+      const intEvents = telemetryData.filter(r => {
+        const evt = r.event;
+        const eventNum = Number(evt);
+        const eventStr = String(evt || '').toUpperCase().trim();
+        return eventNum === 1 || evt === 1 || evt === '1' || eventStr === 'INT' || eventStr.startsWith('INT') || eventStr === 'INTERRUPT' || eventStr.startsWith('INTERRUPT');
+      });
+
+      const instEvents = telemetryData.filter(r => {
+        const evt = r.event;
+        const eventNum = Number(evt);
+        const eventStr = String(evt || '').toUpperCase().trim();
+        return eventNum === 4 || evt === 4 || evt === '4' || eventStr === 'INST' || eventStr.startsWith('INST') || eventStr === 'INSTANT' || eventStr.startsWith('INSTANT');
+      });
+
+      // Create event-specific worksheets
+      createEventSheet('NORMAL', normalEvents, 'NORMAL Events');
+      createEventSheet('DPOL', dpolEvents, 'DPOL Events');
+      createEventSheet('INT', intEvents, 'INT Events');
+      createEventSheet('INST', instEvents, 'INST Events');
+
       // Add summary worksheet
       const summarySheet = workbook.addWorksheet('Summary');
       
@@ -299,7 +407,10 @@ class ExcelExportService {
         { metric: 'Date Range', value: `${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}` },
         { metric: 'Total Records', value: telemetryData.length },
         { metric: 'Unique Devices', value: Object.keys(deviceCounts).length },
-        { metric: 'Data Fields', value: allDataKeys.size }
+        { metric: 'NORMAL Events', value: normalEvents.length },
+        { metric: 'DPOL Events', value: dpolEvents.length },
+        { metric: 'INT Events', value: intEvents.length },
+        { metric: 'INST Events', value: instEvents.length }
       ]);
 
       // Add device breakdown
@@ -314,7 +425,13 @@ class ExcelExportService {
         workbook,
         filename,
         recordCount: telemetryData.length,
-        devices: Object.keys(deviceCounts).length
+        devices: Object.keys(deviceCounts).length,
+        eventCounts: {
+          normal: normalEvents.length,
+          dpol: dpolEvents.length,
+          int: intEvents.length,
+          inst: instEvents.length
+        }
       };
 
     } catch (error) {

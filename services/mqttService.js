@@ -192,7 +192,7 @@ class MQTTService {
           await this.saveTelemetryData(deviceId, payload); // ✅ Save first to get location from geocoding
           
           // Fetch the just-saved telemetry record to get the reverse-geocoded location
-          const Telemetry = require('../models/Telemetry');
+          const Telemetry = require('../models/telemetry');
           const latestTelemetry = await Telemetry.findOne({ deviceId: deviceId }).sort({ timestamp: -1 });
           if (latestTelemetry && latestTelemetry.location) {
             console.log(`📍 Updated device location from telemetry: ${latestTelemetry.location}`);

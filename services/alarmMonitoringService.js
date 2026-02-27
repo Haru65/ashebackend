@@ -10,6 +10,16 @@ class AlarmMonitoringService {
     this.emailService = new EmailService();
     this.notificationService = new NotificationService();
     this.triggeredAlarms = new Map(); // Track which alarms have been triggered
+    this.lastNotificationTime = new Map(); // Track last WebSocket notification time for each alarm
+    this.io = null;
+  }
+
+  /**
+   * Initialize with Socket.IO instance for real-time alarm notifications
+   */
+  initialize(io) {
+    this.io = io;
+    console.log('✅ [Alarm Monitor] WebSocket initialized for real-time alarm notifications');
   }
 
   /**
@@ -338,6 +348,39 @@ class AlarmMonitoringService {
       });
 
       console.log(`[Alarm Monitor] 💾 Alarm trigger saved to AlarmTrigger for alarm '${alarm.name}'`);
+
+      // 🚨 Emit real-time WebSocket event for immediate frontend notification
+      if (this.io) {
+        const alarmId = alarm._id.toString();
+        const now = Date.now();
+        const lastNotificationTime = this.lastNotificationTime.get(alarmId) || 0;
+        const notificationInterval = 10 * 60 * 1000; // 10 minutes in milliseconds
+
+        // Only send notification if 10 minutes have passed since last notification
+        if (now - lastNotificationTime >= notificationInterval) {
+          const alarmNotification = {
+            alarm_id: alarmId,
+            alarm_name: alarm.name,
+            device_id: device.deviceId,
+            device_name: device.deviceName || device.deviceId,
+            trigger_reason: reason,
+            severity: alarm.severity || 'warning',
+            parameter: alarm.parameter,
+            triggered_at: new Date().toISOString(),
+            triggered_values: triggeredValues
+          };
+          
+          console.log(`📡 [Alarm Monitor] Emitting WebSocket event for alarm '${alarm.name}' (ID: ${alarmId})`);
+          this.io.emit('alarm:triggered', alarmNotification);
+          
+          // Update last notification time
+          this.lastNotificationTime.set(alarmId, now);
+          console.log(`✅ [Alarm Monitor] WebSocket event emitted. Next notification for this alarm in 10 minutes.`);
+        } else {
+          const timeUntilNextNotification = Math.ceil((notificationInterval - (now - lastNotificationTime)) / 1000);
+          console.log(`⏭️ [Alarm Monitor] Notification for alarm '${alarm.name}' suppressed. Next notification in ${timeUntilNextNotification} seconds.`);
+        }
+      }
     } catch (error) {
       console.error('[Alarm Monitor] Error logging alarm trigger:', error);
     }

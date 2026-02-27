@@ -294,34 +294,48 @@ class AlarmController {
   async sendSMSNotification(req, res) {
     try {
       const { id } = req.params;
+      const { phoneNumbers } = req.body;
+      
+      console.log(`📱 [API] SMS Notification request for alarm ${id}`);
+      
       const alarm = await Alarm.findById(id);
       
       if (!alarm) {
+        console.error(`❌ [API] Alarm not found: ${id}`);
         return res.status(404).json({
           success: false,
           message: 'Alarm not found'
         });
       }
 
-      if (!alarm.notification_config.sms_numbers || alarm.notification_config.sms_numbers.length === 0) {
+      // Use provided phone numbers or fall back to alarm config
+      const numbersToUse = phoneNumbers || alarm.notification_config?.sms_numbers || [];
+      
+      if (!numbersToUse || numbersToUse.length === 0) {
+        console.warn(`⚠️ [API] No SMS numbers configured for alarm: ${alarm.name}`);
         return res.status(400).json({
           success: false,
           message: 'No SMS numbers configured for this alarm'
         });
       }
 
+      console.log(`📱 [API] Sending SMS to ${numbersToUse.length} number(s):`, numbersToUse);
+      
       const results = await this.notificationService.sendSMSNotification(
         alarm, 
-        alarm.notification_config.sms_numbers
+        numbersToUse
       );
 
+      console.log(`✅ [API] SMS notification completed:`, results);
+      
       res.json({
         success: true,
-        message: 'SMS notifications sent',
-        data: results
+        message: `SMS notifications sent to ${results.length} recipient(s)`,
+        data: results,
+        count: results.length
       });
     } catch (error) {
-      console.error('Error sending SMS notification:', error);
+      console.error('❌ [API] Error sending SMS notification:', error);
       res.status(500).json({
         success: false,
         message: 'Error sending SMS notification',
@@ -336,34 +350,48 @@ class AlarmController {
   async sendEmailNotification(req, res) {
     try {
       const { id } = req.params;
+      const { emailAddresses } = req.body;
+      
+      console.log(`📧 [API] Email Notification request for alarm ${id}`);
+      
       const alarm = await Alarm.findById(id);
       
       if (!alarm) {
+        console.error(`❌ [API] Alarm not found: ${id}`);
         return res.status(404).json({
           success: false,
           message: 'Alarm not found'
         });
       }
 
-      if (!alarm.notification_config.email_ids || alarm.notification_config.email_ids.length === 0) {
+      // Use provided email addresses or fall back to alarm config
+      const addressesToUse = emailAddresses || alarm.notification_config?.email_ids || [];
+      
+      if (!addressesToUse || addressesToUse.length === 0) {
+        console.warn(`⚠️ [API] No email addresses configured for alarm: ${alarm.name}`);
         return res.status(400).json({
           success: false,
           message: 'No email addresses configured for this alarm'
         });
       }
 
+      console.log(`📧 [API] Sending email to ${addressesToUse.length} address(es):`, addressesToUse);
+      
       const results = await this.notificationService.sendEmailNotification(
         alarm, 
-        alarm.notification_config.email_ids
+        addressesToUse
       );
 
+      console.log(`✅ [API] Email notification completed:`, results);
+      
       res.json({
         success: true,
-        message: 'Email notifications sent',
-        data: results
+        message: `Email notifications sent to ${results.length} recipient(s)`,
+        data: results,
+        count: results.length
       });
     } catch (error) {
-      console.error('Error sending email notification:', error);
+      console.error('❌ [API] Error sending email notification:', error);
       res.status(500).json({
         success: false,
         message: 'Error sending email notification',
@@ -614,17 +642,38 @@ class AlarmController {
       const since = new Date();
       since.setHours(since.getHours() - sinceHours);
       
+      console.log(`📡 [API] /api/alarms/triggers/recent called with hours=${sinceHours}, limit=${limit}`);
+      console.log(`📡 [API] Since: ${since.toISOString()}`);
+      
       const triggers = await AlarmTrigger.getRecentTriggers(since);
       
-      res.json({
+      console.log(`📡 [API] Found ${triggers.length} recent triggers`);
+      if (triggers.length > 0) {
+        console.log(`📡 [API] First trigger:`, {
+          alarm_name: triggers[0].alarm_name,
+          device_name: triggers[0].device_name,
+          triggered_at: triggers[0].triggered_at,
+          trigger_reason: triggers[0].trigger_reason
+        });
+      }
+      
+      const response = {
         success: true,
         data: triggers,
         total: triggers.length,
         timeRange: `Last ${sinceHours} hours`,
         message: `Found ${triggers.length} recent alarm trigger(s)`
+      };
+      
+      console.log(`📡 [API] Sending response:`, {
+        success: response.success,
+        total: response.total,
+        dataCount: response.data?.length || 0
       });
+      
+      res.json(response);
     } catch (error) {
-      console.error('Error fetching recent alarm triggers:', error);
+      console.error('❌ [API] Error fetching recent alarm triggers:', error);
       res.status(500).json({
         success: false,
         message: 'Error fetching recent alarm triggers',

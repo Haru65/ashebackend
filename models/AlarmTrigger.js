@@ -172,11 +172,26 @@ AlarmTriggerSchema.statics.getRecentTriggers = async function(since = null) {
     const filter = {};
     if (since) {
       filter.triggered_at = { $gte: since };
+      console.log(`🔍 [AlarmTrigger] Querying triggers since: ${since.toISOString()}`);
+    } else {
+      console.log(`🔍 [AlarmTrigger] Querying all triggers (no time filter)`);
     }
-    return await this.find(filter)
+    
+    const results = await this.find(filter)
       .sort({ triggered_at: -1 })
       .limit(100)
       .lean();
+    
+    console.log(`🔍 [AlarmTrigger] Query complete. Found ${results.length} trigger(s)`);
+    if (results.length > 0) {
+      console.log(`🔍 [AlarmTrigger] Most recent trigger:`, {
+        alarm_name: results[0].alarm_name,
+        device_name: results[0].device_name,
+        triggered_at: results[0].triggered_at
+      });
+    }
+    
+    return results;
   } catch (error) {
     console.error('[AlarmTrigger] Error fetching recent triggers:', error);
     return [];

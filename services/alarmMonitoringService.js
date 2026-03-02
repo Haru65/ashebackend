@@ -20,6 +20,20 @@ class AlarmMonitoringService {
   initialize(io) {
     this.io = io;
     console.log('✅ [Alarm Monitor] WebSocket initialized for real-time alarm notifications');
+    console.log('   Socket.IO instance:', this.io ? '✅ Connected' : '❌ NOT initialized');
+    
+    // Test emit to verify Socket.IO is working
+    if (this.io) {
+      setImmediate(() => {
+        console.log('   Testing emit capability...');
+        // Verify emit function exists
+        if (typeof this.io.emit === 'function') {
+          console.log('   ✅ Socket.IO.emit() is functional');
+        } else {
+          console.error('   ❌ Socket.IO.emit() is NOT a function!');
+        }
+      });
+    }
   }
 
   /**
@@ -370,8 +384,20 @@ class AlarmMonitoringService {
             triggered_values: triggeredValues
           };
           
-          console.log(`📡 [Alarm Monitor] Emitting WebSocket event for alarm '${alarm.name}' (ID: ${alarmId})`);
-          this.io.emit('alarm:triggered', alarmNotification);
+          console.log(`📡 [Alarm Monitor] Preparing WebSocket emit:`);
+          console.log(`   - io object exists: ${!!this.io}`);
+          console.log(`   - io.emit is function: ${typeof this.io.emit === 'function'}`);
+          console.log(`   - Alarm: ${alarm.name} (ID: ${alarmId})`);
+          console.log(`   - Event: alarm:triggered`);
+          console.log(`   - Data size: ${JSON.stringify(alarmNotification).length} bytes`);
+          
+          try {
+            this.io.emit('alarm:triggered', alarmNotification);
+            console.log(`✅ [Alarm Monitor] WebSocket event emitted successfully`);
+            console.log(`   - Connected clients will receive: ${JSON.stringify(alarmNotification, null, 2)}`);
+          } catch (emitError) {
+            console.error(`❌ [Alarm Monitor] Failed to emit WebSocket event:`, emitError);
+          }
           
           // Update last notification time
           this.lastNotificationTime.set(alarmId, now);
@@ -380,6 +406,9 @@ class AlarmMonitoringService {
           const timeUntilNextNotification = Math.ceil((notificationInterval - (now - lastNotificationTime)) / 1000);
           console.log(`⏭️ [Alarm Monitor] Notification for alarm '${alarm.name}' suppressed. Next notification in ${timeUntilNextNotification} seconds.`);
         }
+      } else {
+        console.error(`❌ [Alarm Monitor] this.io is NOT initialized! Cannot emit alarm:triggered event`);
+        console.error(`   Please check that alarmMonitoringService.initialize(io) was called in index.js`);
       }
     } catch (error) {
       console.error('[Alarm Monitor] Error logging alarm trigger:', error);

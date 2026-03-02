@@ -857,15 +857,26 @@ class MQTTService {
     
     // Validate and log the received times
     console.log('📍 Instant Start TimeStamp received:', config.startTime);
+    console.log('📍 Instant End TimeStamp received:', config.endTime);
+    
+    // Ensure timestamps include seconds (HH:MM:SS format)
+    const startTime = config.startTime && config.startTime.includes(':') && config.startTime.split(':').length === 2 
+      ? `${config.startTime}:00` 
+      : config.startTime;
+    const endTime = config.endTime && config.endTime.includes(':') && config.endTime.split(':').length === 2 
+      ? `${config.endTime}:00` 
+      : config.endTime;
     
     const updatedSettings = {
       ...currentSettings,
       "Event": 4, // Instant mode
       "Instant Mode": instantModeValue,
-      "Instant Start TimeStamp": config.startTime || "00:00:00"
+      "Instant Start TimeStamp": startTime || "00:00:00",
+      "Instant End TimeStamp": endTime || "00:00:00"
     };
     
     console.log('💾 Storing in memory - Instant Start TimeStamp:', updatedSettings["Instant Start TimeStamp"]);
+    console.log('💾 Storing in memory - Instant End TimeStamp:', updatedSettings["Instant End TimeStamp"]);
     
     // Store updated settings in memory
     this.deviceSettings.set(deviceId, updatedSettings);
@@ -876,7 +887,8 @@ class MQTTService {
         const dbParams = {
           "Instant Mode": instantModeValue,
           "Event": 4,
-          "Instant Start TimeStamp": config.startTime || "00:00:00"
+          "Instant Start TimeStamp": startTime || "00:00:00",
+          "Instant End TimeStamp": endTime || "00:00:00"
         };
         console.log('💿 Updating database with:', JSON.stringify(dbParams, null, 2));
         await this.deviceManagementService.updateDeviceParameters(deviceId, dbParams);
@@ -891,7 +903,8 @@ class MQTTService {
     const changedInst = {
       "Event": 4,
       "Instant Mode": instantModeValue,
-      "Instant Start TimeStamp": updatedSettings["Instant Start TimeStamp"]
+      "Instant Start TimeStamp": updatedSettings["Instant Start TimeStamp"],
+      "Instant End TimeStamp": updatedSettings["Instant End TimeStamp"]
     };
     if (this.deviceManagementService) {
       try { await this.deviceManagementService.trackCommand(deviceId, commandId, 'complete_settings', changedInst); } catch (e) { /* ignore */ }

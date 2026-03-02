@@ -75,13 +75,24 @@ class MqttClientService {
       return strValue;
     }
     
-    // Convert string to number and divide by 100 to place decimal
-    // "030" → 30 → 30/100 = 0.30
-    // "123" → 123 → 123/100 = 1.23
+    // Convert string to number
     const numValue = parseInt(strValue, 10);
-    const formatted = (numValue / 100).toFixed(2);
     
-    console.log(`📊 Reference value converted: ${value} → ${formatted}`);
+    // CRITICAL FIX: Handle both 3-digit and 4-digit formats
+    // Device may send: "030" (3-digit) or "3000" (4-digit with extra zeros)
+    // Both should result in 0.30V
+    
+    let formatted;
+    if (Math.abs(numValue) >= 1000) {
+      // 4-digit format: "3000" → 3000 → 3000/10000 = 0.30
+      formatted = (numValue / 10000).toFixed(2);
+      console.log(`📊 Reference value converted (4-digit format): ${value} → ${formatted}`);
+    } else {
+      // 3-digit format: "030" → 30 → 30/100 = 0.30
+      formatted = (numValue / 100).toFixed(2);
+      console.log(`📊 Reference value converted (3-digit format): ${value} → ${formatted}`);
+    }
+    
     return formatted;
   }
 

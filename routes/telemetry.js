@@ -900,3 +900,5 @@ router.delete('/device/:deviceId', authenticateToken, async (req, res) => {
 });
 
 module.exports = router;
+
+

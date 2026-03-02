@@ -10,6 +10,7 @@ class DeviceController {
   static async getDeviceById(req, res) {
     try {
       const { deviceId } = req.params;
+      const Telemetry = require('../models/telemetry');
 
       // Find device in MongoDB
       const device = await Device.findOne({ deviceId }).lean();
@@ -32,11 +33,26 @@ class DeviceController {
       .limit(1000)
       .lean();
 
+      // Fetch latest telemetry to get reverse-geocoded location (consistent with getAllDevices)
+      let location = device.location || 'N/A';
+      try {
+        const latestTelemetry = await Telemetry.findOne({ deviceId })
+          .select('location')
+          .sort({ timestamp: -1 })
+          .lean();
+        
+        if (latestTelemetry && latestTelemetry.location) {
+          location = latestTelemetry.location;
+        }
+      } catch (err) {
+        console.warn(`⚠️ Could not fetch telemetry location for ${deviceId}:`, err.message);
+      }
+
       // Transform device data
       const deviceData = {
         deviceId: device.deviceId,
         name: device.deviceName || device.deviceId,
-        location: device.location || 'N/A',
+        location: location,
         status: device.status?.state || 'offline',
         lastSeen: device.status?.lastSeen || null,
         currentData: device.sensors || {},

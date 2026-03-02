@@ -99,6 +99,15 @@ class MQTTService {
     // Store device logging intervals for dynamic timeout calculation
     this.deviceLoggingIntervals = new Map(); // deviceId -> loggingIntervalSeconds
     
+    // DMS coordinate to location mapping (for known device locations)
+    // Maps DMS format coordinates to human-readable location names
+    this.dmsLocationMap = new Map([
+      ['19°03\'N,072°52\'E', 'Sion East, Mumbai, Maharashtra, India'],
+      ['19°03\'N,72°52\'E', 'Sion East, Mumbai, Maharashtra, India'],
+      ['19.05,72.8667', 'Sion East, Mumbai, Maharashtra, India'],
+      // Add more known locations as needed
+    ]);
+    
     // Device Management Service Integration
     this.deviceManagementService = null;
     
@@ -2149,6 +2158,27 @@ class MQTTService {
       if (payload.REF1 !== undefined) updateData['sensors.signal'] = Math.abs(parseFloat(payload.REF1) || 0) * 100;
       if (payload.REF2 !== undefined) updateData['sensors.temperature'] = parseFloat(payload.REF2) || 0;
       
+      // Update device location if coordinates are present
+      const rawLatitude = payload.LATITUDE || (payload.Parameters && payload.Parameters.LATITUDE);
+      const rawLongitude = payload.LONGITUDE || (payload.Parameters && payload.Parameters.LONGITUDE);
+      
+      if (rawLatitude && rawLongitude && rawLatitude !== '' && rawLongitude !== '') {
+        // Convert DMS format to decimal if needed
+        const lat = typeof rawLatitude === 'string' && rawLatitude.includes('°') 
+          ? this.convertDMSToDecimal(rawLatitude)
+          : parseFloat(rawLatitude);
+        
+        const lon = typeof rawLongitude === 'string' && rawLongitude.includes('°')
+          ? this.convertDMSToDecimal(rawLongitude)
+          : parseFloat(rawLongitude);
+        
+        // Only update if both are valid decimal numbers AND not zero/null coordinates
+        if (!isNaN(lat) && !isNaN(lon) && (lat !== 0 || lon !== 0)) {
+          updateData.location = `${lat}, ${lon}`;
+          console.log(`📍 Updating device ${deviceId} location to: ${updateData.location}`);
+        }
+      }
+      
       const result = await Device.findOneAndUpdate(
         { deviceId: deviceId },
         { $set: updateData },
@@ -2314,9 +2344,16 @@ class MQTTService {
         if (!isNaN(lat) && !isNaN(lon) && (lat !== 0 || lon !== 0)) {
           console.log(`📍 Converted coordinates - Original: ${rawLatitude}, ${rawLongitude} → Decimal: ${lat}, ${lon}`);
           
-          // ⚡ CRITICAL FIX: Set location to coordinates immediately for fast data flow
-          // Reverse geocoding happens in background to avoid blocking MQTT data pipeline
-          location = `${lat}, ${lon}`;
+          // ✅ CHECK DMS LOCATION MAP FIRST - for known device locations
+          const mappedLocation = this.checkDMSLocationMap(lat, lon);
+          if (mappedLocation) {
+            console.log(`📍 Found location in DMS map: ${mappedLocation}`);
+            location = mappedLocation;
+          } else {
+            // ⚡ CRITICAL FIX: Set location to coordinates immediately for fast data flow
+            // Reverse geocoding happens in background to avoid blocking MQTT data pipeline
+            location = `${lat}, ${lon}`;
+          }
           
           // Trigger reverse geocoding in background (non-blocking)
           // This prevents slow API calls from blocking telemetry save
@@ -2348,10 +2385,18 @@ class MQTTService {
       console.log(`📝 Data fields to be saved (${Object.keys(dataFields).length} fields):`, dataFields);
 
       // Create telemetry record with explicit data assignment
+      // Extract event from Parameters (real device format) or root level (simulator format)
+      // CRITICAL: Use dataFields.EVENT as primary source since it's already extracted
+      const event = dataFields.EVENT || dataFields.Event || 
+                    payload.Parameters?.EVENT || payload.Parameters?.Event || 
+                    payload.EVENT || payload.Event || 'NORMAL';
+      
+      console.log(`📝 Event extraction: dataFields.EVENT="${dataFields.EVENT}" → event="${event}"`);
+      
       const telemetryRecord = new Telemetry({
         deviceId: deviceId,
         timestamp: new Date(),
-        event: payload.EVENT || payload.Event || 'NORMAL',
+        event: event,
         location: location  // Add location field for easy access in frontend
       });
       
@@ -2408,8 +2453,10 @@ class MQTTService {
       }
       
       // Check alarms for this device data
-      const event = payload.EVENT || payload.Event || 'NORMAL';
-      await alarmMonitoringService.checkAlarmsForDevice(payload, deviceId, event);
+      const eventForAlarm = dataFields.EVENT || dataFields.Event ||
+                            payload.Parameters?.EVENT || payload.Parameters?.Event || 
+                            payload.EVENT || payload.Event || 'NORMAL';
+      await alarmMonitoringService.checkAlarmsForDevice(payload, deviceId, eventForAlarm);
       
       // Check if payload contains device settings and save them
       await this.saveDeviceSettings(deviceId, payload, 'system');
@@ -2894,6 +2941,13 @@ class MQTTService {
   // IMPORTANT: This function has internal timeout to prevent blocking MQTT pipeline
   async reverseGeocodeLocation(lat, lon) {
     try {
+      // Check DMS location map first (for known device locations)
+      const dmsLocationName = this.checkDMSLocationMap(lat, lon);
+      if (dmsLocationName) {
+        console.log(`📍 Found location in DMS map: ${dmsLocationName}`);
+        return dmsLocationName;
+      }
+      
       // Set a hard timeout for the entire geocoding operation (max 20 seconds)
       // This prevents any single geocoding attempt from blocking the system
       const gecodingPromise = this._performReverseGeocoding(lat, lon);
@@ -2913,6 +2967,39 @@ class MQTTService {
       console.warn(`⚠️ All geocoding methods failed for ${lat}, ${lon}`);
       return null;
     }
+  }
+
+  // Check if coordinates match any known DMS location mapping
+  checkDMSLocationMap(lat, lon) {
+    // Format the coordinates as strings to check against map
+    const decimalKey = `${lat},${lon}`;
+    const decimalKeyRounded = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+    
+    // Check exact match
+    if (this.dmsLocationMap.has(decimalKey)) {
+      return this.dmsLocationMap.get(decimalKey);
+    }
+    
+    // Check rounded match
+    if (this.dmsLocationMap.has(decimalKeyRounded)) {
+      return this.dmsLocationMap.get(decimalKeyRounded);
+    }
+    
+    // Check with tolerance (within 0.01 degrees)
+    for (const [key, location] of this.dmsLocationMap.entries()) {
+      const parts = key.split(',');
+      if (parts.length === 2) {
+        const mapLat = parseFloat(parts[0]);
+        const mapLon = parseFloat(parts[1]);
+        
+        if (Math.abs(lat - mapLat) < 0.01 && Math.abs(lon - mapLon) < 0.01) {
+          console.log(`📍 Matched DMS location with tolerance: ${key} → ${location}`);
+          return location;
+        }
+      }
+    }
+    
+    return null;
   }
 
   // Internal function that performs the actual reverse geocoding

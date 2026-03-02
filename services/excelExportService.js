@@ -18,7 +18,8 @@ class ExcelExportService {
         deviceId,
         startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Default: last 30 days
         endDate = new Date(),
-        filename = `telemetry_export_${new Date().toISOString().split('T')[0]}.xlsx`
+        filename = `telemetry_export_${new Date().toISOString().split('T')[0]}.xlsx`,
+        maxRecords = 10000 // Limit to prevent memory issues
       } = options;
 
       // Build query
@@ -35,12 +36,26 @@ class ExcelExportService {
 
       console.log('📊 Exporting telemetry data with query:', JSON.stringify(query, null, 2));
 
-      // Fetch telemetry data
+      // Count total records first
+      const totalCount = await Telemetry.countDocuments(query);
+      console.log(`📈 Found ${totalCount} total telemetry records`);
+
+      if (totalCount === 0) {
+        throw new Error('No telemetry data found for the specified criteria');
+      }
+
+      // Warn if exceeding max records
+      if (totalCount > maxRecords) {
+        console.warn(`⚠️ WARNING: ${totalCount} records found, limiting to ${maxRecords} most recent records to prevent memory issues`);
+      }
+
+      // Fetch telemetry data with limit
       const telemetryData = await Telemetry.find(query)
         .sort({ timestamp: -1 })
+        .limit(maxRecords)
         .lean();
 
-      console.log(`📈 Found ${telemetryData.length} telemetry records`);
+      console.log(`📈 Loaded ${telemetryData.length} telemetry records for export`);
       console.log('📋 Date range:', {
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
@@ -50,10 +65,6 @@ class ExcelExportService {
       // Log first few records for debugging
       if (telemetryData.length > 0) {
         console.log('📝 First record sample:', JSON.stringify(telemetryData[0], null, 2));
-      }
-
-      if (telemetryData.length === 0) {
-        throw new Error('No telemetry data found for the specified criteria');
       }
 
       // Create workbook and worksheet
@@ -169,7 +180,7 @@ class ExcelExportService {
       // Define columns matching the report UI exactly
       const baseColumns = [
         { header: 'Device ID', key: 'deviceId', width: 15 },
-        { header: 'Location', key: 'location', width: 15 },
+        { header: 'Location', key: 'location', width: 20 },
         { header: 'Status', key: 'status', width: 12 },
         { header: 'Log No', key: 'logNo', width: 12 },
         { header: 'Timestamp', key: 'timestamp', width: 20 },
@@ -186,8 +197,6 @@ class ExcelExportService {
         { header: 'DI 3', key: 'di3', width: 12 },
         { header: 'DI 4', key: 'di4', width: 12 },
         { header: 'DO', key: 'do', width: 12 },
-        { header: 'Latitude', key: 'latitude', width: 15 },
-        { header: 'Longitude', key: 'longitude', width: 15 },
         { header: 'Ref Status 1', key: 'ref1Status', width: 15 },
         { header: 'Ref Status 2', key: 'ref2Status', width: 15 },
         { header: 'Ref Status 3', key: 'ref3Status', width: 15 }
@@ -198,12 +207,21 @@ class ExcelExportService {
       console.log(`📋 Columns configured: ${baseColumns.length} columns matching report UI`);
 
       // Style the header row
-      worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFF' } };
-      worksheet.getRow(1).fill = {
+      const mainHeaderRow = worksheet.getRow(1);
+      mainHeaderRow.font = { bold: true, color: { argb: 'FFFFFF' } };
+      mainHeaderRow.fill = {
         type: 'pattern',
         pattern: 'solid',
         fgColor: { argb: '366092' }
       };
+      // Center align header
+      mainHeaderRow.eachCell((cell) => {
+        cell.alignment = {
+          horizontal: 'center',
+          vertical: 'middle',
+          wrapText: true
+        };
+      });
 
       // Helper function to get field value with multiple key variations
       const getFieldValue = (record, ...possibleKeys) => {
@@ -238,9 +256,27 @@ class ExcelExportService {
       // Add data rows
       try {
         telemetryData.forEach((record, index) => {
+          // Extract location - use geo-reversed location name if available
+          let locationDisplay = 'N/A';
+          const locationField = getFieldValue(record, 'location');
+          
+          if (locationField) {
+            // If location is a JSON string (from geo-reverse), parse it
+            if (typeof locationField === 'string' && locationField.startsWith('{')) {
+              try {
+                const locObj = JSON.parse(locationField);
+                locationDisplay = locObj.city_name || locObj.display_name || locationField;
+              } catch (e) {
+                locationDisplay = locationField;
+              }
+            } else {
+              locationDisplay = locationField;
+            }
+          }
+
           const row = {
             deviceId: record.deviceId,
-            location: getFieldValue(record, 'location') || 'N/A',
+            location: locationDisplay,
             status: getFieldValue(record, 'status') || 'online',
             logNo: getFieldValue(record, 'logNo', 'log', 'LOG') || '',
             timestamp: record.timestamp instanceof Date ? record.timestamp.toISOString() : record.timestamp,
@@ -257,19 +293,26 @@ class ExcelExportService {
             di3: getFieldValue(record, 'DI3', 'di3', 'DIGITAL INPUT 3', 'Digital Input 3') || '',
             di4: getFieldValue(record, 'DI4', 'di4', 'DIGITAL INPUT 4', 'Digital Input 4') || '',
             do: getFieldValue(record, 'DO', 'do', 'DIGITAL OUTPUT', 'Digital Output') || '',
-            latitude: getFieldValue(record, 'LATITUDE', 'latitude', 'LAT', 'lat') || '',
-            longitude: getFieldValue(record, 'LONGITUDE', 'longitude', 'LONG', 'long') || '',
             ref1Status: getFieldValue(record, 'REF1Status', 'ref1Status', 'REF1 STS', 'REF1STATUS') || '',
             ref2Status: getFieldValue(record, 'REF2Status', 'ref2Status', 'REF2 STS', 'REF2STATUS') || '',
             ref3Status: getFieldValue(record, 'REF3Status', 'ref3Status', 'REF3 STS', 'REF3STATUS') || ''
           };
 
-          worksheet.addRow(row);
+          const excelRow = worksheet.addRow(row);
+
+          // Center align all cells in the row
+          excelRow.eachCell((cell) => {
+            cell.alignment = {
+              horizontal: 'center',
+              vertical: 'middle',
+              wrapText: true
+            };
+          });
 
           // Add conditional formatting for alternate rows
           if (index % 2 === 1) {
             const rowNum = index + 2; // +2 because Excel is 1-indexed and we have header
-            worksheet.getRow(rowNum).fill = {
+            excelRow.fill = {
               type: 'pattern',
               pattern: 'solid',
               fgColor: { argb: 'F8F9FA' }
@@ -295,49 +338,129 @@ class ExcelExportService {
         }
       });
 
-      // Helper function to create event-specific worksheets
-      const createEventSheet = (eventType, events, eventSheetName) => {
-        if (events.length === 0) return;
+      // Helper function to create event-specific worksheets (streaming approach)
+      const createEventSheet = (eventType, eventSheetName) => {
+        // Filter events without keeping them in memory
+        const filteredEvents = telemetryData.filter(r => {
+          const evt = r.event;
+          const eventNum = Number(evt);
+          const eventStr = String(evt || '').toUpperCase().trim();
+          
+          switch(eventType) {
+            case 'NORMAL':
+              return eventNum === 0 || evt === 0 || evt === '0' || eventStr === 'NORMAL' || eventStr.startsWith('NORMAL');
+            case 'DPOL':
+              return eventNum === 3 || evt === 3 || evt === '3' || eventStr === 'DPOL' || eventStr === 'DEPOL' || eventStr.startsWith('DPOL') || eventStr.startsWith('DEPOL');
+            case 'INT':
+              return eventNum === 1 || evt === 1 || evt === '1' || eventStr === 'INT' || eventStr.startsWith('INT') || eventStr === 'INTERRUPT' || eventStr.startsWith('INTERRUPT');
+            case 'INST':
+              return eventNum === 4 || evt === 4 || evt === '4' || eventStr === 'INST' || eventStr.startsWith('INST') || eventStr === 'INSTANT' || eventStr.startsWith('INSTANT');
+            default:
+              return false;
+          }
+        });
 
+        // Always create the sheet, even if empty (for consistency)
         const eventSheet = workbook.addWorksheet(eventSheetName);
-        eventSheet.columns = baseColumns;
+        
+        // Get all unique fields from filtered events (or all data if no events)
+        const allFields = new Set();
+        const fieldsToUse = filteredEvents.length > 0 ? filteredEvents : telemetryData;
+        
+        fieldsToUse.forEach(record => {
+          if (record.data) {
+            if (record.data instanceof Map) {
+              record.data.forEach((value, key) => allFields.add(key));
+            } else if (typeof record.data === 'object') {
+              Object.keys(record.data).forEach(key => allFields.add(key));
+            }
+          }
+        });
 
-        eventSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFF' } };
-        eventSheet.getRow(1).fill = {
+        // Create dynamic columns based on all available fields
+        const dynamicColumns = [
+          { header: 'Device ID', key: 'deviceId', width: 15 },
+          { header: 'Location', key: 'location', width: 15 },
+          { header: 'Status', key: 'status', width: 12 },
+          { header: 'Log No', key: 'logNo', width: 12 },
+          { header: 'Timestamp', key: 'timestamp', width: 20 },
+          { header: 'Mode', key: 'event', width: 15 }
+        ];
+
+        // Add all data fields as columns
+        Array.from(allFields).sort().forEach(field => {
+          dynamicColumns.push({
+            header: field,
+            key: field,
+            width: 15
+          });
+        });
+
+        eventSheet.columns = dynamicColumns;
+
+        // Style header row
+        const headerRow = eventSheet.getRow(1);
+        headerRow.font = { bold: true, color: { argb: 'FFFFFF' } };
+        headerRow.fill = {
           type: 'pattern',
           pattern: 'solid',
           fgColor: { argb: '366092' }
         };
+        // Center align header
+        headerRow.eachCell((cell) => {
+          cell.alignment = {
+            horizontal: 'center',
+            vertical: 'middle',
+            wrapText: true
+          };
+        });
 
-        events.forEach((record, index) => {
+        // Add data rows
+        filteredEvents.forEach((record, index) => {
+          // Extract location - use geo-reversed location name if available
+          let locationDisplay = 'N/A';
+          const locationField = getFieldValue(record, 'location');
+          
+          if (locationField) {
+            // If location is a JSON string (from geo-reverse), parse it
+            if (typeof locationField === 'string' && locationField.startsWith('{')) {
+              try {
+                const locObj = JSON.parse(locationField);
+                locationDisplay = locObj.city_name || locObj.display_name || locationField;
+              } catch (e) {
+                locationDisplay = locationField;
+              }
+            } else {
+              locationDisplay = locationField;
+            }
+          }
+
           const row = {
             deviceId: record.deviceId,
-            location: getFieldValue(record, 'location') || 'N/A',
+            location: locationDisplay,
             status: getFieldValue(record, 'status') || 'online',
             logNo: getFieldValue(record, 'logNo', 'log', 'LOG') || '',
             timestamp: record.timestamp instanceof Date ? record.timestamp.toISOString() : record.timestamp,
-            event: record.event || eventType,
-            acv: getFieldValue(record, 'ACV', 'acv') || '',
-            aci: getFieldValue(record, 'ACI', 'aci') || '',
-            dcv: getFieldValue(record, 'DCV', 'dcv') || '',
-            dci: getFieldValue(record, 'DCI', 'dci') || '',
-            ref1: getFieldValue(record, 'REF1', 'ref1') || '',
-            ref2: getFieldValue(record, 'REF2', 'ref2') || '',
-            ref3: getFieldValue(record, 'REF3', 'ref3') || '',
-            di1: getFieldValue(record, 'DI1', 'di1', 'DIGITAL INPUT 1', 'Digital Input 1') || '',
-            di2: getFieldValue(record, 'DI2', 'di2', 'DIGITAL INPUT 2', 'Digital Input 2') || '',
-            di3: getFieldValue(record, 'DI3', 'di3', 'DIGITAL INPUT 3', 'Digital Input 3') || '',
-            di4: getFieldValue(record, 'DI4', 'di4', 'DIGITAL INPUT 4', 'Digital Input 4') || '',
-            do: getFieldValue(record, 'DO', 'do', 'DIGITAL OUTPUT', 'Digital Output') || '',
-            latitude: getFieldValue(record, 'LATITUDE', 'latitude', 'LAT', 'lat') || '',
-            longitude: getFieldValue(record, 'LONGITUDE', 'longitude', 'LONG', 'long') || '',
-            ref1Status: getFieldValue(record, 'REF1Status', 'ref1Status', 'REF1 STS', 'REF1STATUS') || '',
-            ref2Status: getFieldValue(record, 'REF2Status', 'ref2Status', 'REF2 STS', 'REF2STATUS') || '',
-            ref3Status: getFieldValue(record, 'REF3Status', 'ref3Status', 'REF3 STS', 'REF3STATUS') || ''
+            event: record.event || eventType
           };
 
-          eventSheet.addRow(row);
+          // Add all data fields
+          allFields.forEach(field => {
+            row[field] = getFieldValue(record, field) || '';
+          });
 
+          const excelRow = eventSheet.addRow(row);
+
+          // Center align all cells in the row
+          excelRow.eachCell((cell) => {
+            cell.alignment = {
+              horizontal: 'center',
+              vertical: 'middle',
+              wrapText: true
+            };
+          });
+
+          // Add conditional formatting for alternate rows
           if (index % 2 === 1) {
             const rowNum = index + 2;
             eventSheet.getRow(rowNum).fill = {
@@ -346,45 +469,23 @@ class ExcelExportService {
               fgColor: { argb: 'F8F9FA' }
             };
           }
+
+          // Log progress every 1000 rows
+          if ((index + 1) % 1000 === 0) {
+            console.log(`   Added ${index + 1} rows to "${eventSheetName}"...`);
+          }
         });
 
-        console.log(`✅ Event sheet "${eventSheetName}" created with ${events.length} records`);
+        console.log(`✅ Event sheet "${eventSheetName}" created with ${filteredEvents.length} records`);
+        return filteredEvents.length;
       };
 
-      // Separate events by type
-      const normalEvents = telemetryData.filter(r => {
-        const evt = r.event;
-        const eventNum = Number(evt);
-        const eventStr = String(evt || '').toUpperCase().trim();
-        return eventNum === 0 || evt === 0 || evt === '0' || eventStr === 'NORMAL' || eventStr.startsWith('NORMAL');
-      });
-
-      const dpolEvents = telemetryData.filter(r => {
-        const evt = r.event;
-        const eventNum = Number(evt);
-        const eventStr = String(evt || '').toUpperCase().trim();
-        return eventNum === 3 || evt === 3 || evt === '3' || eventStr === 'DPOL' || eventStr === 'DEPOL' || eventStr.startsWith('DPOL') || eventStr.startsWith('DEPOL');
-      });
-
-      const intEvents = telemetryData.filter(r => {
-        const evt = r.event;
-        const eventNum = Number(evt);
-        const eventStr = String(evt || '').toUpperCase().trim();
-        return eventNum === 1 || evt === 1 || evt === '1' || eventStr === 'INT' || eventStr.startsWith('INT') || eventStr === 'INTERRUPT' || eventStr.startsWith('INTERRUPT');
-      });
-
-      const instEvents = telemetryData.filter(r => {
-        const evt = r.event;
-        const eventNum = Number(evt);
-        const eventStr = String(evt || '').toUpperCase().trim();
-        return eventNum === 4 || evt === 4 || evt === '4' || eventStr === 'INST' || eventStr.startsWith('INST') || eventStr === 'INSTANT' || eventStr.startsWith('INSTANT');
-      });
-
-      // Create event-specific worksheets
-      createEventSheet('NORMAL', normalEvents, 'NORMAL Events');
-      createEventSheet('DPOL', dpolEvents, 'DPOL Events');
-      createEventSheet('INT', intEvents, 'INT Events');
-      createEventSheet('INST', instEvents, 'INST Events');
+      // Create event-specific worksheets - always create all 4 types
+      console.log('\n📋 Creating event-specific worksheets...');
+      const normalCount = createEventSheet('NORMAL', 'NORMAL Events');
+      const dpolCount = createEventSheet('DPOL', 'DPOL Events');
+      const intCount = createEventSheet('INT', 'INT Events');
+      const instCount = createEventSheet('INST', 'INST Events');
 
       // Add summary worksheet
       const summarySheet = workbook.addWorksheet('Summary');
@@ -407,10 +508,10 @@ class ExcelExportService {
         { metric: 'Date Range', value: `${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}` },
         { metric: 'Total Records', value: telemetryData.length },
         { metric: 'Unique Devices', value: Object.keys(deviceCounts).length },
-        { metric: 'NORMAL Events', value: normalEvents.length },
-        { metric: 'DPOL Events', value: dpolEvents.length },
-        { metric: 'INT Events', value: intEvents.length },
-        { metric: 'INST Events', value: instEvents.length }
+        { metric: 'NORMAL Events', value: normalCount },
+        { metric: 'DPOL Events', value: dpolCount },
+        { metric: 'INT Events', value: intCount },
+        { metric: 'INST Events', value: instCount }
       ]);
 
       // Add device breakdown
@@ -427,10 +528,10 @@ class ExcelExportService {
         recordCount: telemetryData.length,
         devices: Object.keys(deviceCounts).length,
         eventCounts: {
-          normal: normalEvents.length,
-          dpol: dpolEvents.length,
-          int: intEvents.length,
-          inst: instEvents.length
+          normal: normalCount,
+          dpol: dpolCount,
+          int: intCount,
+          inst: instCount
         }
       };
 
@@ -496,24 +597,22 @@ class ExcelExportService {
 
       console.log('✅ Workbook sanitized');
 
+      // Generate buffer with streaming to reduce memory usage
       const buffer = await workbook.xlsx.writeBuffer();
       
-      console.log(`✅ Excel buffer generated: ${buffer.length} bytes`);
+      console.log(`✅ Excel buffer generated: ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
       return buffer;
     } catch (error) {
       console.error('❌ Error generating Excel buffer:', error.message);
       console.error('❌ Buffer error name:', error.name);
       console.error('❌ Buffer error code:', error.code);
-      console.error('❌ Buffer error stack:', error.stack);
       
-      // Try alternative approach if primary fails
-      try {
-        console.log('🔄 Attempting alternative buffer generation...');
-        return await workbook.xlsx.writeBuffer();
-      } catch (retryError) {
-        console.error('❌ Retry failed:', retryError.message);
-        throw error;
+      // If memory error, try to provide helpful guidance
+      if (error.message.includes('heap') || error.message.includes('memory')) {
+        console.error('💡 Suggestion: Reduce the number of records or increase Node.js heap size with: node --max-old-space-size=4096');
       }
+      
+      throw error;
     }
   }
 }

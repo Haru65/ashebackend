@@ -302,7 +302,7 @@ class DeviceManagementService {
           "Shunt Current": settings.shuntCurrent || 999,
           "Reference Fail": settings.referenceFail || 30,
           "Reference UP": settings.referenceUP || 300,
-          "Reference OV": settings.referenceOP || 60,
+          "Reference OP": settings.referenceOP || 60,
           "Interrupt ON Time": settings.interruptOnTime || 86400,
           "Interrupt OFF Time": settings.interruptOffTime || 86400,
           "Interrupt Start TimeStamp": settings.interruptStartTimeStamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
@@ -703,7 +703,7 @@ class DeviceManagementService {
       "Shunt Current": 999, // mA
       "Reference Fail": 30, // mV  
       "Reference UP": 300, // mV
-      "Reference OV": 60, // mV
+      "Reference OP": 60, // mV
       "Interrupt ON Time": 86400, // seconds (24 hours)
       "Interrupt OFF Time": 86400, // seconds (24 hours)
       "Interrupt Start TimeStamp": new Date().toISOString().replace('T', ' ').substring(0, 19),

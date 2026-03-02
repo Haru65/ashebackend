@@ -1192,11 +1192,28 @@ class DeviceConfigController {
           Object.entries(completePayload).forEach(([key, value]) => {
             const dbKey = keyMapping[key];
             if (dbKey) {
-              // Only log critical fields to reduce noise
-              if (['referenceFail', 'interruptOnTime', 'interruptOffTime', 'electrode', 'shuntVoltage'].includes(dbKey)) {
-                console.log(`   ✓ Mapping '${key}' → '${dbKey}' = ${value}`);
+              // CRITICAL: Convert reference values to proper decimal format for database storage
+              // Database expects: "0.30", "0.60", "1.23" (strings with 2 decimal places)
+              // Frontend sends: 0.30, 0.60, 1.23 (numbers or strings)
+              let dbValue = value;
+              
+              if (['referenceFail', 'referenceUP', 'referenceOP'].includes(dbKey)) {
+                // Convert to number, then format as string with 2 decimal places
+                const numValue = typeof value === 'string' ? parseFloat(value) : value;
+                if (!isNaN(numValue)) {
+                  dbValue = numValue.toFixed(2);
+                  console.log(`   ✓ Mapping '${key}' → '${dbKey}' = ${value} → ${dbValue} (formatted to 2 decimals)`);
+                } else {
+                  console.log(`   ⚠️ Invalid numeric value for '${key}': ${value}, using as-is`);
+                }
+              } else {
+                // Only log critical fields to reduce noise
+                if (['interruptOnTime', 'interruptOffTime', 'electrode', 'shuntVoltage'].includes(dbKey)) {
+                  console.log(`   ✓ Mapping '${key}' → '${dbKey}' = ${value}`);
+                }
               }
-              dbSettings[dbKey] = value;
+              
+              dbSettings[dbKey] = dbValue;
             } else {
               console.log(`   ⚠️ No mapping found for key '${key}', skipping`);
             }

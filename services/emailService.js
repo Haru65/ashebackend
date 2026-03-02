@@ -606,8 +606,7 @@ class EmailService {
             
             <p><strong>Alarm Name:</strong> ${alarmData.alarmName || 'Unknown'}</p>
             <p><strong>Device:</strong> ${alarmData.deviceName || 'Unknown'}</p>
-            <p><strong>Parameter:</strong> ${alarmData.parameter || 'N/A'}</p>
-            <p><strong>Severity:</strong> <span style="color: #dc3545; font-weight: bold;">${alarmData.severity || 'Unknown'}</span></p>
+            
             <p><strong>Timestamp:</strong> ${alarmData.timestamp || new Date().toLocaleString()}</p>
             
             <h3>Reason:</h3>

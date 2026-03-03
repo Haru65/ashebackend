@@ -14,20 +14,35 @@ class ExportController {
 
       console.log('📊 Export request:', { deviceId, startDate, endDate, format });
 
-      // Validate date range
-      const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      let end = endDate ? new Date(endDate) : new Date();
+      // Parse and validate date range with proper timezone handling
+      let start, end;
+      
+      if (startDate) {
+        // Parse YYYY-MM-DD format - treat as local midnight start
+        const [year, month, day] = startDate.split('-');
+        start = new Date(year, month - 1, day, 0, 0, 0, 0); // Local timezone midnight
+      } else {
+        // Default: 30 days ago from today
+        start = new Date();
+        start.setDate(start.getDate() - 30);
+        start.setHours(0, 0, 0, 0); // Set to start of day
+      }
+      
+      if (endDate) {
+        // Parse YYYY-MM-DD format - treat as local midnight + 23:59:59
+        const [year, month, day] = endDate.split('-');
+        end = new Date(year, month - 1, day, 23, 59, 59, 999); // Local timezone end of day
+      } else {
+        // Default: today at 23:59:59
+        end = new Date();
+        end.setHours(23, 59, 59, 999);
+      }
 
       if (isNaN(start.getTime()) || isNaN(end.getTime())) {
         return res.status(400).json({
           success: false,
           error: 'Invalid date format. Use YYYY-MM-DD format.'
         });
-      }
-
-      // Set end date to end of day (23:59:59) if it's just a date without time
-      if (endDate && !endDate.includes('T') && !endDate.includes(':')) {
-        end.setHours(23, 59, 59, 999);
       }
 
       if (start > end) {
@@ -42,7 +57,8 @@ class ExportController {
         originalEnd: endDate,
         processedStart: start.toISOString(),
         processedEnd: end.toISOString(),
-        daysSpan: Math.round((end - start) / (1000 * 60 * 60 * 24))
+        daysSpan: Math.round((end - start) / (1000 * 60 * 60 * 24)),
+        note: 'Using local timezone for date boundaries'
       });
 
       // Warn if trying to export a very large date range (on Render, this might timeout)

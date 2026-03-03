@@ -22,7 +22,7 @@ class ExcelExportService {
         maxRecords = 3000 // Reduced from 5000 for Render's memory constraints and 30s timeout
       } = options;
 
-      // Build query
+      // Build query with proper date handling
       const query = {
         timestamp: {
           $gte: startDate,
@@ -34,7 +34,16 @@ class ExcelExportService {
         query.deviceId = deviceId;
       }
 
-      console.log('📊 Exporting telemetry data with query:', JSON.stringify(query, null, 2));
+      console.log('📊 Exporting telemetry data with query:', {
+        dateRange: {
+          start: startDate instanceof Date ? startDate.toISOString() : startDate,
+          end: endDate instanceof Date ? endDate.toISOString() : endDate,
+          startType: typeof startDate,
+          endType: typeof endDate
+        },
+        deviceId: deviceId || 'all devices',
+        operator: '$gte and $lte (inclusive range)'
+      });
 
       // Count total records first
       const totalCount = await Telemetry.countDocuments(query);
@@ -62,9 +71,28 @@ class ExcelExportService {
         range: Math.round((endDate - startDate) / (1000 * 60 * 60 * 24)) + ' days'
       });
 
-      // Log first few records for debugging
+      // Log first and last records to verify date range
       if (telemetryData.length > 0) {
-        console.log('📝 First record sample:', JSON.stringify(telemetryData[0], null, 2));
+        const firstRecord = telemetryData[0];
+        const lastRecord = telemetryData[telemetryData.length - 1];
+        console.log('📝 First record:', {
+          timestamp: firstRecord.timestamp instanceof Date ? firstRecord.timestamp.toISOString() : firstRecord.timestamp,
+          event: firstRecord.event,
+          deviceId: firstRecord.deviceId
+        });
+        console.log('📝 Last record:', {
+          timestamp: lastRecord.timestamp instanceof Date ? lastRecord.timestamp.toISOString() : lastRecord.timestamp,
+          event: lastRecord.event,
+          deviceId: lastRecord.deviceId
+        });
+        
+        // Check date distribution
+        const dates = telemetryData.map(r => {
+          const d = r.timestamp instanceof Date ? r.timestamp : new Date(r.timestamp);
+          return d.toISOString().split('T')[0];
+        });
+        const uniqueDates = [...new Set(dates)].sort();
+        console.log(`📅 Records span ${uniqueDates.length} unique dates:`, uniqueDates.join(', '));
       }
 
       // Create workbook and worksheet

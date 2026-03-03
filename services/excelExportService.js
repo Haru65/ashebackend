@@ -19,7 +19,7 @@ class ExcelExportService {
         startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Default: last 30 days
         endDate = new Date(),
         filename = `telemetry_export_${new Date().toISOString().split('T')[0]}.xlsx`,
-        maxRecords = 3000 // Reduced from 5000 for Render's memory constraints and 30s timeout
+        maxRecords = 10000 // Increased to 10000 to capture more data across the date range
       } = options;
 
       // Build query with proper date handling
@@ -59,8 +59,10 @@ class ExcelExportService {
       }
 
       // Fetch telemetry data with limit
+      // Sort by ascending timestamp to get records from START of range (oldest first)
+      // This ensures we get a proper date distribution instead of just the most recent records
       const telemetryData = await Telemetry.find(query)
-        .sort({ timestamp: -1 })
+        .sort({ timestamp: 1 }) // 1 = ascending (oldest first), not -1 (newest first)
         .limit(maxRecords)
         .lean();
 

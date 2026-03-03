@@ -31,15 +31,37 @@ const io = initializeSocket(server);
 connectDB();
 
 // Middleware
-// TEMPORARY: Allow all origins for testing deployment
-// TODO: Set FRONTEND_URLS on Render with exact Vercel origin and revert this
+// CORS configuration for file downloads and Render deployment
+// Set high timeout limits globally for export operations (will be overridden per route)
+app.use((req, res, next) => {
+  // Set a higher timeout for the server itself (won't override Render's hard 30s limit)
+  // but ensures proper cleanup on timeout
+  req.setTimeout(28000); // 28 seconds to finish before Render's 30s hard limit
+  res.setTimeout(28000);
+  next();
+});
+
 app.use(cors({
-  origin: true, // Allow any origin
+  origin: true, // Allow any origin during development
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   credentials: true,
-  allowedHeaders: ["Content-Type", "Authorization", "Accept"]
+  allowedHeaders: ["Content-Type", "Authorization", "Accept"],
+  exposedHeaders: [
+    "Content-Disposition",
+    "Content-Type", 
+    "Content-Length",
+    "Transfer-Encoding",
+    "X-Total-Count"
+  ], // Expose all headers needed for file downloads
+  maxAge: 600
 }));
-app.use(express.json());
+app.use(express.json({
+  limit: '50mb' // Increase payload limit for large exports
+}));
+app.use(express.urlencoded({
+  limit: '50mb',
+  extended: true
+}));
 
 // Initialize services
 mqttService.initialize(io);
@@ -49,6 +71,38 @@ alarmMonitoringService.initialize(io);
 // Routes - ORDER MATTERS! Mount more specific routes before generic ones
 app.use('/api', deviceConfigRoutes); // Mount device config routes FIRST (more specific: /api/devices/:id/configure/...)
 app.use('/', routes); // Mount generic routes INCLUDING telemetry (has /api/telemetry)
+
+// Global error handler for request timeouts and other errors
+app.use((err, req, res, next) => {
+  console.error('❌ Global error handler:', {
+    message: err.message,
+    code: err.code,
+    statusCode: err.statusCode,
+    type: err.constructor.name
+  });
+
+  // Handle request timeout errors
+  if (err.code === 'ETIMEDOUT' || err.code === 'ECONNRESET' || err.message.includes('timeout')) {
+    if (!res.headersSent) {
+      res.status(503).json({
+        success: false,
+        error: 'Request timeout - Export took too long. Try exporting fewer records or a shorter date range.',
+        code: 'TIMEOUT_ERROR',
+        suggestion: 'Reduce records or date range to complete export within 30 seconds'
+      });
+    }
+    return;
+  }
+
+  // Default error response
+  if (!res.headersSent) {
+    res.status(err.statusCode || 500).json({
+      success: false,
+      error: err.message || 'Internal server error',
+      ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    });
+  }
+});
 
 // Periodic status logging
 const startStatusReporting = () => {

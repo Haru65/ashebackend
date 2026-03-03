@@ -8,11 +8,11 @@ const { Schema } = mongoose;
  */
 
 const NotificationSchema = new Schema({
-  // User Reference
+  // User Reference (optional for broadcast notifications)
   user_id: { 
     type: Schema.Types.ObjectId, 
-    required: true,
-    index: true
+    index: true,
+    sparse: true
   },
   
   // Notification Type
@@ -116,16 +116,16 @@ NotificationSchema.statics.createNotification = async function(params) {
   try {
     const mongoose = require('mongoose');
     
-    // Ensure user_id is an ObjectId
+    // Ensure user_id is an ObjectId (if provided)
     let userId = params.user_id;
-    if (typeof userId === 'string') {
+    if (userId && typeof userId === 'string') {
       userId = new mongoose.Types.ObjectId(userId);
     }
     
-    console.log('[Notification] 📝 Creating notification with user_id:', userId);
+    console.log('[Notification] 📝 Creating notification with user_id:', userId || '(broadcast)');
     
     const notification = new this({
-      user_id: userId,
+      user_id: userId || null, // Allow null for broadcast notifications
       type: params.type || 'alarm',
       alarm_id: params.alarm_id,
       alarm_name: params.alarm_name,
@@ -204,16 +204,44 @@ NotificationSchema.statics.getUserNotifications = async function(userId, limit =
  */
 NotificationSchema.statics.markAsRead = async function(notificationId) {
   try {
-    return await this.findByIdAndUpdate(
-      notificationId,
+    const mongoose = require('mongoose');
+    
+    console.log(`[Notification] 🔍 markAsRead: Looking for ID: ${notificationId}`);
+    
+    // Ensure notificationId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(notificationId)) {
+      console.error(`[Notification] ❌ Invalid ObjectId format: ${notificationId}`);
+      throw new Error(`Invalid notification ID format: ${notificationId}`);
+    }
+    
+    const objectId = new mongoose.Types.ObjectId(notificationId);
+    console.log(`[Notification] 🔧 Converted to ObjectId: ${objectId}`);
+    
+    const result = await this.findByIdAndUpdate(
+      objectId,
       { 
         is_read: true,
         read_at: new Date()
       },
       { new: true }
     );
+    
+    if (!result) {
+      console.warn(`[Notification] ⚠️ No notification found with ID: ${objectId}`);
+      // Try to list a few notifications to debug
+      const count = await this.countDocuments({});
+      console.log(`[Notification] 📊 Total notifications in DB: ${count}`);
+      if (count <= 10) {
+        const all = await this.find({}).select('_id user_id title is_read').limit(10);
+        console.log(`[Notification] 📋 Sample notifications:`, all);
+      }
+    } else {
+      console.log(`[Notification] ✅ Successfully marked as read: ${objectId}`);
+    }
+    
+    return result;
   } catch (error) {
-    console.error('[Notification] Error marking notification as read:', error);
+    console.error(`[Notification] ❌ Error marking notification as read:`, error);
     throw error;
   }
 };

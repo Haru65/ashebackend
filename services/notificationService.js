@@ -26,13 +26,14 @@ class NotificationService {
         triggered_values
       } = params;
 
-      if (!user_id) {
-        console.warn('[NotificationService] ⚠️ Cannot create notification: user_id is required');
+      // Allow user_id to be null (for broadcast notifications), but must be defined
+      if (user_id === undefined) {
+        console.warn('[NotificationService] ⚠️ Cannot create notification: user_id must be defined (can be null for broadcast)');
         return null;
       }
 
       console.log('[NotificationService] 📝 Creating alarm notification:', {
-        user_id: user_id.toString ? user_id.toString() : user_id,
+        user_id: user_id ? (user_id.toString ? user_id.toString() : user_id) : '(broadcast)',
         alarm_name,
         device_name
       });
@@ -53,6 +54,11 @@ class NotificationService {
           notification_type: 'alarm_trigger'
         }
       });
+
+      if (!notification || !notification._id) {
+        console.error('[NotificationService] ❌ Failed to create notification - returned null or invalid');
+        return null;
+      }
 
       console.log(`[NotificationService] ✅ Created alarm notification: ${notification._id}`);
       return notification;

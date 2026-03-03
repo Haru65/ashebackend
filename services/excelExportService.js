@@ -19,7 +19,7 @@ class ExcelExportService {
         startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Default: last 30 days
         endDate = new Date(),
         filename = `telemetry_export_${new Date().toISOString().split('T')[0]}.xlsx`,
-        maxRecords = 10000 // Limit to prevent memory issues
+        maxRecords = 5000 // Reduced from 10000 to ensure Render's 30s timeout is not exceeded
       } = options;
 
       // Build query

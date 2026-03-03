@@ -66,6 +66,7 @@ exports.createNotification = async (req, res) => {
 /**
  * Get all notifications for a user
  * GET /api/notifications/user/:userId
+ * Fetches both user-specific and broadcast (system-wide) notifications
  */
 exports.getUserNotifications = async (req, res) => {
   try {
@@ -73,10 +74,20 @@ exports.getUserNotifications = async (req, res) => {
     const { limit = 100 } = req.query;
 
     console.log(`[NotificationController] 📡 GET /api/notifications/user/${userId}?limit=${limit}`);
+    console.log(`[NotificationController] 🔄 Fetching both user-specific and broadcast notifications`);
 
-    const notifications = await Notification.getUserNotifications(userId, parseInt(limit));
+    // Fetch both user-specific notifications AND broadcast notifications (user_id: null)
+    const notifications = await Notification.find({
+      $or: [
+        { user_id: userId },           // User-specific notifications
+        { user_id: null, type: 'alarm' } // Broadcast alarm notifications
+      ]
+    })
+      .sort({ created_at: -1 })
+      .limit(parseInt(limit))
+      .lean();
 
-    console.log(`[NotificationController] ✅ Returning ${notifications.length} notifications`);
+    console.log(`[NotificationController] ✅ Returning ${notifications.length} notifications (users-specific + broadcast)`);
 
     res.status(200).json({
       success: true,
@@ -96,13 +107,26 @@ exports.getUserNotifications = async (req, res) => {
 /**
  * Get unread notifications for a user
  * GET /api/notifications/user/:userId/unread
+ * Includes both user-specific and broadcast notifications
  */
 exports.getUnreadNotifications = async (req, res) => {
   try {
     const { userId } = req.params;
     const { limit = 50 } = req.query;
 
-    const notifications = await Notification.getUnread(userId, parseInt(limit));
+    console.log(`[NotificationController] 📬 GET /api/notifications/user/${userId}/unread?limit=${limit}`);
+
+    const notifications = await Notification.find({
+      $or: [
+        { user_id: userId, is_read: false },           // Unread user-specific notifications
+        { user_id: null, type: 'alarm', is_read: false } // Unread broadcast notifications
+      ]
+    })
+      .sort({ created_at: -1 })
+      .limit(parseInt(limit))
+      .lean();
+
+    console.log(`[NotificationController] ✅ Found ${notifications.length} unread notifications`);
 
     res.status(200).json({
       success: true,
@@ -127,7 +151,48 @@ exports.markAsRead = async (req, res) => {
   try {
     const { notificationId } = req.params;
 
-    const notification = await Notification.markAsRead(notificationId);
+    console.log(`[NotificationController] 📝 markAsRead called for notificationId: ${notificationId}`);
+
+    if (!notificationId) {
+      console.error('[NotificationController] ❌ Missing notificationId');
+      return res.status(400).json({
+        success: false,
+        message: 'Missing notificationId parameter'
+      });
+    }
+
+    // Clean up the notificationId if it has extra characters (e.g., "-timestamp" appended)
+    // Format: ObjectId-Timestamp where ObjectId is 24 hex chars
+    let cleanId = notificationId;
+    
+    if (notificationId.includes('-')) {
+      // Split by hyphen
+      const parts = notificationId.split('-');
+      
+      // If first part is 24 hex chars (valid ObjectId), use it
+      if (parts[0].length === 24 && /^[a-f0-9]{24}$/i.test(parts[0])) {
+        cleanId = parts[0];
+        if (cleanId !== notificationId) {
+          console.log(`[NotificationController] 🔧 Extracted ObjectId from ${notificationId} to ${cleanId}`);
+        }
+      }
+    }
+
+    console.log(`[NotificationController] 🔍 Looking up notification with ID: ${cleanId}`);
+    
+    const notification = await Notification.markAsRead(cleanId);
+
+    if (!notification) {
+      console.error(`[NotificationController] ❌ Notification not found with ID: ${cleanId}`);
+      console.log(`[NotificationController] 📝 Original ID was: ${notificationId}`);
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found',
+        searchedId: cleanId
+      });
+    }
+
+    console.log(`[NotificationController] ✅ Notification marked as read: ${cleanId}`);
 
     res.status(200).json({
       success: true,
@@ -135,7 +200,7 @@ exports.markAsRead = async (req, res) => {
       notification
     });
   } catch (error) {
-    console.error('[NotificationController] Error marking notification as read:', error);
+    console.error('[NotificationController] ❌ Error marking notification as read:', error);
     res.status(500).json({
       success: false,
       message: 'Error marking notification as read',
@@ -227,6 +292,86 @@ exports.getNotificationCount = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error getting notification count',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get all broadcast (system-wide) notifications
+ * GET /api/notifications/broadcast/all
+ * Returns notifications with null user_id (sent to all users)
+ */
+exports.getBroadcastNotifications = async (req, res) => {
+  try {
+    console.log(`[NotificationController] 🚀 getBroadcastNotifications called`);
+    const { limit = 100 } = req.query;
+
+    console.log(`[NotificationController] 📡 GET /api/notifications/broadcast/all?limit=${limit}`);
+    console.log(`[NotificationController] 📡 Querying for notifications with user_id: null`);
+
+    const notifications = await Notification.find({
+      user_id: null,
+      type: 'alarm'
+    })
+      .sort({ created_at: -1 })
+      .limit(parseInt(limit))
+      .lean();
+
+    console.log(`[NotificationController] ✅ Query completed. Found ${notifications.length} broadcast notifications`);
+
+    const responseData = {
+      success: true,
+      count: notifications.length,
+      notifications,
+      message: `Found ${notifications.length} broadcast alarm notifications`
+    };
+    
+    console.log(`[NotificationController] 📤 Sending response:`, { success: true, count: responseData.count });
+    res.status(200).json(responseData);
+  } catch (error) {
+    console.error('[NotificationController] ❌ Error in getBroadcastNotifications:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching broadcast notifications',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get unread broadcast notifications
+ * GET /api/notifications/broadcast/unread
+ * Returns unread broadcast notifications with null user_id
+ */
+exports.getUnreadBroadcastNotifications = async (req, res) => {
+  try {
+    const { limit = 50 } = req.query;
+
+    console.log(`[NotificationController] 📬 GET /api/notifications/broadcast/unread?limit=${limit}`);
+
+    const notifications = await Notification.find({
+      user_id: null,
+      type: 'alarm',
+      is_read: false
+    })
+      .sort({ created_at: -1 })
+      .limit(parseInt(limit))
+      .lean();
+
+    console.log(`[NotificationController] ✅ Returning ${notifications.length} unread broadcast notifications`);
+
+    res.status(200).json({
+      success: true,
+      count: notifications.length,
+      notifications,
+      message: `Found ${notifications.length} unread broadcast alarm notifications`
+    });
+  } catch (error) {
+    console.error('[NotificationController] Error fetching unread broadcast notifications:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching unread broadcast notifications',
       error: error.message
     });
   }

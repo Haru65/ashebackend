@@ -38,6 +38,25 @@ class AlarmMonitoringService {
   }
 
   /**
+   * Helper: Extract triggered values from device data
+   */
+  getTriggeredValues(deviceData) {
+    const params = deviceData.Parameters || deviceData;
+    return {
+      'REF1 STS': params['REF1 STS'] || '',
+      'REF2 STS': params['REF2 STS'] || '',
+      'REF3 STS': params['REF3 STS'] || '',
+      'REF1': params.REF1 || params.ref1 || '',
+      'REF2': params.REF2 || params.ref2 || '',
+      'REF3': params.REF3 || params.ref3 || '',
+      'DCV': params.DCV || params.dcv || 0,
+      'DCI': params.DCI || params.dci || 0,
+      'ACV': params.ACV || params.acv || 0,
+      'EVENT': params.EVENT || params.Event || 'NORMAL'
+    };
+  }
+
+  /**
    * Check device data against alarms ONLY for that specific device
    * @param {Object} deviceData - Device data with parameters
    * @param {String} deviceId - Device ID
@@ -229,34 +248,77 @@ class AlarmMonitoringService {
    */
   async sendAlarmNotification(alarm, device, deviceData, reason) {
     try {
-      // ALWAYS log alarm trigger to database history (regardless of throttling)
-      // This ensures every trigger is recorded for audit trail
+      // ALWAYS log alarm trigger to database history
       await this.logAlarmTrigger(alarm, device, deviceData, reason);
 
       const alarmKey = `${alarm._id.toString()}`;
 
-      // Prevent duplicate notifications within 10 minutes for pop-ups (only if triggered before)
+      // Check if we should emit notification (10-minute throttle for WebSocket to prevent spam)
+      let shouldEmitNotification = true;
       if (this.triggeredAlarms.has(alarmKey)) {
         const lastTrigger = this.triggeredAlarms.get(alarmKey);
         const timeSinceLastTrigger = Date.now() - lastTrigger;
-        const throttleTime = 10 * 60 * 1000; // 10 minutes for pop-ups
+        const throttleTime = 10 * 60 * 1000; // 10 minutes for WebSocket events
         
         if (timeSinceLastTrigger < throttleTime) {
-          const timeRemaining = Math.ceil((throttleTime - timeSinceLastTrigger) / 1000);
-          const minutes = Math.floor(timeRemaining / 60);
-          const seconds = timeRemaining % 60;
-          
-          console.log(`[Alarm Monitor] ℹ️ Alarm '${alarm.name}' already triggered recently, skipping notification (retry in ${minutes}m ${seconds}s)`);
-          return;
+          shouldEmitNotification = false;
         }
-        // If throttle expired, allow this trigger to proceed and reset timer below
-      } else {
-        // First trigger - no throttle applied, timer starts now
-        console.log(`[Alarm Monitor] 🚨 First trigger detected for '${alarm.name}'! Sending notification immediately (10m throttle timer now starts)`);
       }
 
-      // Record this alarm trigger and start/reset 10-minute timer for pop-ups
-      this.triggeredAlarms.set(alarmKey, Date.now());
+      // ALWAYS save notification to database (NOT throttled)
+      // This ensures every trigger is recorded, even if UI events are throttled
+      try {
+        console.log(`[Alarm Monitor] 💾 Creating broadcast notification record in database`);
+        
+        const notification = await this.notificationService.createAlarmNotification({
+          user_id: null, // Broadcast notification - all users can fetch it
+          alarm_id: alarm._id.toString(),
+          alarm_name: alarm.name,
+          device_id: device.deviceId,
+          device_name: device.deviceName || device.deviceId,
+          trigger_reason: reason,
+          severity: alarm.severity || 'warning',
+          triggered_values: this.getTriggeredValues(deviceData)
+        });
+        
+        if (notification && notification._id) {
+          console.log(`[Alarm Monitor] ✅ Notification saved to database with ID: ${notification._id.toString()}`);
+        }
+      } catch (dbError) {
+        console.error('[Alarm Monitor] ❌ Error saving notification to database:', dbError.message);
+      }
+
+      // Only emit WebSocket notification if throttle allows
+      if (shouldEmitNotification) {
+        this.triggeredAlarms.set(alarmKey, Date.now());
+        console.log(`[Alarm Monitor] 🚨 First trigger or throttle expired for '${alarm.name}'. Emitting WebSocket notification.`);
+        
+        const params = deviceData.Parameters || deviceData;
+        const notificationData = {
+          alarm_id: alarm._id.toString(),
+          alarm_name: alarm.name,
+          device_id: device.deviceId,
+          device_name: device.deviceName || device.deviceId,
+          trigger_reason: reason,
+          severity: alarm.severity || 'warning',
+          parameter: alarm.parameter,
+          triggered_at: new Date().toISOString(),
+          triggered_values: this.getTriggeredValues(deviceData),
+          notification_type: 'email_sent',
+          email_notification: true
+        };
+
+        this.io.emit('alarm:triggered', notificationData);
+        console.log(`✅ [Alarm Monitor] Alarm triggered event emitted successfully`);
+      } else {
+        const lastTrigger = this.triggeredAlarms.get(alarmKey);
+        const timeSinceLastTrigger = Date.now() - lastTrigger;
+        const throttleTime = 10 * 60 * 1000;
+        const timeRemaining = Math.ceil((throttleTime - timeSinceLastTrigger) / 1000);
+        const minutes = Math.floor(timeRemaining / 60);
+        const seconds = timeRemaining % 60;
+        console.log(`[Alarm Monitor] ℹ️ Alarm '${alarm.name}' notification throttled (saved to DB). WebSocket emit retry in ${minutes}m ${seconds}s`);
+      }
 
       // Get email addresses from alarm configuration
       const emailAddresses = alarm.notification_config?.email_ids || [];
@@ -328,96 +390,8 @@ class AlarmMonitoringService {
         }
       }
 
-      // Emit notification event to frontend (regardless of email sending)
-      // This ensures the popup shows even if email throttling prevents email sending
-      await this.emitNotificationEvent(alarm, device, deviceData, reason);
-
     } catch (error) {
       console.error('[Alarm Monitor] Error sending alarm notification:', error);
-    }
-  }
-
-  /**
-   * Emit notification event to frontend via WebSocket
-   * Called when emails are successfully sent
-   */
-  async emitNotificationEvent(alarm, device, deviceData, reason) {
-    try {
-      if (!this.io) {
-        console.warn(`[Alarm Monitor] ⚠️ WebSocket not initialized, cannot emit notification event`);
-        return;
-      }
-
-      const params = deviceData.Parameters || deviceData;
-      const triggeredValues = {
-        'REF1 STS': params['REF1 STS'] || '',
-        'REF2 STS': params['REF2 STS'] || '',
-        'REF3 STS': params['REF3 STS'] || '',
-        'REF1': params.REF1 || params.ref1 || '',
-        'REF2': params.REF2 || params.ref2 || '',
-        'REF3': params.REF3 || params.ref3 || '',
-        'DCV': params.DCV || params.dcv || 0,
-        'DCI': params.DCI || params.dci || 0,
-        'ACV': params.ACV || params.acv || 0,
-        'EVENT': params.EVENT || params.Event || 'NORMAL'
-      };
-
-      const notificationData = {
-        alarm_id: alarm._id.toString(),
-        alarm_name: alarm.name,
-        device_id: device.deviceId,
-        device_name: device.deviceName || device.deviceId,
-        trigger_reason: reason,
-        severity: alarm.severity || 'warning',
-        parameter: alarm.parameter,
-        triggered_at: new Date().toISOString(),
-        triggered_values: triggeredValues,
-        notification_type: 'email_sent',
-        email_notification: true
-      };
-
-      console.log(`📧 [Alarm Monitor] Emitting alarm triggered event:`, {
-        alarm: alarm.name,
-        device: device.deviceName,
-        type: 'alarm_triggered'
-      });
-
-      this.io.emit('alarm:triggered', notificationData);
-      console.log(`✅ [Alarm Monitor] Alarm triggered event emitted successfully`);
-
-      // Save notification to database for all users
-      // TODO: In future, filter by users who have access to this device/alarm
-      try {
-        const User = require('../models/user');
-        const users = await User.find({ isActive: true }).select('_id').lean();
-        
-        console.log(`[Alarm Monitor] 👥 Found ${users.length} active user(s) to notify`);
-        
-        for (const user of users) {
-          try {
-            await this.notificationService.createAlarmNotification({
-              user_id: user._id, // Pass ObjectId directly, not string
-              alarm_id: alarm._id.toString(),
-              alarm_name: alarm.name,
-              device_id: device.deviceId,
-              device_name: device.deviceName || device.deviceId,
-              trigger_reason: reason,
-              severity: alarm.severity || 'warning',
-              triggered_values: triggeredValues
-            });
-            console.log(`[Alarm Monitor] ✅ Notification saved for user: ${user._id}`);
-          } catch (userError) {
-            console.error(`[Alarm Monitor] ❌ Failed to save notification for user ${user._id}:`, userError.message);
-          }
-        }
-        
-        console.log(`[Alarm Monitor] 💾 Saved alarm notification to database for ${users.length} user(s)`);
-      } catch (dbError) {
-        console.error('[Alarm Monitor] Error saving notification to database:', dbError);
-      }
-
-    } catch (error) {
-      console.error('[Alarm Monitor] Error emitting notification event:', error);
     }
   }
 

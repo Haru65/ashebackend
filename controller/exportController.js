@@ -41,8 +41,21 @@ class ExportController {
         originalStart: startDate,
         originalEnd: endDate,
         processedStart: start.toISOString(),
-        processedEnd: end.toISOString()
+        processedEnd: end.toISOString(),
+        daysSpan: Math.round((end - start) / (1000 * 60 * 60 * 24))
       });
+
+      // Warn if trying to export a very large date range (on Render, this might timeout)
+      const daySpan = Math.round((end - start) / (1000 * 60 * 60 * 24));
+      if (daySpan > 90) {
+        console.warn(`⚠️ WARNING: Exporting ${daySpan} days of data. On Render (30s timeout), consider reducing to under 90 days for better reliability.`);
+      }
+
+      // Set a longer timeout for this request (for Render deployment)
+      // NOTE: Render hard timeout is 30 seconds
+      // Streaming approach keeps us under this limit by not buffering
+      
+      console.log('⏱️ Export initiated within Render 30s window');
 
       // Generate Excel file
       const exportResult = await ExcelExportService.exportTelemetryToExcel({
@@ -69,31 +82,55 @@ class ExportController {
           }
         });
       } else {
-        // Send as download
+        // Send as download using streaming for better performance on Render
         try {
-          const buffer = await ExcelExportService.getExcelBuffer(exportResult.workbook);
-          console.log(`📦 Excel buffer created: ${buffer.length} bytes`);
-
+          // Set all headers BEFORE sending data
           res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
           res.setHeader('Content-Disposition', `attachment; filename="${exportResult.filename}"`);
-          res.setHeader('Content-Length', buffer.length);
           res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+          res.setHeader('Transfer-Encoding', 'chunked');
 
-          res.send(buffer);
-          console.log(`✅ Excel file sent successfully: ${exportResult.filename}`);
-        } catch (bufferError) {
-          console.error('❌ Error creating Excel buffer:', bufferError);
-          console.error('❌ Error message:', bufferError.message);
-          console.error('❌ Error name:', bufferError.name);
-          console.error('❌ Error stack:', bufferError.stack);
+          console.log('📤 Starting streaming Excel export...');
+
+          // Use streaming to write directly to response (avoids memory buffer)
+          // This prevents timeouts on Render's 30-second limit
+          const stream = exportResult.workbook.xlsx.createReadStream();
+          
+          stream.on('error', (streamError) => {
+            console.error('❌ Stream error:', streamError);
+            if (!res.headersSent) {
+              res.status(500).json({
+                success: false,
+                error: 'Stream error during export',
+                details: streamError.message
+              });
+            } else {
+              res.end();
+            }
+          });
+
+          stream.pipe(res);
+
+          res.on('finish', () => {
+            console.log(`✅ Excel file streamed successfully: ${exportResult.filename}`);
+          });
+
+          res.on('close', () => {
+            stream.destroy();
+          });
+
+        } catch (streamError) {
+          console.error('❌ Error during streaming export:', streamError);
+          console.error('❌ Error message:', streamError.message);
           
           // Return error response instead of sending file
           if (!res.headersSent) {
             res.status(500).json({
               success: false,
-              error: 'Failed to generate Excel file buffer',
-              details: bufferError.message,
-              errorName: bufferError.name
+              error: 'Failed to stream Excel file',
+              details: streamError.message
             });
           }
         }

@@ -4,27 +4,36 @@ const notificationController = require('../controller/notificationController');
 
 /**
  * Notification Routes
+ * IMPORTANT: Specific routes must come BEFORE generic parameter-based routes!
+ * Routes are processed in order, so more specific patterns must come first
  */
 
-// Create a new notification
-router.post('/', notificationController.createNotification);
+// Broadcast notifications route (must come FIRST - most specific)
+router.get('/broadcast/all', notificationController.getBroadcastNotifications);
+router.get('/broadcast/unread', notificationController.getUnreadBroadcastNotifications);
 
-// Get all notifications for a user
+// Specific routes for user notifications (must come BEFORE generic parameter-based routes)
+router.get('/user/:userId/unread', notificationController.getUnreadNotifications);
+router.get('/user/:userId/count', notificationController.getNotificationCount);
+router.put('/user/:userId/read-all', notificationController.markAllAsRead);
 router.get('/user/:userId', notificationController.getUserNotifications);
 
-// Get unread notifications for a user
-router.get('/user/:userId/unread', notificationController.getUnreadNotifications);
+// Routes for individual notification operations by ID
+// These handle IDs like "69a295482daae0853553ebdc" or "69a295482daae0853553ebdc-1772543662965"
+router.put('/:notificationId/read', (req, res, next) => {
+  console.log(`[NotificationRoutes] 📥 PUT /:notificationId/read called`);
+  console.log(`[NotificationRoutes] 📝 notificationId param: ${req.params.notificationId}`);
+  console.log(`[NotificationRoutes] 📊 Full URL: ${req.originalUrl}`);
+  next();
+}, notificationController.markAsRead);
 
-// Get notification count for a user
-router.get('/user/:userId/count', notificationController.getNotificationCount);
+router.delete('/:notificationId', (req, res, next) => {
+  console.log(`[NotificationRoutes] 📥 DELETE /:notificationId called`);
+  console.log(`[NotificationRoutes] 📝 notificationId param: ${req.params.notificationId}`);
+  next();
+}, notificationController.deleteNotification);
 
-// Mark notification as read
-router.put('/:notificationId/read', notificationController.markAsRead);
-
-// Mark all notifications as read for a user
-router.put('/user/:userId/read-all', notificationController.markAllAsRead);
-
-// Delete a notification
-router.delete('/:notificationId', notificationController.deleteNotification);
+// Generic routes (must come last)
+router.post('/', notificationController.createNotification);
 
 module.exports = router;

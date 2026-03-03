@@ -348,6 +348,7 @@ class AlarmMonitoringService {
       }
 
       // Prepare email data
+      const params = deviceData.Parameters || deviceData;
       const emailData = {
         alarmName: alarm.name,
         deviceName: device.deviceName || device.deviceId,
@@ -356,12 +357,13 @@ class AlarmMonitoringService {
         reason: reason,
         timestamp: new Date().toLocaleString(),
         device_params: {
-          ref_1: { upper: alarm.device_params?.ref_1_upper || 0, lower: alarm.device_params?.ref_1_lower || 0 },
-          ref_2: { upper: alarm.device_params?.ref_2_upper || 0, lower: alarm.device_params?.ref_2_lower || 0 },
-          ref_3: { upper: alarm.device_params?.ref_3_upper || 0, lower: alarm.device_params?.ref_3_lower || 0 },
-          dcv: { upper: alarm.device_params?.dcv_upper || 0, lower: alarm.device_params?.dcv_lower || 0, value: deviceData.dcv || deviceData.voltage || 0 },
-          dci: { upper: alarm.device_params?.dci_upper || 0, lower: alarm.device_params?.dci_lower || 0, value: deviceData.dci || deviceData.current || 0 },
-          acv: { upper: alarm.device_params?.acv_upper || 0, lower: alarm.device_params?.acv_lower || 0, value: deviceData.acv || deviceData.acVoltage || 0 }
+          ref_1: parseFloat(params.REF1 || params.ref1 || 0),
+          ref_2: parseFloat(params.REF2 || params.ref2 || 0),
+          ref_3: parseFloat(params.REF3 || params.ref3 || 0),
+          dcv: parseFloat(params.DCV || params.dcv || 0),
+          dci: parseFloat(params.DCI || params.dci || 0),
+          acv: parseFloat(params.ACV || params.acv || 0),
+          event: params.EVENT || params.Event || 'NORMAL'
         }
       };
 

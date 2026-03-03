@@ -306,21 +306,36 @@ class EmailService {
           if (telemetryData[field] !== undefined && telemetryData[field] !== null) {
             let value = telemetryData[field];
             
+            // Convert to string first if it's a number or boolean
+            if (typeof value === 'number' || typeof value === 'boolean') {
+              return String(value);
+            }
+            
+            // If it's already a string, return it
+            if (typeof value === 'string') {
+              return value;
+            }
+            
             // Handle object values - extract the actual data
             if (typeof value === 'object') {
               // If the object has a 'value' property, use that
               if (value.value !== undefined) {
-                value = value.value;
+                return String(value.value);
               } else if (value.status !== undefined && Object.keys(value).length === 1) {
                 // If only status field exists, use it
-                value = value.status;
+                return String(value.status);
               } else {
-                // Otherwise, try to get the first numeric or string property
-                value = Object.values(value).find(v => typeof v === 'number' || typeof v === 'string') || JSON.stringify(value);
+                // Try to get the first numeric or string property
+                const extracted = Object.values(value).find(v => typeof v === 'number' || typeof v === 'string');
+                if (extracted !== undefined) {
+                  return String(extracted);
+                }
+                // If all else fails, return empty string instead of [object Object]
+                return 'N/A';
               }
             }
             
-            return value;
+            return String(value);
           }
         }
       }
@@ -608,6 +623,73 @@ class EmailService {
   formatAlarmEmailContent(alarmData) {
     if (!alarmData) return '<p>Alarm triggered</p>';
 
+    // Helper to safely extract values from objects or scalars
+    const extractValue = (val) => {
+      if (val === null || val === undefined) return 'N/A';
+      
+      // If it's a number, format with proper decimal places
+      if (typeof val === 'number') {
+        // Return with 2 decimal places if not an integer
+        return !Number.isInteger(val) ? val.toFixed(2) : String(val);
+      }
+      
+      // If it's a boolean, convert to string
+      if (typeof val === 'boolean') {
+        return String(val);
+      }
+      
+      // If it's already a string, check if it's a number string
+      if (typeof val === 'string') {
+        // Try to parse as float to check formatting
+        const asNum = parseFloat(val);
+        if (!isNaN(asNum) && val.trim()) {
+          return !Number.isInteger(asNum) ? asNum.toFixed(2) : String(asNum);
+        }
+        return val;
+      }
+      
+      // If it's an object with a 'value' property, extract it
+      if (typeof val === 'object' && val.value !== undefined) {
+        if (typeof val.value === 'number') {
+          return !Number.isInteger(val.value) ? val.value.toFixed(2) : String(val.value);
+        }
+        if (typeof val.value === 'string') {
+          const asNum = parseFloat(val.value);
+          if (!isNaN(asNum) && val.value.trim()) {
+            return !Number.isInteger(asNum) ? asNum.toFixed(2) : String(asNum);
+          }
+          return String(val.value);
+        }
+        return String(val.value);
+      }
+      
+      // If it's an object with a 'status' property only, use that
+      if (typeof val === 'object' && val.status !== undefined && Object.keys(val).length === 1) {
+        return String(val.status);
+      }
+      
+      // Try to get first string/number property from object
+      if (typeof val === 'object') {
+        const extracted = Object.values(val).find(v => typeof v === 'string' || typeof v === 'number');
+        if (extracted !== undefined) {
+          if (typeof extracted === 'number') {
+            return !Number.isInteger(extracted) ? extracted.toFixed(2) : String(extracted);
+          }
+          if (typeof extracted === 'string') {
+            const asNum = parseFloat(extracted);
+            if (!isNaN(asNum) && extracted.trim()) {
+              return !Number.isInteger(asNum) ? asNum.toFixed(2) : String(asNum);
+            }
+            return extracted;
+          }
+          return String(extracted);
+        }
+      }
+      
+      // Fallback to N/A instead of [object Object]
+      return 'N/A';
+    };
+
     return `
       <html>
         <body style="font-family: Arial, sans-serif; color: #333;">
@@ -627,35 +709,35 @@ class EmailService {
             <table style="border-collapse: collapse; width: 100%; margin-top: 10px;">
               <tr>
                 <td style="border: 1px solid #ddd; padding: 8px;"><strong>DCV (DC Voltage)</strong></td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.dcv?.value || alarmData.device_params.dcv || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${extractValue(alarmData.device_params.dcv)}</td>
               </tr>
               <tr style="background-color: #f9f9f9;">
                 <td style="border: 1px solid #ddd; padding: 8px;"><strong>DCI (DC Current)</strong></td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.dci?.value || alarmData.device_params.dci || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${extractValue(alarmData.device_params.dci)}</td>
               </tr>
               <tr>
                 <td style="border: 1px solid #ddd; padding: 8px;"><strong>ACV (AC Voltage)</strong></td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.acv?.value || alarmData.device_params.acv || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${extractValue(alarmData.device_params.acv)}</td>
               </tr>
               <tr style="background-color: #fff3cd;">
                 <td style="border: 1px solid #ddd; padding: 8px;"><strong>REF1 (Reference 1)</strong></td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.ref_1?.value || alarmData.device_params.ref_1 || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${extractValue(alarmData.device_params.ref_1)}</td>
               </tr>
               <tr style="background-color: #f9f9f9;">
                 <td style="border: 1px solid #ddd; padding: 8px;"><strong>REF2 (Reference 2)</strong></td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.ref_2?.value || alarmData.device_params.ref_2 || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${extractValue(alarmData.device_params.ref_2)}</td>
               </tr>
               <tr>
                 <td style="border: 1px solid #ddd; padding: 8px;"><strong>REF3 (Reference 3)</strong></td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.ref_3?.value || alarmData.device_params.ref_3 || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${extractValue(alarmData.device_params.ref_3)}</td>
               </tr>
               ${alarmData.device_params.event ? `<tr style="background-color: #f9f9f9;">
                 <td style="border: 1px solid #ddd; padding: 8px;"><strong>Event Type</strong></td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.event || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${extractValue(alarmData.device_params.event)}</td>
               </tr>` : ''}
               ${alarmData.device_params.mode ? `<tr style="background-color: #f9f9f9;">
                 <td style="border: 1px solid #ddd; padding: 8px;"><strong>Device Mode</strong></td>
-                <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.mode || 'N/A'}</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">${extractValue(alarmData.device_params.mode)}</td>
               </tr>` : ''}
             </table>
             ` : ''}

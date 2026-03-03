@@ -113,6 +113,13 @@ server.listen(PORT, () => {
   console.log('📊 Device Configuration initialized');
   console.log('⏳ Waiting for real MQTT data from device 123...');
   
+  // Log Socket.IO configuration
+  console.log('\n🔌 === SOCKET.IO CONFIGURATION ===');
+  console.log('Frontend URL(s):', process.env.FRONTEND_URLS || process.env.FRONTEND_URL || 'Not configured (allowing all origins)');
+  console.log('CORS enabled for WebSocket connections');
+  console.log('Transports: websocket, polling');
+  console.log('=====================================\n');
+  
   // Check email service immediately on startup
   initializeEmailService();
   

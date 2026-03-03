@@ -2341,7 +2341,7 @@ class MQTTService {
         });
         
         // Only set location if both are valid decimal numbers AND not zero/null coordinates
-        if (!isNaN(lat) && !isNaN(lon) && (lat !== 0 || lon !== 0)) {
+        if (lat !== null && lon !== null && !isNaN(lat) && !isNaN(lon) && (lat !== 0 || lon !== 0)) {
           console.log(`📍 Converted coordinates - Original: ${rawLatitude}, ${rawLongitude} → Decimal: ${lat}, ${lon}`);
           
           // ✅ CHECK DMS LOCATION MAP FIRST - for known device locations
@@ -2971,6 +2971,11 @@ class MQTTService {
 
   // Check if coordinates match any known DMS location mapping
   checkDMSLocationMap(lat, lon) {
+    // Null/undefined safety check
+    if (lat === null || lon === null || lat === undefined || lon === undefined) {
+      return null;
+    }
+    
     // Format the coordinates as strings to check against map
     const decimalKey = `${lat},${lon}`;
     const decimalKeyRounded = `${lat.toFixed(2)},${lon.toFixed(2)}`;

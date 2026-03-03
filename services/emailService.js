@@ -304,7 +304,23 @@ class EmailService {
       if (Array.isArray(fieldNames)) {
         for (const field of fieldNames) {
           if (telemetryData[field] !== undefined && telemetryData[field] !== null) {
-            return telemetryData[field];
+            let value = telemetryData[field];
+            
+            // Handle object values - extract the actual data
+            if (typeof value === 'object') {
+              // If the object has a 'value' property, use that
+              if (value.value !== undefined) {
+                value = value.value;
+              } else if (value.status !== undefined && Object.keys(value).length === 1) {
+                // If only status field exists, use it
+                value = value.status;
+              } else {
+                // Otherwise, try to get the first numeric or string property
+                value = Object.values(value).find(v => typeof v === 'number' || typeof v === 'string') || JSON.stringify(value);
+              }
+            }
+            
+            return value;
           }
         }
       }
@@ -314,12 +330,6 @@ class EmailService {
     const parametersTableHTML = `
       <h3>Device Parameters & Telemetry Values:</h3>
       <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
-        <thead>
-          <tr style="background-color: #f8f9fa; border-bottom: 2px solid #dee2e6;">
-            <th style="padding: 10px; text-align: left; border: 1px solid #dee2e6;">Parameter</th>
-            <th style="padding: 10px; text-align: center; border: 1px solid #dee2e6;">Current Value</th>
-          </tr>
-        </thead>
         <tbody>
           <tr style="border-bottom: 1px solid #dee2e6; background-color: #ffe6e6;">
             <td style="padding: 10px; border: 1px solid #dee2e6;"><strong>🔴 REF1 Status</strong></td>
@@ -615,10 +625,6 @@ class EmailService {
             ${alarmData.device_params ? `
             <h3>Device Parameters & Telemetry Values:</h3>
             <table style="border-collapse: collapse; width: 100%; margin-top: 10px;">
-              <tr style="background-color: #e9ecef;">
-                <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Parameter</th>
-                <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Current Value</th>
-              </tr>
               <tr>
                 <td style="border: 1px solid #ddd; padding: 8px;"><strong>DCV (DC Voltage)</strong></td>
                 <td style="border: 1px solid #ddd; padding: 8px;">${alarmData.device_params.dcv?.value || alarmData.device_params.dcv || 'N/A'}</td>

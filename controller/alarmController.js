@@ -761,6 +761,144 @@ class AlarmController {
       });
     }
   }
+
+  /**
+   * Clear old alarm notifications (older than specified days)
+   * Helps manage database size
+   */
+  async clearOldNotifications(req, res) {
+    try {
+      const AlarmTrigger = require('../models/AlarmTrigger');
+      const daysOld = parseInt(req.query.days) || 30; // Default: clear notifications older than 30 days
+      
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+      
+      console.log(`🗑️ [Alarm] Clearing notifications older than ${daysOld} days (before ${cutoffDate.toISOString()})`);
+      
+      const result = await AlarmTrigger.deleteMany({
+        triggered_at: { $lt: cutoffDate }
+      });
+      
+      console.log(`🗑️ [Alarm] Deleted ${result.deletedCount} old notifications`);
+      
+      res.json({
+        success: true,
+        message: `Deleted ${result.deletedCount} notifications older than ${daysOld} days`,
+        deletedCount: result.deletedCount
+      });
+    } catch (error) {
+      console.error('Error clearing old notifications:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error clearing old notifications',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get notification statistics
+   * Returns counts by severity, status, etc.
+   */
+  async getNotificationStats(req, res) {
+    try {
+      const AlarmTrigger = require('../models/AlarmTrigger');
+      
+      const stats = await AlarmTrigger.aggregate([
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            bySeverity: {
+              $push: {
+                severity: '$alarm_config.severity',
+                count: 1
+              }
+            },
+            byStatus: {
+              $push: {
+                status: '$notification_status',
+                count: 1
+              }
+            }
+          }
+        }
+      ]);
+      
+      // Count by severity
+      const severityCounts = await AlarmTrigger.aggregate([
+        {
+          $group: {
+            _id: '$alarm_config.severity',
+            count: { $sum: 1 }
+          }
+        }
+      ]);
+      
+      // Count by notification status
+      const statusCounts = await AlarmTrigger.aggregate([
+        {
+          $group: {
+            _id: '$notification_status',
+            count: { $sum: 1 }
+          }
+        }
+      ]);
+      
+      console.log(`📊 [Alarm] Notification statistics retrieved`);
+      
+      res.json({
+        success: true,
+        data: {
+          total: stats[0]?.total || 0,
+          bySeverity: severityCounts,
+          byStatus: statusCounts
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching notification statistics:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching notification statistics',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Get unread notifications count
+   * Returns count of notifications not yet viewed
+   */
+  async getUnreadNotificationsCount(req, res) {
+    try {
+      const AlarmTrigger = require('../models/AlarmTrigger');
+      
+      // Count notifications from last 24 hours
+      const since24h = new Date();
+      since24h.setHours(since24h.getHours() - 24);
+      
+      const unreadCount = await AlarmTrigger.countDocuments({
+        triggered_at: { $gte: since24h },
+        notification_status: { $in: ['SENT', 'PENDING'] }
+      });
+      
+      console.log(`📬 [Alarm] Unread notifications count: ${unreadCount}`);
+      
+      res.json({
+        success: true,
+        unreadCount: unreadCount,
+        timeRange: 'Last 24 hours'
+      });
+    } catch (error) {
+      console.error('Error fetching unread notifications count:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching unread notifications count',
+        error: error.message
+      });
+    }
+  }
 }
 
 module.exports = new AlarmController();

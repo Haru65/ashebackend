@@ -1,209 +1,232 @@
-const nodemailer = require('nodemailer');
-const twilio = require('twilio');
+const Notification = require('../models/Notification');
 
+/**
+ * NotificationService
+ * Handles creation and management of user notifications
+ */
 class NotificationService {
   constructor() {
-    // Initialize Twilio for SMS
-    this.twilioClient = twilio(
-      process.env.TWILIO_ACCOUNT_SID,
-      process.env.TWILIO_AUTH_TOKEN
-    );
+    this.notificationCache = new Map(); // Cache for quick lookups
+  }
 
-    // Initialize nodemailer for email
-    this.emailTransporter = nodemailer.createTransport({
-      service: 'gmail', // or your email service
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASSWORD
+  /**
+   * Create a notification for an alarm trigger
+   * @param {Object} params - Notification parameters
+   */
+  async createAlarmNotification(params) {
+    try {
+      const {
+        user_id,
+        alarm_id,
+        alarm_name,
+        device_id,
+        device_name,
+        trigger_reason,
+        severity,
+        triggered_values
+      } = params;
+
+      if (!user_id) {
+        console.warn('[NotificationService] ⚠️ Cannot create notification: user_id is required');
+        return null;
       }
-    });
+
+      console.log('[NotificationService] 📝 Creating alarm notification:', {
+        user_id: user_id.toString ? user_id.toString() : user_id,
+        alarm_name,
+        device_name
+      });
+
+      const notification = await Notification.createNotification({
+        user_id, // Pass as-is (can be ObjectId or string)
+        type: 'alarm',
+        alarm_id,
+        alarm_name,
+        device_id,
+        device_name,
+        title: `🚨 ALARM: ${alarm_name}`,
+        message: `Alarm triggered on device ${device_name || device_id}`,
+        trigger_reason,
+        severity: severity || 'warning',
+        triggered_values: triggered_values || {},
+        metadata: {
+          notification_type: 'alarm_trigger'
+        }
+      });
+
+      console.log(`[NotificationService] ✅ Created alarm notification: ${notification._id}`);
+      return notification;
+    } catch (error) {
+      console.error('[NotificationService] Error creating alarm notification:', error);
+      return null;
+    }
   }
 
   /**
-   * Send SMS notification for alarm
-   * @param {Object} alarm - Alarm object with details
-   * @param {Array} phoneNumbers - Array of phone numbers to notify
+   * Create a calibration notification
+   * @param {Object} params - Notification parameters
    */
-  async sendSMSNotification(alarm, phoneNumbers) {
-    const message = this.formatSMSMessage(alarm);
-    const results = [];
+  async createCalibrationNotification(params) {
+    try {
+      const {
+        user_id,
+        device_id,
+        device_name,
+        calibration_due_date
+      } = params;
 
-    for (const phoneNumber of phoneNumbers) {
-      try {
-        const result = await this.twilioClient.messages.create({
-          body: message,
-          from: process.env.TWILIO_PHONE_NUMBER,
-          to: phoneNumber
-        });
-        results.push({ phoneNumber, status: 'sent', messageId: result.sid });
-      } catch (error) {
-        results.push({ phoneNumber, status: 'failed', error: error.message });
+      if (!user_id) {
+        console.warn('[NotificationService] ⚠️ Cannot create notification: user_id is required');
+        return null;
       }
-    }
 
-    return results;
+      const notification = await Notification.createNotification({
+        user_id,
+        type: 'calibration',
+        device_id,
+        device_name,
+        title: `📋 Calibration Due: ${device_name}`,
+        message: `Calibration is due on ${calibration_due_date}`,
+        severity: 'info',
+        metadata: {
+          notification_type: 'calibration_due',
+          calibration_due_date
+        }
+      });
+
+      console.log(`[NotificationService] ✅ Created calibration notification for user ${user_id}`);
+      return notification;
+    } catch (error) {
+      console.error('[NotificationService] Error creating calibration notification:', error);
+      return null;
+    }
   }
 
   /**
-   * Send email notification for alarm
-   * @param {Object} alarm - Alarm object with details
-   * @param {Array} emailAddresses - Array of email addresses to notify
+   * Create a maintenance notification
+   * @param {Object} params - Notification parameters
    */
-  async sendEmailNotification(alarm, emailAddresses) {
-    const { subject, html } = this.formatEmailMessage(alarm);
-    const results = [];
+  async createMaintenanceNotification(params) {
+    try {
+      const {
+        user_id,
+        device_id,
+        device_name,
+        maintenance_due_date
+      } = params;
 
-    for (const email of emailAddresses) {
-      try {
-        const result = await this.emailTransporter.sendMail({
-          from: process.env.EMAIL_FROM || 'noreply@zeptac.com',
-          to: email,
-          subject: subject,
-          html: html
-        });
-        results.push({ email, status: 'sent', messageId: result.messageId });
-      } catch (error) {
-        results.push({ email, status: 'failed', error: error.message });
+      if (!user_id) {
+        console.warn('[NotificationService] ⚠️ Cannot create notification: user_id is required');
+        return null;
       }
+
+      const notification = await Notification.createNotification({
+        user_id,
+        type: 'maintenance',
+        device_id,
+        device_name,
+        title: `🔧 Maintenance Due: ${device_name}`,
+        message: `Maintenance is due on ${maintenance_due_date}`,
+        severity: 'warning',
+        metadata: {
+          notification_type: 'maintenance_due',
+          maintenance_due_date
+        }
+      });
+
+      console.log(`[NotificationService] ✅ Created maintenance notification for user ${user_id}`);
+      return notification;
+    } catch (error) {
+      console.error('[NotificationService] Error creating maintenance notification:', error);
+      return null;
     }
-
-    return results;
   }
 
   /**
-   * Format SMS message for alarm notification
-   * @param {Object} alarm - Alarm object
-   * @returns {string} Formatted SMS message
+   * Get unread notifications for a user
+   * @param {String} userId - User ID
    */
-  formatSMSMessage(alarm) {
-    const timestamp = new Date().toLocaleString();
-    return `🚨 ALARM ALERT 🚨
-Unit: ${alarm.unit_no}
-Location: ${alarm.location}
-Time: ${timestamp}
-Type: ${alarm.alarm_type}
-Device: ${alarm.device_name}
-PV1-PV6: ${alarm.pv_values.pv1}, ${alarm.pv_values.pv2}, ${alarm.pv_values.pv3}, ${alarm.pv_values.pv4}, ${alarm.pv_values.pv5}, ${alarm.pv_values.pv6}
-Link: ${process.env.FRONTEND_URL}${alarm.link}
-Severity: ${alarm.severity.toUpperCase()}`;
-  }
-
-  /**
-   * Format email message for alarm notification
-   * @param {Object} alarm - Alarm object
-   * @returns {Object} Email subject and HTML body
-   */
-  formatEmailMessage(alarm) {
-    const timestamp = new Date().toLocaleString();
-    const severityColor = this.getSeverityColor(alarm.severity);
-    
-    const subject = `🚨 ${alarm.severity.toUpperCase()} ALARM: ${alarm.name} - ${alarm.unit_no}`;
-    
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
-          .container { max-width: 600px; margin: 0 auto; background-color: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-          .header { background-color: ${severityColor}; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center; }
-          .content { padding: 20px; }
-          .alarm-details { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0; }
-          .pv-values { display: flex; flex-wrap: wrap; gap: 10px; margin: 15px 0; }
-          .pv-badge { background-color: #007bff; color: white; padding: 5px 10px; border-radius: 15px; font-size: 12px; }
-          .footer { background-color: #f8f9fa; padding: 15px; text-align: center; border-radius: 0 0 8px 8px; }
-          .btn { background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 10px 0; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>🚨 ALARM NOTIFICATION</h1>
-            <h2>${alarm.name}</h2>
-          </div>
-          <div class="content">
-            <div class="alarm-details">
-              <h3>Alarm Details</h3>
-              <p><strong>Unit Number:</strong> ${alarm.unit_no}</p>
-              <p><strong>Location:</strong> ${alarm.location}</p>
-              <p><strong>Date & Time:</strong> ${timestamp}</p>
-              <p><strong>Alarm Type:</strong> ${alarm.alarm_type}</p>
-              <p><strong>Device:</strong> ${alarm.device_name}</p>
-              <p><strong>Parameter:</strong> ${alarm.parameter}</p>
-              <p><strong>Severity:</strong> <span style="color: ${severityColor}; font-weight: bold;">${alarm.severity.toUpperCase()}</span></p>
-            </div>
-            
-            <h3>Process Variable Values (PV1-PV6):</h3>
-            <div class="pv-values">
-              <span class="pv-badge">PV1: ${alarm.pv_values.pv1}</span>
-              <span class="pv-badge">PV2: ${alarm.pv_values.pv2}</span>
-              <span class="pv-badge">PV3: ${alarm.pv_values.pv3}</span>
-              <span class="pv-badge">PV4: ${alarm.pv_values.pv4}</span>
-              <span class="pv-badge">PV5: ${alarm.pv_values.pv5}</span>
-              <span class="pv-badge">PV6: ${alarm.pv_values.pv6}</span>
-            </div>
-            
-            <div style="text-align: center;">
-              <a href="${process.env.FRONTEND_URL}${alarm.link}" class="btn">View Device Details</a>
-            </div>
-          </div>
-          <div class="footer">
-            <p><small>This is an automated message from ZEPTAC IoT Platform</small></p>
-            <p><small>Please do not reply to this email</small></p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
-
-    return { subject, html };
-  }
-
-  /**
-   * Get color code based on alarm severity
-   * @param {string} severity - Alarm severity level
-   * @returns {string} Color code
-   */
-  getSeverityColor(severity) {
-    const colors = {
-      critical: '#dc3545',
-      warning: '#ffc107',
-      info: '#17a2b8',
-      ok: '#28a745',
-      battery: '#007bff'
-    };
-    return colors[severity] || '#6c757d';
-  }
-
-  /**
-   * Send bulk notifications for alarm
-   * @param {Object} alarm - Alarm object
-   * @returns {Object} Results of SMS and email notifications
-   */
-  async sendAlarmNotifications(alarm) {
-    const results = {
-      sms: [],
-      email: [],
-      timestamp: new Date().toISOString()
-    };
-
-    // Send SMS notifications
-    if (alarm.notification_config.sms_numbers.length > 0) {
-      results.sms = await this.sendSMSNotification(
-        alarm, 
-        alarm.notification_config.sms_numbers
-      );
+  async getUnreadNotifications(userId) {
+    try {
+      return await Notification.getUnread(userId);
+    } catch (error) {
+      console.error('[NotificationService] Error fetching unread notifications:', error);
+      return [];
     }
+  }
 
-    // Send email notifications
-    if (alarm.notification_config.email_ids.length > 0) {
-      results.email = await this.sendEmailNotification(
-        alarm, 
-        alarm.notification_config.email_ids
-      );
+  /**
+   * Get all notifications for a user
+   * @param {String} userId - User ID
+   */
+  async getUserNotifications(userId, limit = 100) {
+    try {
+      return await Notification.getUserNotifications(userId, limit);
+    } catch (error) {
+      console.error('[NotificationService] Error fetching user notifications:', error);
+      return [];
     }
+  }
 
-    return results;
+  /**
+   * Mark notification as read
+   * @param {String} notificationId - Notification ID
+   */
+  async markAsRead(notificationId) {
+    try {
+      return await Notification.markAsRead(notificationId);
+    } catch (error) {
+      console.error('[NotificationService] Error marking notification as read:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Mark all notifications as read for a user
+   * @param {String} userId - User ID
+   */
+  async markAllAsRead(userId) {
+    try {
+      return await Notification.markAllAsRead(userId);
+    } catch (error) {
+      console.error('[NotificationService] Error marking all notifications as read:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Delete a notification
+   * @param {String} notificationId - Notification ID
+   */
+  async deleteNotification(notificationId) {
+    try {
+      return await Notification.findByIdAndDelete(notificationId);
+    } catch (error) {
+      console.error('[NotificationService] Error deleting notification:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get notification count for a user
+   * @param {String} userId - User ID
+   */
+  async getNotificationCount(userId) {
+    try {
+      const unreadCount = await Notification.countDocuments({
+        user_id: userId,
+        is_read: false
+      });
+
+      const totalCount = await Notification.countDocuments({
+        user_id: userId
+      });
+
+      return { unreadCount, totalCount };
+    } catch (error) {
+      console.error('[NotificationService] Error getting notification count:', error);
+      return { unreadCount: 0, totalCount: 0 };
+    }
   }
 }
 

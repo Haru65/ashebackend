@@ -14,6 +14,11 @@ router.get('/triggers/recent', alarmController.getRecentAlarmTriggers.bind(alarm
 router.get('/triggers/device/:deviceId', alarmController.getDeviceTriggerHistory.bind(alarmController));
 router.get('/triggers/:alarmId', alarmController.getAlarmTriggerHistory.bind(alarmController));
 
+// Notification management routes
+router.delete('/notifications/clear-old', alarmController.clearOldNotifications.bind(alarmController));
+router.get('/notifications/stats', alarmController.getNotificationStats.bind(alarmController));
+router.get('/notifications/unread-count', alarmController.getUnreadNotificationsCount.bind(alarmController));
+
 // Device-specific alarm routes (IMPORTANT: Place before :id routes to avoid conflicts)
 router.get('/device/:deviceName', alarmController.getAlarmsByDevice.bind(alarmController));
 router.delete('/device/:deviceName', alarmController.deleteDeviceAlarms.bind(alarmController));

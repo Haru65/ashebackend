@@ -9,7 +9,8 @@ class AlarmMonitoringService {
   constructor() {
     this.emailService = new EmailService();
     this.notificationService = new NotificationService();
-    this.triggeredAlarms = new Map(); // Track which alarms have been triggered
+    this.triggeredAlarms = new Map(); // Track which alarms have been triggered (10-min pop-up throttle)
+    this.emailThrottledAlarms = new Map(); // Track email sends separately (30-min email throttle)
     this.lastNotificationTime = new Map(); // Track last WebSocket notification time for each alarm
     this.io = null;
   }
@@ -234,11 +235,11 @@ class AlarmMonitoringService {
 
       const alarmKey = `${alarm._id.toString()}`;
 
-      // Prevent duplicate notifications within 10 minutes (only if triggered before)
+      // Prevent duplicate notifications within 10 minutes for pop-ups (only if triggered before)
       if (this.triggeredAlarms.has(alarmKey)) {
         const lastTrigger = this.triggeredAlarms.get(alarmKey);
         const timeSinceLastTrigger = Date.now() - lastTrigger;
-        const throttleTime = 10 * 60 * 1000; // 10 minutes
+        const throttleTime = 10 * 60 * 1000; // 10 minutes for pop-ups
         
         if (timeSinceLastTrigger < throttleTime) {
           const timeRemaining = Math.ceil((throttleTime - timeSinceLastTrigger) / 1000);
@@ -254,7 +255,7 @@ class AlarmMonitoringService {
         console.log(`[Alarm Monitor] 🚨 First trigger detected for '${alarm.name}'! Sending notification immediately (10m throttle timer now starts)`);
       }
 
-      // Record this alarm trigger and start/reset 10-minute timer
+      // Record this alarm trigger and start/reset 10-minute timer for pop-ups
       this.triggeredAlarms.set(alarmKey, Date.now());
 
       // Get email addresses from alarm configuration
@@ -263,6 +264,25 @@ class AlarmMonitoringService {
       if (emailAddresses.length === 0) {
         console.log(`[Alarm Monitor] ⚠️ No email addresses configured for alarm '${alarm.name}'`);
         return;
+      }
+
+      // Check 30-minute email throttle separately
+      const emailThrottleKey = `${alarm._id.toString()}_email`;
+      let shouldSendEmail = true;
+      
+      if (this.emailThrottledAlarms.has(emailThrottleKey)) {
+        const lastEmailTime = this.emailThrottledAlarms.get(emailThrottleKey);
+        const timeSinceLastEmail = Date.now() - lastEmailTime;
+        const emailThrottleTime = 30 * 60 * 1000; // 30 minutes for emails
+        
+        if (timeSinceLastEmail < emailThrottleTime) {
+          const timeRemaining = Math.ceil((emailThrottleTime - timeSinceLastEmail) / 1000);
+          const minutes = Math.floor(timeRemaining / 60);
+          const seconds = timeRemaining % 60;
+          
+          console.log(`[Alarm Monitor] ℹ️ Email for alarm '${alarm.name}' already sent recently, skipping email (retry in ${minutes}m ${seconds}s)`);
+          shouldSendEmail = false;
+        }
       }
 
       // Prepare email data
@@ -283,23 +303,121 @@ class AlarmMonitoringService {
         }
       };
 
-      // Send emails to all configured recipients
-      for (const email of emailAddresses) {
-        try {
-          await this.emailService.sendEmail({
-            to: email,
-            subject: `🚨 ALARM: ${alarm.name} - ${device.deviceName}`,
-            template: 'alarm',
-            data: emailData
-          });
-          console.log(`[Alarm Monitor] ✉️ Email sent to ${email} for alarm '${alarm.name}'`);
-        } catch (emailError) {
-          console.error(`[Alarm Monitor] ❌ Failed to send email to ${email}:`, emailError.message);
+      // Send emails to all configured recipients (only if email throttle allows)
+      let emailsSent = 0;
+      if (shouldSendEmail) {
+        for (const email of emailAddresses) {
+          try {
+            await this.emailService.sendEmail({
+              to: email,
+              subject: `🚨 ALARM: ${alarm.name} - ${device.deviceName}`,
+              template: 'alarm',
+              data: emailData
+            });
+            console.log(`[Alarm Monitor] ✉️ Email sent to ${email} for alarm '${alarm.name}'`);
+            emailsSent++;
+          } catch (emailError) {
+            console.error(`[Alarm Monitor] ❌ Failed to send email to ${email}:`, emailError.message);
+          }
+        }
+
+        // Update email throttle timer if emails were sent
+        if (emailsSent > 0) {
+          this.emailThrottledAlarms.set(emailThrottleKey, Date.now());
+          console.log(`[Alarm Monitor] ⏱️ Email throttle timer set for 30 minutes`);
         }
       }
 
+      // Emit notification event to frontend (regardless of email sending)
+      // This ensures the popup shows even if email throttling prevents email sending
+      await this.emitNotificationEvent(alarm, device, deviceData, reason);
+
     } catch (error) {
       console.error('[Alarm Monitor] Error sending alarm notification:', error);
+    }
+  }
+
+  /**
+   * Emit notification event to frontend via WebSocket
+   * Called when emails are successfully sent
+   */
+  async emitNotificationEvent(alarm, device, deviceData, reason) {
+    try {
+      if (!this.io) {
+        console.warn(`[Alarm Monitor] ⚠️ WebSocket not initialized, cannot emit notification event`);
+        return;
+      }
+
+      const params = deviceData.Parameters || deviceData;
+      const triggeredValues = {
+        'REF1 STS': params['REF1 STS'] || '',
+        'REF2 STS': params['REF2 STS'] || '',
+        'REF3 STS': params['REF3 STS'] || '',
+        'REF1': params.REF1 || params.ref1 || '',
+        'REF2': params.REF2 || params.ref2 || '',
+        'REF3': params.REF3 || params.ref3 || '',
+        'DCV': params.DCV || params.dcv || 0,
+        'DCI': params.DCI || params.dci || 0,
+        'ACV': params.ACV || params.acv || 0,
+        'EVENT': params.EVENT || params.Event || 'NORMAL'
+      };
+
+      const notificationData = {
+        alarm_id: alarm._id.toString(),
+        alarm_name: alarm.name,
+        device_id: device.deviceId,
+        device_name: device.deviceName || device.deviceId,
+        trigger_reason: reason,
+        severity: alarm.severity || 'warning',
+        parameter: alarm.parameter,
+        triggered_at: new Date().toISOString(),
+        triggered_values: triggeredValues,
+        notification_type: 'email_sent',
+        email_notification: true
+      };
+
+      console.log(`📧 [Alarm Monitor] Emitting alarm triggered event:`, {
+        alarm: alarm.name,
+        device: device.deviceName,
+        type: 'alarm_triggered'
+      });
+
+      this.io.emit('alarm:triggered', notificationData);
+      console.log(`✅ [Alarm Monitor] Alarm triggered event emitted successfully`);
+
+      // Save notification to database for all users
+      // TODO: In future, filter by users who have access to this device/alarm
+      try {
+        const User = require('../models/user');
+        const users = await User.find({ isActive: true }).select('_id').lean();
+        
+        console.log(`[Alarm Monitor] 👥 Found ${users.length} active user(s) to notify`);
+        
+        for (const user of users) {
+          try {
+            await this.notificationService.createAlarmNotification({
+              user_id: user._id, // Pass ObjectId directly, not string
+              alarm_id: alarm._id.toString(),
+              alarm_name: alarm.name,
+              device_id: device.deviceId,
+              device_name: device.deviceName || device.deviceId,
+              trigger_reason: reason,
+              severity: alarm.severity || 'warning',
+              triggered_values: triggeredValues
+            });
+            console.log(`[Alarm Monitor] ✅ Notification saved for user: ${user._id}`);
+          } catch (userError) {
+            console.error(`[Alarm Monitor] ❌ Failed to save notification for user ${user._id}:`, userError.message);
+          }
+        }
+        
+        console.log(`[Alarm Monitor] 💾 Saved alarm notification to database for ${users.length} user(s)`);
+      } catch (dbError) {
+        console.error('[Alarm Monitor] Error saving notification to database:', dbError);
+      }
+
+    } catch (error) {
+      console.error('[Alarm Monitor] Error emitting notification event:', error);
     }
   }
 
@@ -363,53 +481,6 @@ class AlarmMonitoringService {
 
       console.log(`[Alarm Monitor] 💾 Alarm trigger saved to AlarmTrigger for alarm '${alarm.name}'`);
 
-      // 🚨 Emit real-time WebSocket event for immediate frontend notification
-      if (this.io) {
-        const alarmId = alarm._id.toString();
-        const now = Date.now();
-        const lastNotificationTime = this.lastNotificationTime.get(alarmId) || 0;
-        const notificationInterval = 10 * 60 * 1000; // 10 minutes in milliseconds
-
-        // Only send notification if 10 minutes have passed since last notification
-        if (now - lastNotificationTime >= notificationInterval) {
-          const alarmNotification = {
-            alarm_id: alarmId,
-            alarm_name: alarm.name,
-            device_id: device.deviceId,
-            device_name: device.deviceName || device.deviceId,
-            trigger_reason: reason,
-            severity: alarm.severity || 'warning',
-            parameter: alarm.parameter,
-            triggered_at: new Date().toISOString(),
-            triggered_values: triggeredValues
-          };
-          
-          console.log(`📡 [Alarm Monitor] Preparing WebSocket emit:`);
-          console.log(`   - io object exists: ${!!this.io}`);
-          console.log(`   - io.emit is function: ${typeof this.io.emit === 'function'}`);
-          console.log(`   - Alarm: ${alarm.name} (ID: ${alarmId})`);
-          console.log(`   - Event: alarm:triggered`);
-          console.log(`   - Data size: ${JSON.stringify(alarmNotification).length} bytes`);
-          
-          try {
-            this.io.emit('alarm:triggered', alarmNotification);
-            console.log(`✅ [Alarm Monitor] WebSocket event emitted successfully`);
-            console.log(`   - Connected clients will receive: ${JSON.stringify(alarmNotification, null, 2)}`);
-          } catch (emitError) {
-            console.error(`❌ [Alarm Monitor] Failed to emit WebSocket event:`, emitError);
-          }
-          
-          // Update last notification time
-          this.lastNotificationTime.set(alarmId, now);
-          console.log(`✅ [Alarm Monitor] WebSocket event emitted. Next notification for this alarm in 10 minutes.`);
-        } else {
-          const timeUntilNextNotification = Math.ceil((notificationInterval - (now - lastNotificationTime)) / 1000);
-          console.log(`⏭️ [Alarm Monitor] Notification for alarm '${alarm.name}' suppressed. Next notification in ${timeUntilNextNotification} seconds.`);
-        }
-      } else {
-        console.error(`❌ [Alarm Monitor] this.io is NOT initialized! Cannot emit alarm:triggered event`);
-        console.error(`   Please check that alarmMonitoringService.initialize(io) was called in index.js`);
-      }
     } catch (error) {
       console.error('[Alarm Monitor] Error logging alarm trigger:', error);
     }

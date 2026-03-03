@@ -19,7 +19,7 @@ class ExcelExportService {
         startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Default: last 30 days
         endDate = new Date(),
         filename = `telemetry_export_${new Date().toISOString().split('T')[0]}.xlsx`,
-        maxRecords = 5000 // Reduced from 10000 to ensure Render's 30s timeout is not exceeded
+        maxRecords = 3000 // Reduced from 5000 for Render's memory constraints and 30s timeout
       } = options;
 
       // Build query
@@ -338,8 +338,13 @@ class ExcelExportService {
         }
       });
 
-      // Helper function to create event-specific worksheets (streaming approach)
-      const createEventSheet = (eventType, eventSheetName) => {
+      // Skip event-specific sheets and summary sheet for Render deployment (memory optimization)
+      // Only create these sheets if explicitly requested and not on Render
+      const skipEventSheets = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
+      
+      if (!skipEventSheets) {
+        // Helper function to create event-specific worksheets (streaming approach)
+        const createEventSheet = (eventType, eventSheetName) => {
         // Filter events without keeping them in memory
         const filteredEvents = telemetryData.filter(r => {
           const evt = r.event;
@@ -480,47 +485,55 @@ class ExcelExportService {
         return filteredEvents.length;
       };
 
-      // Create event-specific worksheets - always create all 4 types
-      console.log('\n📋 Creating event-specific worksheets...');
-      const normalCount = createEventSheet('NORMAL', 'NORMAL Events');
-      const dpolCount = createEventSheet('DPOL', 'DPOL Events');
-      const intCount = createEventSheet('INT', 'INT Events');
-      const instCount = createEventSheet('INST', 'INST Events');
-
-      // Add summary worksheet
-      const summarySheet = workbook.addWorksheet('Summary');
+      // Create event-specific worksheets - skip on Render for memory optimization
+      let normalCount = 0, dpolCount = 0, intCount = 0, instCount = 0;
       
-      // Summary data
-      const deviceCounts = {};
-      telemetryData.forEach(record => {
-        deviceCounts[record.deviceId] = (deviceCounts[record.deviceId] || 0) + 1;
-      });
+      if (!skipEventSheets) {
+        console.log('\n📋 Creating event-specific worksheets...');
+        normalCount = createEventSheet('NORMAL', 'NORMAL Events');
+        dpolCount = createEventSheet('DPOL', 'DPOL Events');
+        intCount = createEventSheet('INT', 'INT Events');
+        instCount = createEventSheet('INST', 'INST Events');
 
-      summarySheet.columns = [
-        { header: 'Metric', key: 'metric', width: 25 },
-        { header: 'Value', key: 'value', width: 20 }
-      ];
+        // Add summary worksheet
+        const summarySheet = workbook.addWorksheet('Summary');
+        
+        // Summary data
+        const deviceCounts = {};
+        telemetryData.forEach(record => {
+          deviceCounts[record.deviceId] = (deviceCounts[record.deviceId] || 0) + 1;
+        });
 
-      summarySheet.getRow(1).font = { bold: true };
+        summarySheet.columns = [
+          { header: 'Metric', key: 'metric', width: 25 },
+          { header: 'Value', key: 'value', width: 20 }
+        ];
 
-      summarySheet.addRows([
-        { metric: 'Export Date', value: new Date().toISOString() },
-        { metric: 'Date Range', value: `${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}` },
-        { metric: 'Total Records', value: telemetryData.length },
-        { metric: 'Unique Devices', value: Object.keys(deviceCounts).length },
-        { metric: 'NORMAL Events', value: normalCount },
-        { metric: 'DPOL Events', value: dpolCount },
-        { metric: 'INT Events', value: intCount },
-        { metric: 'INST Events', value: instCount }
-      ]);
+        summarySheet.getRow(1).font = { bold: true };
 
-      // Add device breakdown
-      summarySheet.addRow({ metric: '', value: '' }); // Empty row
-      summarySheet.addRow({ metric: 'Records per Device:', value: '' });
-      
-      Object.entries(deviceCounts).forEach(([deviceId, count]) => {
-        summarySheet.addRow({ metric: `  ${deviceId}`, value: count });
-      });
+        summarySheet.addRows([
+          { metric: 'Export Date', value: new Date().toISOString() },
+          { metric: 'Date Range', value: `${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}` },
+          { metric: 'Total Records', value: telemetryData.length },
+          { metric: 'Unique Devices', value: Object.keys(deviceCounts).length },
+          { metric: 'NORMAL Events', value: normalCount },
+          { metric: 'DPOL Events', value: dpolCount },
+          { metric: 'INT Events', value: intCount },
+          { metric: 'INST Events', value: instCount }
+        ]);
+
+        // Add device breakdown
+        summarySheet.addRow({ metric: '', value: '' }); // Empty row
+        summarySheet.addRow({ metric: 'Records per Device:', value: '' });
+        
+        Object.entries(deviceCounts).forEach(([deviceId, count]) => {
+          summarySheet.addRow({ metric: `  ${deviceId}`, value: count });
+        });
+      } else {
+        console.log('⚠️ Skipping event-specific and summary sheets for memory optimization (Render deployment)');
+      }
+
+      console.log('✅ Workbook creation complete');
 
       return {
         workbook,

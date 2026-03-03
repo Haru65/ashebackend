@@ -82,56 +82,66 @@ class ExportController {
           }
         });
       } else {
-        // Send as download using streaming for better performance on Render
+        // Send as download using ExcelJS native streaming
         try {
+          console.log(`📊 Preparing to stream ${exportResult.recordCount} records...`);
+          
           // Set all headers BEFORE sending data
           res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
           res.setHeader('Content-Disposition', `attachment; filename="${exportResult.filename}"`);
           res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
           res.setHeader('Pragma', 'no-cache');
           res.setHeader('Expires', '0');
-          res.setHeader('Transfer-Encoding', 'chunked');
 
           console.log('📤 Starting streaming Excel export...');
+          console.log(`📊 Workbook has ${exportResult.workbook.worksheets.length} sheets`);
 
-          // Use streaming to write directly to response (avoids memory buffer)
-          // This prevents timeouts on Render's 30-second limit
-          const stream = exportResult.workbook.xlsx.createReadStream();
+          // Use ExcelJS native write() method which streams directly
+          // This prevents memory buffering and respects Render's 30-second timeout
+          console.log('⏳ Writing workbook to response stream...');
+          const writePromise = exportResult.workbook.xlsx.write(res);
           
-          stream.on('error', (streamError) => {
-            console.error('❌ Stream error:', streamError);
+          // Monitor the write operation
+          writePromise.then(() => {
+            console.log(`✅ Excel file streamed successfully: ${exportResult.filename}`);
+          }).catch((writeError) => {
+            console.error('❌ Write promise rejected:', writeError.message);
             if (!res.headersSent) {
-              res.status(500).json({
-                success: false,
-                error: 'Stream error during export',
-                details: streamError.message
-              });
-            } else {
-              res.end();
+              try {
+                res.status(500).json({
+                  success: false,
+                  error: 'Failed during Excel write operation',
+                  details: writeError.message
+                });
+              } catch (e) {
+                // Response already sent, nothing we can do
+              }
             }
           });
 
-          stream.pipe(res);
-
-          res.on('finish', () => {
-            console.log(`✅ Excel file streamed successfully: ${exportResult.filename}`);
-          });
-
-          res.on('close', () => {
-            stream.destroy();
+          // Handle response errors
+          res.on('error', (resError) => {
+            console.error('❌ Response error during streaming:', resError.message);
           });
 
         } catch (streamError) {
-          console.error('❌ Error during streaming export:', streamError);
-          console.error('❌ Error message:', streamError.message);
+          console.error('❌ Error setting up streaming export:', {
+            message: streamError.message,
+            name: streamError.name,
+            code: streamError.code
+          });
           
-          // Return error response instead of sending file
+          // Only send error if headers haven't been sent yet
           if (!res.headersSent) {
             res.status(500).json({
               success: false,
               error: 'Failed to stream Excel file',
-              details: streamError.message
+              details: streamError.message,
+              suggestion: 'Try exporting fewer records (max 3000) or shorter date range (max 7 days)'
             });
+          } else {
+            console.log('Headers already sent, cannot send error response');
+            res.end();
           }
         }
       }

@@ -487,6 +487,7 @@ class ExcelExportService {
 
       // Create event-specific worksheets - skip on Render for memory optimization
       let normalCount = 0, dpolCount = 0, intCount = 0, instCount = 0;
+      let deviceCounts = {};
       
       if (!skipEventSheets) {
         console.log('\n📋 Creating event-specific worksheets...');
@@ -499,7 +500,6 @@ class ExcelExportService {
         const summarySheet = workbook.addWorksheet('Summary');
         
         // Summary data
-        const deviceCounts = {};
         telemetryData.forEach(record => {
           deviceCounts[record.deviceId] = (deviceCounts[record.deviceId] || 0) + 1;
         });
@@ -531,6 +531,10 @@ class ExcelExportService {
         });
       } else {
         console.log('⚠️ Skipping event-specific and summary sheets for memory optimization (Render deployment)');
+        // Still need to count devices even when skipping event sheets
+        telemetryData.forEach(record => {
+          deviceCounts[record.deviceId] = (deviceCounts[record.deviceId] || 0) + 1;
+        });
       }
 
       console.log('✅ Workbook creation complete');

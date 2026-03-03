@@ -63,8 +63,8 @@ class ExportController {
 
       // Warn if trying to export a very large date range (on Render, this might timeout)
       const daySpan = Math.round((end - start) / (1000 * 60 * 60 * 24));
-      if (daySpan > 90) {
-        console.warn(`⚠️ WARNING: Exporting ${daySpan} days of data. On Render (30s timeout), consider reducing to under 90 days for better reliability.`);
+      if (daySpan > 60) {
+        console.warn(`⚠️ WARNING: Exporting ${daySpan} days of data. On Render (30s timeout), consider reducing to under 60 days for better reliability.`);
       }
 
       // Set a longer timeout for this request (for Render deployment)
@@ -101,6 +101,11 @@ class ExportController {
         // Send as download using ExcelJS native streaming
         try {
           console.log(`📊 Preparing to stream ${exportResult.recordCount} records...`);
+          
+          // Set CORS headers explicitly for file downloads (ensure they're applied even during streaming)
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
           
           // Set all headers BEFORE sending data
           res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

@@ -36,8 +36,8 @@ connectDB();
 app.use((req, res, next) => {
   // Set a higher timeout for the server itself (won't override Render's hard 30s limit)
   // but ensures proper cleanup on timeout
-  req.setTimeout(28000); // 28 seconds to finish before Render's 30s hard limit
-  res.setTimeout(28000);
+  req.setTimeout(29000); // 29 seconds to finish before Render's 30s hard limit
+  res.setTimeout(29000);
   next();
 });
 

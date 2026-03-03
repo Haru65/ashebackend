@@ -19,7 +19,7 @@ class ExcelExportService {
         startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Default: last 30 days
         endDate = new Date(),
         filename = `telemetry_export_${new Date().toISOString().split('T')[0]}.xlsx`,
-        maxRecords = 10000 // Increased to 10000 to capture more data across the date range
+        maxRecords = 15000 // Increased to 15000 to capture more data across the date range
       } = options;
 
       // Build query with proper date handling

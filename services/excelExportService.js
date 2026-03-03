@@ -338,14 +338,162 @@ class ExcelExportService {
         }
       });
 
-      // Skip event-specific sheets and summary sheet for Render deployment (memory optimization)
-      const skipEventSheets = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
-      console.log(`⚠️ Skipping event-specific sheets for memory optimization (skipEventSheets=${skipEventSheets})`);
+      // Create event-specific worksheets
+      console.log('\n📋 Creating event-specific worksheets...');
+      
+      // Helper function to filter events by type
+      const filterEventsByType = (eventType) => {
+        return telemetryData.filter(r => {
+          const evt = String(r.event || '').toUpperCase().trim();
+          const eventNum = Number(r.event);
+          
+          switch(eventType) {
+            case 'NORMAL':
+              return eventNum === 0 || evt === 'NORMAL' || evt.startsWith('NORMAL');
+            case 'DPOL':
+              return eventNum === 3 || evt === 'DPOL' || evt === 'DEPOL';
+            case 'INT':
+              return eventNum === 1 || evt === 'INT' || evt === 'INTERRUPT';
+            case 'INST':
+              return eventNum === 4 || evt === 'INST' || evt === 'INSTANT';
+            default:
+              return false;
+          }
+        });
+      };
 
-      // Always count devices for return value
-      let deviceCounts = {};
+      // Create sheets for each event type
+      const eventData = {
+        NORMAL: filterEventsByType('NORMAL'),
+        DPOL: filterEventsByType('DPOL'),
+        INT: filterEventsByType('INT'),
+        INST: filterEventsByType('INST')
+      };
+
+      let eventCounts = {
+        normal: 0,
+        dpol: 0,
+        int: 0,
+        inst: 0
+      };
+
+      // Add event sheets
+      ['NORMAL', 'DPOL', 'INT', 'INST'].forEach(eventType => {
+        const events = eventData[eventType];
+        const sheetName = `${eventType} Events`;
+        
+        if (events && events.length > 0) {
+          const eventSheet = workbook.addWorksheet(sheetName);
+          eventSheet.columns = baseColumns;
+          
+          // Style header
+          const headerRow = eventSheet.getRow(1);
+          headerRow.font = { bold: true, color: { argb: 'FFFFFF' } };
+          headerRow.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: '366092' }
+          };
+          headerRow.eachCell((cell) => {
+            cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+          });
+
+          // Add data rows
+          events.forEach((record, index) => {
+            const locationField = getFieldValue(record, 'location');
+            let locationDisplay = 'N/A';
+            if (locationField) {
+              if (typeof locationField === 'string' && locationField.startsWith('{')) {
+                try {
+                  const locObj = JSON.parse(locationField);
+                  locationDisplay = locObj.city_name || locObj.display_name || locationField;
+                } catch (e) {
+                  locationDisplay = locationField;
+                }
+              } else {
+                locationDisplay = locationField;
+              }
+            }
+
+            const row = {
+              deviceId: record.deviceId,
+              location: locationDisplay,
+              status: getFieldValue(record, 'status') || 'online',
+              logNo: getFieldValue(record, 'logNo', 'log', 'LOG') || '',
+              timestamp: record.timestamp instanceof Date ? record.timestamp.toISOString() : record.timestamp,
+              event: record.event || eventType,
+              acv: getFieldValue(record, 'ACV', 'acv') || '',
+              aci: getFieldValue(record, 'ACI', 'aci') || '',
+              dcv: getFieldValue(record, 'DCV', 'dcv') || '',
+              dci: getFieldValue(record, 'DCI', 'dci') || '',
+              ref1: getFieldValue(record, 'REF1', 'ref1') || '',
+              ref2: getFieldValue(record, 'REF2', 'ref2') || '',
+              ref3: getFieldValue(record, 'REF3', 'ref3') || '',
+              di1: getFieldValue(record, 'DI1', 'di1') || '',
+              di2: getFieldValue(record, 'DI2', 'di2') || '',
+              di3: getFieldValue(record, 'DI3', 'di3') || '',
+              di4: getFieldValue(record, 'DI4', 'di4') || '',
+              do: getFieldValue(record, 'DO', 'do') || '',
+              ref1Status: getFieldValue(record, 'REF1Status', 'ref1Status') || '',
+              ref2Status: getFieldValue(record, 'REF2Status', 'ref2Status') || '',
+              ref3Status: getFieldValue(record, 'REF3Status', 'ref3Status') || ''
+            };
+
+            const excelRow = eventSheet.addRow(row);
+            excelRow.eachCell((cell) => {
+              cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+            });
+
+            if (index % 2 === 1) {
+              const rowNum = index + 2;
+              eventSheet.getRow(rowNum).fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'F8F9FA' }
+              };
+            }
+          });
+
+          console.log(`✅ Created "${sheetName}" with ${events.length} records`);
+          
+          // Update counts
+          if (eventType === 'NORMAL') eventCounts.normal = events.length;
+          if (eventType === 'DPOL') eventCounts.dpol = events.length;
+          if (eventType === 'INT') eventCounts.int = events.length;
+          if (eventType === 'INST') eventCounts.inst = events.length;
+        }
+      });
+
+      // Add summary worksheet
+      const summarySheet = workbook.addWorksheet('Summary');
+      const deviceCounts = {};
       telemetryData.forEach(record => {
         deviceCounts[record.deviceId] = (deviceCounts[record.deviceId] || 0) + 1;
+      });
+
+      summarySheet.columns = [
+        { header: 'Metric', key: 'metric', width: 25 },
+        { header: 'Value', key: 'value', width: 20 }
+      ];
+
+      summarySheet.getRow(1).font = { bold: true };
+
+      summarySheet.addRows([
+        { metric: 'Export Date', value: new Date().toISOString() },
+        { metric: 'Date Range', value: `${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}` },
+        { metric: 'Total Records', value: telemetryData.length },
+        { metric: 'Unique Devices', value: Object.keys(deviceCounts).length },
+        { metric: 'NORMAL Events', value: eventCounts.normal },
+        { metric: 'DPOL Events', value: eventCounts.dpol },
+        { metric: 'INT Events', value: eventCounts.int },
+        { metric: 'INST Events', value: eventCounts.inst }
+      ]);
+
+      summarySheet.addRow({ metric: '', value: '' });
+      summarySheet.addRow({ metric: 'Records per Device:', value: '' });
+      
+      Object.entries(deviceCounts).forEach(([deviceId, count]) => {
+        summarySheet.addRow({ metric: `  ${deviceId}`, value: count });
       });
 
       console.log('✅ Workbook creation complete');
@@ -355,12 +503,7 @@ class ExcelExportService {
         filename,
         recordCount: telemetryData.length,
         devices: Object.keys(deviceCounts).length,
-        eventCounts: {
-          normal: 0,
-          dpol: 0,
-          int: 0,
-          inst: 0
-        }
+        eventCounts: eventCounts
       };
 
     } catch (error) {

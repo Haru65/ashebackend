@@ -4,6 +4,27 @@ const Device = require('../models/Device');
 
 class ExcelExportService {
   /**
+   * Format date as M/D/YYYY h:mm:ss am/pm
+   */
+  static formatDate(date) {
+    if (!date) return '';
+    const d = date instanceof Date ? date : new Date(date);
+    if (isNaN(d)) return '';
+    
+    const month = d.getMonth() + 1;
+    const day = d.getDate();
+    const year = d.getFullYear();
+    let hours = d.getHours();
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const seconds = String(d.getSeconds()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'pm' : 'am';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    
+    return `${month}/${day}/${year} ${hours}:${minutes}:${seconds} ${ampm}`;
+  }
+
+  /**
    * Export telemetry data to Excel - Matches report page UI exactly
    * Main telemetry sheet + separate sheets for each event type
    * @param {Object} options - Export options
@@ -336,7 +357,7 @@ class ExcelExportService {
             location: locationDisplay,
             status: getFieldValue(record, 'status') || 'online',
             logNo: getFieldValue(record, 'logNo', 'log', 'LOG') || '',
-            timestamp: record.timestamp instanceof Date ? record.timestamp.toISOString() : record.timestamp,
+            timestamp: ExcelExportService.formatDate(record.timestamp),
             event: record.event || 'NORMAL',
             acv: getFieldValue(record, 'ACV', 'acv') || '',
             aci: getFieldValue(record, 'ACI', 'aci') || '',
@@ -357,9 +378,14 @@ class ExcelExportService {
 
           const excelRow = worksheet.addRow(row);
 
-          // Skip individual cell formatting for performance
-          // Excel will use default formatting which is sufficient for data export
-          // This significantly reduces processing time on Render's 30-second limit
+          // Center align all data cells for better readability
+          excelRow.eachCell((cell) => {
+            cell.alignment = {
+              horizontal: 'center',
+              vertical: 'middle',
+              wrapText: false
+            };
+          });
           
           // Log progress every 500 rows
           if ((index + 1) % 500 === 0) {
@@ -373,11 +399,13 @@ class ExcelExportService {
         throw rowError;
       }
 
-      // Auto-fit columns
+      // Auto-fit columns and set text format for numeric columns to preserve leading zeros
       worksheet.columns.forEach(column => {
-        if (column.header === 'Timestamp') {
-          column.numFmt = 'yyyy-mm-dd hh:mm:ss';
-        }
+        column.alignment = {
+          horizontal: 'center',
+          vertical: 'middle',
+          wrapText: false
+        };
       });
 
 

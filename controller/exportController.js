@@ -9,10 +9,21 @@ class ExportController {
         deviceId,
         startDate,
         endDate,
-        format = 'download' // 'download' or 'save'
+        format = 'download', // 'download' or 'save'
+        modes // Comma-separated or array of event modes: NORMAL, DPOL, INT, INST
       } = req.query;
 
-      console.log('📊 Export request:', { deviceId, startDate, endDate, format });
+      // Parse modes parameter - can be array or comma-separated string
+      let modeFilter = [];
+      if (modes) {
+        if (Array.isArray(modes)) {
+          modeFilter = modes;
+        } else if (typeof modes === 'string') {
+          modeFilter = modes.split(',').map(m => m.trim().toUpperCase());
+        }
+      }
+
+      console.log('📊 Export request:', { deviceId, startDate, endDate, format, modeFilter });
 
       // Parse and validate date range with proper timezone handling
       let start, end;
@@ -77,7 +88,8 @@ class ExportController {
       const exportResult = await ExcelExportService.exportTelemetryToExcel({
         deviceId,
         startDate: start,
-        endDate: end
+        endDate: end,
+        modes: modeFilter
       });
 
       if (format === 'save') {

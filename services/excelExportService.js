@@ -19,7 +19,8 @@ class ExcelExportService {
         startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Default: last 30 days
         endDate = new Date(),
         filename = `telemetry_export_${new Date().toISOString().split('T')[0]}.xlsx`,
-        maxRecords = 5000 // Reduced to 5000 for Render's 30-second timeout limit
+        modes = [], // Event mode filter: NORMAL, DPOL, INT, INST
+        maxRecords = 10000 // Increased to 10000 since filtered data is smaller
       } = options;
 
       // Build query with proper date handling
@@ -34,6 +35,31 @@ class ExcelExportService {
         query.deviceId = deviceId;
       }
 
+      // Add event mode filter if provided
+      if (modes && modes.length > 0) {
+        const normalizedModes = modes.map(m => String(m).toUpperCase().trim());
+        const modeQueries = [];
+        
+        // Map mode names to event values
+        if (normalizedModes.includes('NORMAL')) {
+          modeQueries.push({ event: { $in: [0, 'NORMAL', 'NORMAL_MODE'] } });
+        }
+        if (normalizedModes.includes('DPOL')) {
+          modeQueries.push({ event: { $in: [3, 'DPOL', 'DEPOL', 'DPOL_MODE'] } });
+        }
+        if (normalizedModes.includes('INT')) {
+          modeQueries.push({ event: { $in: [1, 'INT', 'INTERRUPT', 'INT_MODE'] } });
+        }
+        if (normalizedModes.includes('INST')) {
+          modeQueries.push({ event: { $in: [4, 'INST', 'INSTANT', 'INST_MODE'] } });
+        }
+
+        // Use $or to match any of the selected modes
+        if (modeQueries.length > 0) {
+          query.$or = modeQueries;
+        }
+      }
+
       console.log('📊 Exporting telemetry data with query:', {
         dateRange: {
           start: startDate instanceof Date ? startDate.toISOString() : startDate,
@@ -42,7 +68,8 @@ class ExcelExportService {
           endType: typeof endDate
         },
         deviceId: deviceId || 'all devices',
-        operator: '$gte and $lte (inclusive range)'
+        modes: modes.length > 0 ? modes : 'all modes',
+        operator: '$gte and $lte (inclusive range), mode filtering with $or'
       });
 
       // Count total records first

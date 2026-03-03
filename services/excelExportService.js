@@ -339,203 +339,14 @@ class ExcelExportService {
       });
 
       // Skip event-specific sheets and summary sheet for Render deployment (memory optimization)
-      // Only create these sheets if explicitly requested and not on Render
       const skipEventSheets = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
-      
-      if (!skipEventSheets) {
-        // Helper function to create event-specific worksheets (streaming approach)
-        const createEventSheet = (eventType, eventSheetName) => {
-        // Filter events without keeping them in memory
-        const filteredEvents = telemetryData.filter(r => {
-          const evt = r.event;
-          const eventNum = Number(evt);
-          const eventStr = String(evt || '').toUpperCase().trim();
-          
-          switch(eventType) {
-            case 'NORMAL':
-              return eventNum === 0 || evt === 0 || evt === '0' || eventStr === 'NORMAL' || eventStr.startsWith('NORMAL');
-            case 'DPOL':
-              return eventNum === 3 || evt === 3 || evt === '3' || eventStr === 'DPOL' || eventStr === 'DEPOL' || eventStr.startsWith('DPOL') || eventStr.startsWith('DEPOL');
-            case 'INT':
-              return eventNum === 1 || evt === 1 || evt === '1' || eventStr === 'INT' || eventStr.startsWith('INT') || eventStr === 'INTERRUPT' || eventStr.startsWith('INTERRUPT');
-            case 'INST':
-              return eventNum === 4 || evt === 4 || evt === '4' || eventStr === 'INST' || eventStr.startsWith('INST') || eventStr === 'INSTANT' || eventStr.startsWith('INSTANT');
-            default:
-              return false;
-          }
-        });
+      console.log(`⚠️ Skipping event-specific sheets for memory optimization (skipEventSheets=${skipEventSheets})`);
 
-        // Always create the sheet, even if empty (for consistency)
-        const eventSheet = workbook.addWorksheet(eventSheetName);
-        
-        // Get all unique fields from filtered events (or all data if no events)
-        const allFields = new Set();
-        const fieldsToUse = filteredEvents.length > 0 ? filteredEvents : telemetryData;
-        
-        fieldsToUse.forEach(record => {
-          if (record.data) {
-            if (record.data instanceof Map) {
-              record.data.forEach((value, key) => allFields.add(key));
-            } else if (typeof record.data === 'object') {
-              Object.keys(record.data).forEach(key => allFields.add(key));
-            }
-          }
-        });
-
-        // Create dynamic columns based on all available fields
-        const dynamicColumns = [
-          { header: 'Device ID', key: 'deviceId', width: 15 },
-          { header: 'Location', key: 'location', width: 15 },
-          { header: 'Status', key: 'status', width: 12 },
-          { header: 'Log No', key: 'logNo', width: 12 },
-          { header: 'Timestamp', key: 'timestamp', width: 20 },
-          { header: 'Mode', key: 'event', width: 15 }
-        ];
-
-        // Add all data fields as columns
-        Array.from(allFields).sort().forEach(field => {
-          dynamicColumns.push({
-            header: field,
-            key: field,
-            width: 15
-          });
-        });
-
-        eventSheet.columns = dynamicColumns;
-
-        // Style header row
-        const headerRow = eventSheet.getRow(1);
-        headerRow.font = { bold: true, color: { argb: 'FFFFFF' } };
-        headerRow.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: '366092' }
-        };
-        // Center align header
-        headerRow.eachCell((cell) => {
-          cell.alignment = {
-            horizontal: 'center',
-            vertical: 'middle',
-            wrapText: true
-          };
-        });
-
-        // Add data rows
-        filteredEvents.forEach((record, index) => {
-          // Extract location - use geo-reversed location name if available
-          let locationDisplay = 'N/A';
-          const locationField = getFieldValue(record, 'location');
-          
-          if (locationField) {
-            // If location is a JSON string (from geo-reverse), parse it
-            if (typeof locationField === 'string' && locationField.startsWith('{')) {
-              try {
-                const locObj = JSON.parse(locationField);
-                locationDisplay = locObj.city_name || locObj.display_name || locationField;
-              } catch (e) {
-                locationDisplay = locationField;
-              }
-            } else {
-              locationDisplay = locationField;
-            }
-          }
-
-          const row = {
-            deviceId: record.deviceId,
-            location: locationDisplay,
-            status: getFieldValue(record, 'status') || 'online',
-            logNo: getFieldValue(record, 'logNo', 'log', 'LOG') || '',
-            timestamp: record.timestamp instanceof Date ? record.timestamp.toISOString() : record.timestamp,
-            event: record.event || eventType
-          };
-
-          // Add all data fields
-          allFields.forEach(field => {
-            row[field] = getFieldValue(record, field) || '';
-          });
-
-          const excelRow = eventSheet.addRow(row);
-
-          // Center align all cells in the row
-          excelRow.eachCell((cell) => {
-            cell.alignment = {
-              horizontal: 'center',
-              vertical: 'middle',
-              wrapText: true
-            };
-          });
-
-          // Add conditional formatting for alternate rows
-          if (index % 2 === 1) {
-            const rowNum = index + 2;
-            eventSheet.getRow(rowNum).fill = {
-              type: 'pattern',
-              pattern: 'solid',
-              fgColor: { argb: 'F8F9FA' }
-            };
-          }
-
-          // Log progress every 1000 rows
-          if ((index + 1) % 1000 === 0) {
-            console.log(`   Added ${index + 1} rows to "${eventSheetName}"...`);
-          }
-        });
-
-        console.log(`✅ Event sheet "${eventSheetName}" created with ${filteredEvents.length} records`);
-        return filteredEvents.length;
-      };
-
-      // Create event-specific worksheets - skip on Render for memory optimization
-      let normalCount = 0, dpolCount = 0, intCount = 0, instCount = 0;
+      // Always count devices for return value
       let deviceCounts = {};
-      
-      if (!skipEventSheets) {
-        console.log('\n📋 Creating event-specific worksheets...');
-        normalCount = createEventSheet('NORMAL', 'NORMAL Events');
-        dpolCount = createEventSheet('DPOL', 'DPOL Events');
-        intCount = createEventSheet('INT', 'INT Events');
-        instCount = createEventSheet('INST', 'INST Events');
-
-        // Add summary worksheet
-        const summarySheet = workbook.addWorksheet('Summary');
-        
-        // Summary data
-        telemetryData.forEach(record => {
-          deviceCounts[record.deviceId] = (deviceCounts[record.deviceId] || 0) + 1;
-        });
-
-        summarySheet.columns = [
-          { header: 'Metric', key: 'metric', width: 25 },
-          { header: 'Value', key: 'value', width: 20 }
-        ];
-
-        summarySheet.getRow(1).font = { bold: true };
-
-        summarySheet.addRows([
-          { metric: 'Export Date', value: new Date().toISOString() },
-          { metric: 'Date Range', value: `${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}` },
-          { metric: 'Total Records', value: telemetryData.length },
-          { metric: 'Unique Devices', value: Object.keys(deviceCounts).length },
-          { metric: 'NORMAL Events', value: normalCount },
-          { metric: 'DPOL Events', value: dpolCount },
-          { metric: 'INT Events', value: intCount },
-          { metric: 'INST Events', value: instCount }
-        ]);
-
-        // Add device breakdown
-        summarySheet.addRow({ metric: '', value: '' }); // Empty row
-        summarySheet.addRow({ metric: 'Records per Device:', value: '' });
-        
-        Object.entries(deviceCounts).forEach(([deviceId, count]) => {
-          summarySheet.addRow({ metric: `  ${deviceId}`, value: count });
-        });
-      } else {
-        console.log('⚠️ Skipping event-specific and summary sheets for memory optimization (Render deployment)');
-        // Still need to count devices even when skipping event sheets
-        telemetryData.forEach(record => {
-          deviceCounts[record.deviceId] = (deviceCounts[record.deviceId] || 0) + 1;
-        });
-      }
+      telemetryData.forEach(record => {
+        deviceCounts[record.deviceId] = (deviceCounts[record.deviceId] || 0) + 1;
+      });
 
       console.log('✅ Workbook creation complete');
 
@@ -545,10 +356,10 @@ class ExcelExportService {
         recordCount: telemetryData.length,
         devices: Object.keys(deviceCounts).length,
         eventCounts: {
-          normal: normalCount,
-          dpol: dpolCount,
-          int: intCount,
-          inst: instCount
+          normal: 0,
+          dpol: 0,
+          int: 0,
+          inst: 0
         }
       };
 

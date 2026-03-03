@@ -19,7 +19,7 @@ class ExcelExportService {
         startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Default: last 30 days
         endDate = new Date(),
         filename = `telemetry_export_${new Date().toISOString().split('T')[0]}.xlsx`,
-        maxRecords = 15000 // Reduced to 15000 for Render's 30-second timeout limit; event sheets disabled for performance
+        maxRecords = 5000 // Reduced to 5000 for Render's 30-second timeout limit
       } = options;
 
       // Build query with proper date handling
@@ -330,25 +330,10 @@ class ExcelExportService {
 
           const excelRow = worksheet.addRow(row);
 
-          // Center align all cells in the row
-          excelRow.eachCell((cell) => {
-            cell.alignment = {
-              horizontal: 'center',
-              vertical: 'middle',
-              wrapText: true
-            };
-          });
-
-          // Add conditional formatting for alternate rows
-          if (index % 2 === 1) {
-            const rowNum = index + 2; // +2 because Excel is 1-indexed and we have header
-            excelRow.fill = {
-              type: 'pattern',
-              pattern: 'solid',
-              fgColor: { argb: 'F8F9FA' }
-            };
-          }
-
+          // Skip individual cell formatting for performance
+          // Excel will use default formatting which is sufficient for data export
+          // This significantly reduces processing time on Render's 30-second limit
+          
           // Log progress every 500 rows
           if ((index + 1) % 500 === 0) {
             console.log(`   Added ${index + 1} rows to worksheet...`);

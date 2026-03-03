@@ -19,7 +19,7 @@ class ExcelExportService {
         startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Default: last 30 days
         endDate = new Date(),
         filename = `telemetry_export_${new Date().toISOString().split('T')[0]}.xlsx`,
-        maxRecords = 15000 // Increased to 15000 to capture more data across the date range
+        maxRecords = 5000 // Reduced to 5000 to prevent OOM issues on Render's limited memory
       } = options;
 
       // Build query with proper date handling
@@ -368,38 +368,11 @@ class ExcelExportService {
         }
       });
 
-      // Create event-specific worksheets
-      console.log('\n📋 Creating event-specific worksheets...');
-      
-      // Helper function to filter events by type
-      const filterEventsByType = (eventType) => {
-        return telemetryData.filter(r => {
-          const evt = String(r.event || '').toUpperCase().trim();
-          const eventNum = Number(r.event);
-          
-          switch(eventType) {
-            case 'NORMAL':
-              return eventNum === 0 || evt === 'NORMAL' || evt.startsWith('NORMAL');
-            case 'DPOL':
-              return eventNum === 3 || evt === 'DPOL' || evt === 'DEPOL';
-            case 'INT':
-              return eventNum === 1 || evt === 'INT' || evt === 'INTERRUPT';
-            case 'INST':
-              return eventNum === 4 || evt === 'INST' || evt === 'INSTANT';
-            default:
-              return false;
-          }
-        });
-      };
+      // Skip event-specific worksheets to reduce memory usage
+      // (On Render with limited memory, creating 4+ filtered copies caused OOM)
+      console.log('📋 Event sheets disabled for memory optimization');
 
-      // Create sheets for each event type
-      const eventData = {
-        NORMAL: filterEventsByType('NORMAL'),
-        DPOL: filterEventsByType('DPOL'),
-        INT: filterEventsByType('INT'),
-        INST: filterEventsByType('INST')
-      };
-
+      // Extract event counts from main data for summary
       let eventCounts = {
         normal: 0,
         dpol: 0,
@@ -407,91 +380,15 @@ class ExcelExportService {
         inst: 0
       };
 
-      // Add event sheets
-      ['NORMAL', 'DPOL', 'INT', 'INST'].forEach(eventType => {
-        const events = eventData[eventType];
-        const sheetName = `${eventType} Events`;
+      // Count events in main data
+      telemetryData.forEach(record => {
+        const evt = String(record.event || '').toUpperCase().trim();
+        const eventNum = Number(record.event);
         
-        if (events && events.length > 0) {
-          const eventSheet = workbook.addWorksheet(sheetName);
-          eventSheet.columns = baseColumns;
-          
-          // Style header
-          const headerRow = eventSheet.getRow(1);
-          headerRow.font = { bold: true, color: { argb: 'FFFFFF' } };
-          headerRow.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: '366092' }
-          };
-          headerRow.eachCell((cell) => {
-            cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-          });
-
-          // Add data rows
-          events.forEach((record, index) => {
-            const locationField = getFieldValue(record, 'location');
-            let locationDisplay = 'N/A';
-            if (locationField) {
-              if (typeof locationField === 'string' && locationField.startsWith('{')) {
-                try {
-                  const locObj = JSON.parse(locationField);
-                  locationDisplay = locObj.city_name || locObj.display_name || locationField;
-                } catch (e) {
-                  locationDisplay = locationField;
-                }
-              } else {
-                locationDisplay = locationField;
-              }
-            }
-
-            const row = {
-              deviceId: record.deviceId,
-              location: locationDisplay,
-              status: getFieldValue(record, 'status') || 'online',
-              logNo: getFieldValue(record, 'logNo', 'log', 'LOG') || '',
-              timestamp: record.timestamp instanceof Date ? record.timestamp.toISOString() : record.timestamp,
-              event: record.event || eventType,
-              acv: getFieldValue(record, 'ACV', 'acv') || '',
-              aci: getFieldValue(record, 'ACI', 'aci') || '',
-              dcv: getFieldValue(record, 'DCV', 'dcv') || '',
-              dci: getFieldValue(record, 'DCI', 'dci') || '',
-              ref1: getFieldValue(record, 'REF1', 'ref1') || '',
-              ref2: getFieldValue(record, 'REF2', 'ref2') || '',
-              ref3: getFieldValue(record, 'REF3', 'ref3') || '',
-              di1: getFieldValue(record, 'DI1', 'di1') || '',
-              di2: getFieldValue(record, 'DI2', 'di2') || '',
-              di3: getFieldValue(record, 'DI3', 'di3') || '',
-              di4: getFieldValue(record, 'DI4', 'di4') || '',
-              do: getFieldValue(record, 'DO', 'do') || '',
-              ref1Status: getFieldValue(record, 'REF1Status', 'ref1Status') || '',
-              ref2Status: getFieldValue(record, 'REF2Status', 'ref2Status') || '',
-              ref3Status: getFieldValue(record, 'REF3Status', 'ref3Status') || ''
-            };
-
-            const excelRow = eventSheet.addRow(row);
-            excelRow.eachCell((cell) => {
-              cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-            });
-
-            if (index % 2 === 1) {
-              const rowNum = index + 2;
-              eventSheet.getRow(rowNum).fill = {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'F8F9FA' }
-              };
-            }
-          });
-
-          console.log(`✅ Created "${sheetName}" with ${events.length} records`);
-          
-          // Update counts
-          if (eventType === 'NORMAL') eventCounts.normal = events.length;
-          if (eventType === 'DPOL') eventCounts.dpol = events.length;
-          if (eventType === 'INT') eventCounts.int = events.length;
-          if (eventType === 'INST') eventCounts.inst = events.length;
-        }
+        if (eventNum === 0 || evt === 'NORMAL' || evt.startsWith('NORMAL')) eventCounts.normal++;
+        else if (eventNum === 3 || evt === 'DPOL' || evt === 'DEPOL') eventCounts.dpol++;
+        else if (eventNum === 1 || evt === 'INT' || evt === 'INTERRUPT') eventCounts.int++;
+        else if (eventNum === 4 || evt === 'INST' || evt === 'INSTANT') eventCounts.inst++;
       });
 
       // Add summary worksheet

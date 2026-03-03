@@ -19,7 +19,7 @@ class ExcelExportService {
         startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Default: last 30 days
         endDate = new Date(),
         filename = `telemetry_export_${new Date().toISOString().split('T')[0]}.xlsx`,
-        maxRecords = 30000 // Increased to 30000 to capture more data; monitor memory on deployment
+        maxRecords = 15000 // Reduced to 15000 for Render's 30-second timeout limit; event sheets disabled for performance
       } = options;
 
       // Build query with proper date handling
@@ -369,110 +369,10 @@ class ExcelExportService {
       });
 
 
-      // Create event-specific worksheets for each mode type
-      console.log('📋 Creating event-specific worksheets...');
-
-      // Define event types with their identifiers and display names
-      const eventTypes = [
-        { name: 'NORMAL', key: 'normal', values: [0, 'NORMAL', 'NORMAL_MODE'] },
-        { name: 'DPOL', key: 'dpol', values: [3, 'DPOL', 'DEPOL', 'DPOL_MODE'] },
-        { name: 'INT', key: 'int', values: [1, 'INT', 'INTERRUPT', 'INT_MODE'] },
-        { name: 'INST', key: 'inst', values: [4, 'INST', 'INSTANT', 'INST_MODE'] }
-      ];
-
-      // Create worksheets for each event type
-      eventTypes.forEach(eventType => {
-        try {
-          // Filter data for this event type
-          const filteredData = telemetryData.filter(record => {
-            const evt = String(record.event || '').toUpperCase().trim();
-            const eventNum = Number(record.event);
-            
-            return eventType.values.includes(eventNum) || 
-                   eventType.values.some(val => evt.includes(String(val)));
-          });
-
-          if (filteredData.length === 0) {
-            console.log(`ℹ️  No data found for ${eventType.name} events, skipping worksheet`);
-            return; // Skip if no data
-          }
-
-          console.log(`📝 Creating ${eventType.name} worksheet with ${filteredData.length} records...`);
-
-          // Create worksheet for this event type
-          const eventSheet = workbook.addWorksheet(eventType.name);
-
-          // Add headers (same as main sheet)
-          eventSheet.columns = [
-            { header: 'Device ID', key: 'deviceId', width: 15 },
-            { header: 'Timestamp', key: 'timestamp', width: 20 },
-            { header: 'Event', key: 'event', width: 12 },
-            { header: 'Status', key: 'status', width: 12 },
-            { header: 'Temperature', key: 'temperature', width: 15 },
-            { header: 'Humidity', key: 'humidity', width: 15 },
-            { header: 'Pressure', key: 'pressure', width: 15 },
-            { header: 'Parameter 1', key: 'parameter1', width: 15 },
-            { header: 'Parameter 2', key: 'parameter2', width: 15 }
-          ];
-
-          // Style header row
-          eventSheet.getRow(1).font = {
-            bold: true,
-            color: { argb: 'FFFFFFFF' }
-          };
-
-          eventSheet.getRow(1).fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FF366092' }
-          };
-
-          // Add data rows
-          filteredData.forEach((record, index) => {
-            const row = {
-              deviceId: record.deviceId || 'N/A',
-              timestamp: record.timestamp instanceof Date ? record.timestamp.toISOString() : record.timestamp,
-              event: record.event || 'N/A',
-              status: record.status || 'N/A',
-              temperature: record.temperature !== undefined ? Number(record.temperature).toFixed(2) : 'N/A',
-              humidity: record.humidity !== undefined ? Number(record.humidity).toFixed(2) : 'N/A',
-              pressure: record.pressure !== undefined ? Number(record.pressure).toFixed(2) : 'N/A',
-              parameter1: record.parameter1 || 'N/A',
-              parameter2: record.parameter2 || 'N/A'
-            };
-
-            const excelRow = eventSheet.addRow(row);
-
-            // Center align all cells
-            excelRow.eachCell((cell) => {
-              cell.alignment = {
-                horizontal: 'center',
-                vertical: 'middle',
-                wrapText: true
-              };
-            });
-
-            // Alternate row colors
-            if (index % 2 === 1) {
-              excelRow.fill = {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'F8F9FA' }
-              };
-            }
-
-            // Log progress
-            if ((index + 1) % 500 === 0) {
-              console.log(`   Added ${index + 1} rows to ${eventType.name} worksheet...`);
-            }
-          });
-
-          console.log(`✅ ${eventType.name} worksheet created with ${filteredData.length} rows`);
-        } catch (eventSheetError) {
-          console.error(`❌ Error creating ${eventType.name} worksheet:`, eventSheetError.message);
-          // Don't throw - continue creating other sheets
-        }
-      });
+      // Event sheets disabled for performance optimization on Render (30-second timeout)
+      // Creating multiple worksheets with large datasets was causing exports to timeout
+      // Event statistics are still tracked and shown in Summary sheet
+      console.log('ℹ️  Event-specific worksheets disabled for performance. Summary sheet includes event type counts.');
 
       let eventCounts = {
         normal: 0,
@@ -481,7 +381,7 @@ class ExcelExportService {
         inst: 0
       };
 
-      // Count events in main data
+      // Count events in main data during single pass
       telemetryData.forEach(record => {
         const evt = String(record.event || '').toUpperCase().trim();
         const eventNum = Number(record.event);

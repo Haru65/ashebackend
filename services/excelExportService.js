@@ -64,18 +64,30 @@ class ExcelExportService {
         const normalizedModes = modes.map(m => String(m).toUpperCase().trim());
         const modeQueries = [];
         
-        // Map mode names to event values
+        // Map mode names to event values - includes all variations and substatus
         if (normalizedModes.includes('NORMAL')) {
-          modeQueries.push({ event: { $in: [0, 'NORMAL', 'NORMAL_MODE'] } });
+          modeQueries.push({ event: { $in: [0, 'NORMAL', 'NORMAL_MODE', 'normal'] } });
         }
         if (normalizedModes.includes('DPOL')) {
-          modeQueries.push({ event: { $in: [3, 'DPOL', 'DEPOL', 'DPOL_MODE'] } });
+          // Include DEPOL as alternate spelling and also check with regex for variations
+          modeQueries.push({ $or: [
+            { event: { $in: [3, 'DPOL', 'DEPOL', 'DPOL_MODE'] } },
+            { event: { $regex: '^DPOL', $options: 'i' } }
+          ]});
         }
         if (normalizedModes.includes('INT')) {
-          modeQueries.push({ event: { $in: [1, 'INT', 'INTERRUPT', 'INT_MODE'] } });
+          // Include INT ON, INT OFF variations
+          modeQueries.push({ $or: [
+            { event: { $in: [1, 'INT', 'INTERRUPT', 'INT_MODE'] } },
+            { event: { $regex: '^INT', $options: 'i' } }  // Catches INT ON, INT OFF, etc.
+          ]});
         }
         if (normalizedModes.includes('INST')) {
-          modeQueries.push({ event: { $in: [4, 'INST', 'INSTANT', 'INST_MODE'] } });
+          // Include INST ON, INST OFF variations  
+          modeQueries.push({ $or: [
+            { event: { $in: [4, 'INST', 'INSTANT', 'INST_MODE'] } },
+            { event: { $regex: '^INST', $options: 'i' } }  // Catches INST ON, INST OFF, etc.
+          ]});
         }
 
         // Use $or to match any of the selected modes

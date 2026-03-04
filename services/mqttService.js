@@ -2387,11 +2387,21 @@ class MQTTService {
       // Create telemetry record with explicit data assignment
       // Extract event from Parameters (real device format) or root level (simulator format)
       // CRITICAL: Use dataFields.EVENT as primary source since it's already extracted
-      const event = dataFields.EVENT || dataFields.Event || 
+      let event = dataFields.EVENT || dataFields.Event || 
                     payload.Parameters?.EVENT || payload.Parameters?.Event || 
                     payload.EVENT || payload.Event || 'NORMAL';
       
-      console.log(`📝 Event extraction: dataFields.EVENT="${dataFields.EVENT}" → event="${event}"`);
+      // Normalize event values for consistency
+      event = String(event).trim();
+      if (event.toUpperCase() === 'DEPOL') {
+        event = 'DPOL'; // Normalize DEPOL → DPOL
+      }
+      // Handle case-insensitive NORMAL
+      if (event.toUpperCase() === 'NORMAL' && event !== 'NORMAL') {
+        event = 'NORMAL';
+      }
+      
+      console.log(`📝 Event extraction: dataFields.EVENT="${dataFields.EVENT}" → normalized event="${event}"`);
       
       // Extract device timestamp from payload instead of using server time
       // Device sends timestamp in format: "2026-03-04 14:16:52"

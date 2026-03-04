@@ -2393,9 +2393,49 @@ class MQTTService {
       
       console.log(`📝 Event extraction: dataFields.EVENT="${dataFields.EVENT}" → event="${event}"`);
       
+      // Extract device timestamp from payload instead of using server time
+      // Device sends timestamp in format: "2026-03-04 14:16:52"
+      // Try multiple possible locations for the timestamp field
+      let deviceTimestamp = null;
+      let timestampSource = 'server';
+      
+      if (payload.Parameters?.TimeStamp) {
+        deviceTimestamp = payload.Parameters.TimeStamp;
+        timestampSource = 'Parameters.TimeStamp';
+      } else if (payload.TimeStamp) {
+        deviceTimestamp = payload.TimeStamp;
+        timestampSource = 'payload.TimeStamp';
+      } else if (dataFields.TimeStamp) {
+        deviceTimestamp = dataFields.TimeStamp;
+        timestampSource = 'dataFields.TimeStamp';
+      }
+      
+      let parsedTimestamp = new Date(); // Default to current server time as fallback
+      
+      if (deviceTimestamp) {
+        try {
+          // Parse device timestamp format: "2026-03-04 14:16:52"
+          // Using Date constructor with ISO format (convert spaces to T)
+          const isoFormat = deviceTimestamp.replace(' ', 'T') + 'Z'; // Treat as UTC to avoid local timezone conversion
+          const parsed = new Date(isoFormat);
+          
+          if (!isNaN(parsed.getTime())) {
+            parsedTimestamp = parsed;
+            console.log(`✅ Device timestamp parsed successfully from ${timestampSource}: "${deviceTimestamp}" → ${parsedTimestamp.toISOString()}`);
+          } else {
+            console.warn(`⚠️ Failed to parse device timestamp: "${deviceTimestamp}", using server time`);
+          }
+        } catch (timestampError) {
+          console.warn(`⚠️ Error parsing device timestamp "${deviceTimestamp}":`, timestampError.message);
+          console.log(`   Using server time as fallback`);
+        }
+      } else {
+        console.log(`ℹ️ No device timestamp found in payload, using server time`);
+      }
+      
       const telemetryRecord = new Telemetry({
         deviceId: deviceId,
-        timestamp: new Date(),
+        timestamp: parsedTimestamp,
         event: event,
         location: location  // Add location field for easy access in frontend
       });

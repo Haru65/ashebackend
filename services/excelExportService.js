@@ -4,24 +4,27 @@ const Device = require('../models/Device');
 
 class ExcelExportService {
   /**
-   * Format date as M/D/YYYY h:mm:ss am/pm
+   * Format date as YYYYMMDDHHMMSS (Year Month Day Hour Minute Seconds)
+   * Device timestamps are already in correct local time, no offset needed
+   * @param {Date|string} date - The date to format
+   * @returns {string} Formatted timestamp as YYYYMMDDHHMMSS
    */
   static formatDate(date) {
     if (!date) return '';
+    
     const d = date instanceof Date ? date : new Date(date);
+    
     if (isNaN(d)) return '';
     
-    const month = d.getMonth() + 1;
-    const day = d.getDate();
+    // Pad numbers with leading zeros
     const year = d.getFullYear();
-    let hours = d.getHours();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hours = String(d.getHours()).padStart(2, '0');
     const minutes = String(d.getMinutes()).padStart(2, '0');
     const seconds = String(d.getSeconds()).padStart(2, '0');
-    const ampm = hours >= 12 ? 'pm' : 'am';
-    hours = hours % 12;
-    hours = hours ? hours : 12;
     
-    return `${month}/${day}/${year} ${hours}:${minutes}:${seconds} ${ampm}`;
+    return `${year}${month}${day}${hours}${minutes}${seconds}`;
   }
 
   /**

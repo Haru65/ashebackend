@@ -2356,14 +2356,24 @@ class MQTTService {
           }
           
           // Trigger reverse geocoding in background (non-blocking)
-          // This prevents slow API calls from blocking telemetry save
+          // IMPORTANT: After geocoding completes, update the telemetry record with location name
           setImmediate(() => {
             this.reverseGeocodeLocation(lat, lon)
               .then(locationName => {
                 if (locationName) {
                   console.log(`✅ Geocoding completed in background: ${locationName}`);
-                  // Telemetry already saved with coordinates, location can be updated later if needed
-                  // For now, we've ensured the data flow is not blocked
+                  
+                  // ✅ UPDATE TELEMETRY: Save the geocoded location name back to database
+                  const Telemetry = require('../models/telemetry');
+                  Telemetry.findByIdAndUpdate(
+                    telemetryRecord._id,
+                    { $set: { location: locationName } },
+                    { new: true }
+                  ).then(updated => {
+                    console.log(`✅ Telemetry record updated with location: ${locationName}`);
+                  }).catch(updateError => {
+                    console.warn(`⚠️ Failed to update telemetry with geocoded location:`, updateError.message);
+                  });
                 } else {
                   console.log(`ℹ️ Geocoding returned no location for ${lat}, ${lon}`);
                 }

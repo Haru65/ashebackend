@@ -4,10 +4,10 @@ const Device = require('../models/Device');
 
 class ExcelExportService {
   /**
-   * Format date as YYYYMMDDHHMMSS (Year Month Day Hour Minute Seconds)
+   * Format date as YYYY/MM/DD  HH/MM/SS
    * Device timestamps are already in correct local time, no offset needed
    * @param {Date|string} date - The date to format
-   * @returns {string} Formatted timestamp as YYYYMMDDHHMMSS
+   * @returns {string} Formatted timestamp as YYYY/MM/DD  HH/MM/SS
    */
   static formatDate(date) {
     if (!date) return '';
@@ -24,7 +24,7 @@ class ExcelExportService {
     const minutes = String(d.getMinutes()).padStart(2, '0');
     const seconds = String(d.getSeconds()).padStart(2, '0');
     
-    return `${year}${month}${day}${hours}${minutes}${seconds}`;
+    return `${year}/${month}/${day}  ${hours}/${minutes}/${seconds}`;
   }
 
   /**
@@ -110,10 +110,9 @@ class ExcelExportService {
       }
 
       // Fetch telemetry data with limit
-      // Sort by ascending timestamp to get records from START of range (oldest first)
-      // This ensures we get a proper date distribution instead of just the most recent records
+      // Sort by descending timestamp to show newest records first (most recent at top)
       const telemetryData = await Telemetry.find(query)
-        .sort({ timestamp: 1 }) // 1 = ascending (oldest first), not -1 (newest first)
+        .sort({ timestamp: -1 }) // -1 = descending (newest first, appears at top of Excel)
         .limit(maxRecords)
         .lean();
 

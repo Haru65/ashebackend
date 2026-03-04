@@ -2421,17 +2421,23 @@ class MQTTService {
       }
       
       let parsedTimestamp = new Date(); // Default to current server time as fallback
+      let timestampString = null; // Store original device timestamp string
       
       if (deviceTimestamp) {
         try {
-          // Parse device timestamp format: "2026-03-04 14:16:52"
-          // Using Date constructor with ISO format (convert spaces to T)
-          const isoFormat = deviceTimestamp.replace(' ', 'T') + 'Z'; // Treat as UTC to avoid local timezone conversion
+          // STANDARDIZED TIMESTAMP HANDLING
+          // Device sends: "2026-03-04 14:16:52" (local device time)
+          // Store as: ISO Date object WITHOUT 'Z' suffix to preserve local time values
+          // This ensures formatDate() displays the exact hours/minutes/seconds the device reported
+          
+          const isoFormat = deviceTimestamp.replace(' ', 'T'); // DON'T add 'Z' - that marks it as UTC
           const parsed = new Date(isoFormat);
           
           if (!isNaN(parsed.getTime())) {
             parsedTimestamp = parsed;
-            console.log(`✅ Device timestamp parsed successfully from ${timestampSource}: "${deviceTimestamp}" → ${parsedTimestamp.toISOString()}`);
+            timestampString = deviceTimestamp; // Keep original string as backup
+            console.log(`✅ Device timestamp standardized from ${timestampSource}: "${deviceTimestamp}" → ${parsed.toISOString()}`);
+            console.log(`   Note: Stored WITHOUT UTC marker (Z) to preserve device local time values`);
           } else {
             console.warn(`⚠️ Failed to parse device timestamp: "${deviceTimestamp}", using server time`);
           }

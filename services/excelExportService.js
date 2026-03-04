@@ -284,10 +284,10 @@ class ExcelExportService {
       // Define columns matching the report UI exactly
       const baseColumns = [
         { header: 'Device ID', key: 'deviceId', width: 15 },
-        { header: 'Location', key: 'location', width: 20 },
+        { header: 'Location', key: 'location', width: 30 },
         { header: 'Status', key: 'status', width: 12 },
         { header: 'Log No', key: 'logNo', width: 12 },
-        { header: 'Timestamp', key: 'timestamp', width: 20 },
+        { header: 'Timestamp', key: 'timestamp', width: 25 },
         { header: 'Mode', key: 'event', width: 15 },
         { header: 'ACV', key: 'acv', width: 12 },
         { header: 'ACI', key: 'aci', width: 12 },
@@ -383,7 +383,7 @@ class ExcelExportService {
             location: locationDisplay,
             status: getFieldValue(record, 'status') || 'online',
             logNo: getFieldValue(record, 'logNo', 'log', 'LOG') || '',
-            timestamp: ExcelExportService.formatDate(record.timestamp),
+            timestamp: ExcelExportService.formatDate(record.timestamp), // This will be set as text explicitly
             event: record.event || 'NORMAL',
             acv: getFieldValue(record, 'ACV', 'acv') || '',
             aci: getFieldValue(record, 'ACI', 'aci') || '',
@@ -405,12 +405,22 @@ class ExcelExportService {
           const excelRow = worksheet.addRow(row);
 
           // Center align all data cells for better readability
-          excelRow.eachCell((cell) => {
+          excelRow.eachCell((cell, colNumber) => {
             cell.alignment = {
               horizontal: 'center',
               vertical: 'middle',
               wrapText: false
             };
+            
+            // CRITICAL: Set timestamp column as TEXT to prevent Excel auto-formatting
+            // Column 5 = Timestamp (Device ID, Location, Status, Log No, Timestamp)
+            if (colNumber === 5) {
+              // Force as text to preserve "YYYY/MM/DD  HH:MM:SS" format
+              cell.dataType = 'string'; // ExcelJS dataType for text
+              cell.numFmt = '@'; // Excel format code for text
+              // Also set the value directly to ensure it's a string
+              cell.value = String(cell.value);
+            }
           });
           
           // Log progress every 500 rows

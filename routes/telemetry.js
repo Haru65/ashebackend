@@ -165,10 +165,26 @@ router.get('/', authenticateToken, async (req, res) => {
           console.warn(`  ⚠️ WARNING: No data fields found in record!`);
         }
         
+        // FORMAT TIMESTAMP FOR API: Send as pre-formatted string to avoid browser timezone conversion
+        const formatTimestamp = (date) => {
+          if (!date) return '';
+          const d = date instanceof Date ? date : new Date(date);
+          if (isNaN(d.getTime())) return '';
+          
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const hours = String(d.getHours()).padStart(2, '0');
+          const minutes = String(d.getMinutes()).padStart(2, '0');
+          const seconds = String(d.getSeconds()).padStart(2, '0');
+          
+          return `${year}/${month}/${day}  ${hours}:${minutes}:${seconds}`;
+        };
+        
         const enrichedRecord = {
           _id: telemetryObj._id,
           deviceId: telemetryObj.deviceId,
-          timestamp: telemetryObj.timestamp,
+          timestamp: formatTimestamp(telemetryObj.timestamp), // Send as FORMATTED STRING, NOT Date object
           event: telemetryObj.event,
           status: 'online',  // ✅ Status is always 'online' when data exists in telemetry
           location: telemetryObj.location,
@@ -265,10 +281,26 @@ router.get('/device/:deviceId', authenticateToken, async (req, res) => {
         ? Object.fromEntries(telemetryObj.data)
         : telemetryObj.data || {};
       
+      // FORMAT TIMESTAMP: Send as pre-formatted string to avoid browser timezone conversion
+      const formatTimestamp = (date) => {
+        if (!date) return '';
+        const d = date instanceof Date ? date : new Date(date);
+        if (isNaN(d.getTime())) return '';
+        
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const hours = String(d.getHours()).padStart(2, '0');
+        const minutes = String(d.getMinutes()).padStart(2, '0');
+        const seconds = String(d.getSeconds()).padStart(2, '0');
+        
+        return `${year}/${month}/${day}  ${hours}:${minutes}:${seconds}`;
+      };
+      
       const enrichedRecord = {
         _id: telemetryObj._id,
         deviceId: telemetryObj.deviceId,
-        timestamp: telemetryObj.timestamp,
+        timestamp: formatTimestamp(telemetryObj.timestamp), // Send as FORMATTED STRING
         event: telemetryObj.event,
         status: telemetryObj.status,
         location: telemetryObj.location,
@@ -328,10 +360,26 @@ router.get('/latest', authenticateToken, async (req, res) => {
           ? Object.fromEntries(telemetry.data)
           : telemetry.data || {};
         
+        // FORMAT TIMESTAMP: Send as pre-formatted string
+        const formatTimestamp = (date) => {
+          if (!date) return '';
+          const d = date instanceof Date ? date : new Date(date);
+          if (isNaN(d.getTime())) return '';
+          
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const hours = String(d.getHours()).padStart(2, '0');
+          const minutes = String(d.getMinutes()).padStart(2, '0');
+          const seconds = String(d.getSeconds()).padStart(2, '0');
+          
+          return `${year}/${month}/${day}  ${hours}:${minutes}:${seconds}`;
+        };
+        
         const enrichedRecord = {
           _id: telemetry._id,
           deviceId: telemetry.deviceId,
-          timestamp: telemetry.timestamp,
+          timestamp: formatTimestamp(telemetry.timestamp), // Send as FORMATTED STRING
           event: telemetry.event,
           status: telemetry.status,
           location: telemetry.location,
@@ -404,11 +452,26 @@ router.get('/recent', authenticateToken, async (req, res) => {
       .limit(parseInt(limit));
 
     // Extract parameters from data map
+    const formatTimestamp = (date) => {
+      if (!date) return '';
+      const d = date instanceof Date ? date : new Date(date);
+      if (isNaN(d.getTime())) return '';
+      
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const hours = String(d.getHours()).padStart(2, '0');
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      const seconds = String(d.getSeconds()).padStart(2, '0');
+      
+      return `${year}/${month}/${day}  ${hours}:${minutes}:${seconds}`;
+    };
+
     const formattedData = telemetryData.map(item => {
       const dataObj = item.data ? Object.fromEntries(item.data) : {};
       return {
         deviceId: item.deviceId,
-        timestamp: item.timestamp,
+        timestamp: formatTimestamp(item.timestamp), // Send as FORMATTED STRING
         ref1: dataObj.ref1 || dataObj.REF1 || 0,
         ref2: dataObj.ref2 || dataObj.REF2 || 0,
         ref3: dataObj.ref3 || dataObj.REF3 || 0,

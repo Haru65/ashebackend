@@ -225,16 +225,85 @@ function transformParametersToDeviceFormat(cacheParams) {
       }
     },
     
-    // Timestamp values - pass through as strings
-    'Interrupt Start TimeStamp': { key: 'Interrupt Start TimeStamp', transform: (v) => String(v) },
-    'Interrupt Stop TimeStamp': { key: 'Interrupt Stop TimeStamp', transform: (v) => String(v) },
-    'Depolarization Start TimeStamp': { key: 'Depolarization Start TimeStamp', transform: (v) => String(v) },
-    'Depolarization Stop TimeStamp': { key: 'Depolarization Stop TimeStamp', transform: (v) => String(v) },
+    // CRITICAL FIX: Interrupt timestamps - DO NOT split, send as combined string
+    // Device expects: "2026-03-04 15:21:20" or "2026-03-04 15:21"
+    // This is stored in the cache as combined format and should pass through as-is
+    // Ensure seconds are included if only HH:MM is provided
+    'Interrupt Start TimeStamp': {
+      key: 'Interrupt Start TimeStamp',
+      transform: (v) => {
+        let timestamp = String(v);
+        // If format is "YYYY-MM-DD HH:MM" (no seconds), append ":00"
+        if (timestamp.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/) && !timestamp.includes(':') || (timestamp.match(/:\d{2}$/) && !timestamp.match(/:\d{2}:\d{2}$/))) {
+          timestamp += ':00';
+          console.log(`✨ [TIMESTAMP] Added seconds to Interrupt Start TimeStamp: "${v}" → "${timestamp}"`);
+        }
+        return timestamp;
+      }
+    },
+    'Interrupt Stop TimeStamp': {
+      key: 'Interrupt Stop TimeStamp',
+      transform: (v) => {
+        let timestamp = String(v);
+        // If format is "YYYY-MM-DD HH:MM" (no seconds), append ":00"
+        if (timestamp.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/) && !timestamp.includes(':') || (timestamp.match(/:\d{2}$/) && !timestamp.match(/:\d{2}:\d{2}$/))) {
+          timestamp += ':00';
+          console.log(`✨ [TIMESTAMP] Added seconds to Interrupt Stop TimeStamp: "${v}" → "${timestamp}"`);
+        }
+        return timestamp;
+      }
+    },
+    'Depolarization Start TimeStamp': {
+      key: 'Depolarization Start TimeStamp',
+      transform: (v) => {
+        let timestamp = String(v);
+        // If format is "YYYY-MM-DD HH:MM" (no seconds), append ":00"
+        if (timestamp.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/) && !timestamp.includes(':') || (timestamp.match(/:\d{2}$/) && !timestamp.match(/:\d{2}:\d{2}$/))) {
+          timestamp += ':00';
+          console.log(`✨ [TIMESTAMP] Added seconds to Depolarization Start TimeStamp: "${v}" → "${timestamp}"`);
+        }
+        return timestamp;
+      }
+    },
+    'Depolarization Stop TimeStamp': {
+      key: 'Depolarization Stop TimeStamp',
+      transform: (v) => {
+        let timestamp = String(v);
+        // If format is "YYYY-MM-DD HH:MM" (no seconds), append ":00"
+        if (timestamp.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/) && !timestamp.includes(':') || (timestamp.match(/:\d{2}$/) && !timestamp.match(/:\d{2}:\d{2}$/))) {
+          timestamp += ':00';
+          console.log(`✨ [TIMESTAMP] Added seconds to Depolarization Stop TimeStamp: "${v}" → "${timestamp}"`);
+        }
+        return timestamp;
+      }
+    },
     
-    // Time format strings - pass through as-is
+    // Time format strings - pass through as-is, with seconds appending for timestamps
     'Depolarization_interval': { key: 'Depolarization_interval', transform: (v) => String(v) },
-    'Instant Start TimeStamp': { key: 'Instant Start TimeStamp', transform: (v) => String(v) },
-    'Instant End TimeStamp': { key: 'Instant End TimeStamp', transform: (v) => String(v) },
+    'Instant Start TimeStamp': { 
+      key: 'Instant Start TimeStamp', 
+      transform: (v) => {
+        let timestamp = String(v);
+        // If format is "YYYY-MM-DD HH:MM" (no seconds), append ":00"
+        if (timestamp.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/) && !timestamp.includes(':') || (timestamp.match(/:\d{2}$/) && !timestamp.match(/:\d{2}:\d{2}$/))) {
+          timestamp += ':00';
+          console.log(`✨ [TIMESTAMP] Added seconds to Instant Start TimeStamp: "${v}" → "${timestamp}"`);
+        }
+        return timestamp;
+      }
+    },
+    'Instant End TimeStamp': { 
+      key: 'Instant End TimeStamp', 
+      transform: (v) => {
+        let timestamp = String(v);
+        // If format is "YYYY-MM-DD HH:MM" (no seconds), append ":00"
+        if (timestamp.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/) && !timestamp.includes(':') || (timestamp.match(/:\d{2}$/) && !timestamp.match(/:\d{2}:\d{2}$/))) {
+          timestamp += ':00';
+          console.log(`✨ [TIMESTAMP] Added seconds to Instant End TimeStamp: "${v}" → "${timestamp}"`);
+        }
+        return timestamp;
+      }
+    },
     'logging_interval': { key: 'logging_interval', transform: (v) => String(v) },
     // EXCLUDE: logging_interval_format is only used for UI and should NOT be sent to device
     'logging_interval_format': { key: null, transform: (v) => undefined }
@@ -1162,7 +1231,7 @@ class DeviceConfigController {
             'Reference UP': 'referenceUP',
             'Reference OP': 'referenceOP',
             
-            // Interrupt timings (CRITICAL - these are multiplied by 1000)
+            // Interrupt timings
             'Interrupt ON Time': 'interruptOnTime',
             'Interrupt OFF Time': 'interruptOffTime',
             'Interrupt Start TimeStamp': 'interruptStartTimeStamp',

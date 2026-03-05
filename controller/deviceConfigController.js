@@ -208,20 +208,45 @@ function transformParametersToDeviceFormat(cacheParams) {
       transform: (v) => formatRefValueForDevice(v) || "070"
     },
     
-    // CRITICAL: Interrupt times - multiply by 10
-    // 600 → 6000, 5 → 50
+    // CRITICAL: Interrupt times - convert from display format (0000.0) to device format
+    // Display format: "2000.0" (string with decimal representing seconds) or number 2000
+    // Device format: 20000 (integer, multiply by 10 for 0.1 second resolution)
+    // Examples: "2000.0" → parseFloat → 2000 → *10 → 20000
+    // IMPORTANT: Parse as float to preserve decimal, then multiply by 10 ONCE
     'Interrupt ON Time': {
       key: 'Interrupt ON Time',
       transform: (v) => {
-        const num = typeof v === 'number' ? v : parseInt(v) || 0;
-        return num * 10; // Scale by 10 for device
+        let numValue;
+        if (typeof v === 'string') {
+          // Handle "2000.0" format - parse as float (not remove decimal!)
+          numValue = parseFloat(v) || 0;
+        } else if (typeof v === 'number') {
+          numValue = v;
+        } else {
+          numValue = 0;
+        }
+        
+        const deviceValue = Math.round(numValue * 10); // Scale by 10 for device (0.1 second resolution)
+        console.log(`✨ [TIMER] Interrupt ON Time: "${v}" → ${numValue} → ${deviceValue} (device format with 0.1s resolution)`);
+        return deviceValue;
       }
     },
     'Interrupt OFF Time': {
       key: 'Interrupt OFF Time',
       transform: (v) => {
-        const num = typeof v === 'number' ? v : parseInt(v) || 0;
-        return num * 10; // Scale by 10 for device
+        let numValue;
+        if (typeof v === 'string') {
+          // Handle "2000.0" format - parse as float (not remove decimal!)
+          numValue = parseFloat(v) || 0;
+        } else if (typeof v === 'number') {
+          numValue = v;
+        } else {
+          numValue = 0;
+        }
+        
+        const deviceValue = Math.round(numValue * 10); // Scale by 10 for device (0.1 second resolution)
+        console.log(`✨ [TIMER] Interrupt OFF Time: "${v}" → ${numValue} → ${deviceValue} (device format with 0.1s resolution)`);
+        return deviceValue;
       }
     },
     
@@ -1231,7 +1256,10 @@ class DeviceConfigController {
             'Reference UP': 'referenceUP',
             'Reference OP': 'referenceOP',
             
-            // Interrupt timings
+            // Interrupt timings - CRITICAL: Store display format (0000.0 with decimal)
+            // Backend receives display format from frontend cache
+            // Example: "11.1" gets stored as "11.1" in database
+            // Device multiplication happens during transformation only
             'Interrupt ON Time': 'interruptOnTime',
             'Interrupt OFF Time': 'interruptOffTime',
             'Interrupt Start TimeStamp': 'interruptStartTimeStamp',
@@ -1266,6 +1294,7 @@ class DeviceConfigController {
               // Frontend sends: 0.30, 0.60, 1.23 (numbers or strings)
               let dbValue = value;
               
+              // Handle reference voltage values (Reference Fail, UP, OP)
               if (['referenceFail', 'referenceUP', 'referenceOP'].includes(dbKey)) {
                 // Convert to number, then format as string with 2 decimal places
                 const numValue = typeof value === 'string' ? parseFloat(value) : value;
@@ -1275,7 +1304,32 @@ class DeviceConfigController {
                 } else {
                   console.log(`   ⚠️ Invalid numeric value for '${key}': ${value}, using as-is`);
                 }
-              } else {
+              }
+              // Handle timer values (Interrupt ON/OFF Time)
+              // These are in display format "0000.0" and should be preserved as-is
+              else if (['interruptOnTime', 'interruptOffTime'].includes(dbKey)) {
+                // Ensure timer values are always strings with decimal format
+                const strValue = String(value);
+                if (strValue.includes('.')) {
+                  // Already has decimal, keep as-is
+                  dbValue = strValue;
+                  console.log(`   ✓ Mapping '${key}' → '${dbKey}' = ${value} (display format with decimal)`);
+                } else {
+                  // No decimal, this shouldn't happen but handle it
+                  const num = parseFloat(strValue);
+                  if (!isNaN(num)) {
+                    // Format with single decimal: "111" → "11.1"
+                    const withoutLastDigit = Math.floor(num / 10);
+                    const lastDigit = num % 10;
+                    dbValue = `${withoutLastDigit}.${lastDigit}`;
+                    console.log(`   ✓ Mapping '${key}' → '${dbKey}' = ${value} → ${dbValue} (auto-formatted with decimal)`);
+                  } else {
+                    dbValue = strValue;
+                    console.log(`   ⚠️ Could not parse '${key}': ${value}, storing as-is`);
+                  }
+                }
+              }
+              else {
                 // Only log critical fields to reduce noise
                 if (['interruptOnTime', 'interruptOffTime', 'electrode', 'shuntVoltage'].includes(dbKey)) {
                   console.log(`   ✓ Mapping '${key}' → '${dbKey}' = ${value}`);
@@ -1469,7 +1523,32 @@ class DeviceConfigController {
       Object.entries(completePayload).forEach(([key, value]) => {
         const dbKey = keyMapping[key] || key;
         if (dbKey) {
-          dbSettings[dbKey] = value;
+          let dbValue = value;
+          
+          // Handle reference voltage values
+          if (['referenceFail', 'referenceUP', 'referenceOP'].includes(dbKey)) {
+            const numValue = typeof value === 'string' ? parseFloat(value) : value;
+            if (!isNaN(numValue)) {
+              dbValue = numValue.toFixed(2);
+            }
+          }
+          // Handle timer values - preserve display format with decimal
+          else if (['interruptOnTime', 'interruptOffTime'].includes(dbKey)) {
+            const strValue = String(value);
+            if (strValue.includes('.')) {
+              dbValue = strValue; // Already has decimal
+            } else {
+              // No decimal, auto-format: "111" → "11.1"
+              const num = parseFloat(strValue);
+              if (!isNaN(num)) {
+                const withoutLastDigit = Math.floor(num / 10);
+                const lastDigit = num % 10;
+                dbValue = `${withoutLastDigit}.${lastDigit}`;
+              }
+            }
+          }
+          
+          dbSettings[dbKey] = dbValue;
         }
       });
 

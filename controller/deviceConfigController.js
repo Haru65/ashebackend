@@ -1306,28 +1306,14 @@ class DeviceConfigController {
                 }
               }
               // Handle timer values (Interrupt ON/OFF Time)
-              // These are in display format "0000.0" and should be preserved as-is
+              // Frontend sends values in display-seconds format (e.g. 10 = 10s).
+              // DB schema is type:Number. Store the numeric value directly.
+              // MQTT transformation (*10) happens separately in transformParametersToDeviceFormat.
+              // Device-to-backend ACK handling divides by 10 in mqttService.saveDeviceSettings.
               else if (['interruptOnTime', 'interruptOffTime'].includes(dbKey)) {
-                // Ensure timer values are always strings with decimal format
-                const strValue = String(value);
-                if (strValue.includes('.')) {
-                  // Already has decimal, keep as-is
-                  dbValue = strValue;
-                  console.log(`   ✓ Mapping '${key}' → '${dbKey}' = ${value} (display format with decimal)`);
-                } else {
-                  // No decimal, this shouldn't happen but handle it
-                  const num = parseFloat(strValue);
-                  if (!isNaN(num)) {
-                    // Format with single decimal: "111" → "11.1"
-                    const withoutLastDigit = Math.floor(num / 10);
-                    const lastDigit = num % 10;
-                    dbValue = `${withoutLastDigit}.${lastDigit}`;
-                    console.log(`   ✓ Mapping '${key}' → '${dbKey}' = ${value} → ${dbValue} (auto-formatted with decimal)`);
-                  } else {
-                    dbValue = strValue;
-                    console.log(`   ⚠️ Could not parse '${key}': ${value}, storing as-is`);
-                  }
-                }
+                const num = parseFloat(String(value));
+                dbValue = isNaN(num) ? 0 : num;
+                console.log(`   ✓ Mapping '${key}' → '${dbKey}' = ${value} → ${dbValue} (display seconds, no division)`);
               }
               else {
                 // Only log critical fields to reduce noise
@@ -1532,20 +1518,12 @@ class DeviceConfigController {
               dbValue = numValue.toFixed(2);
             }
           }
-          // Handle timer values - preserve display format with decimal
+          // Handle timer values - store display-seconds format directly
+          // Frontend sends display seconds (e.g. 11 = 11s, 11.3 = 11.3s).
+          // MQTT transformation (*10) is done separately in transformParametersToDeviceFormat.
           else if (['interruptOnTime', 'interruptOffTime'].includes(dbKey)) {
-            const strValue = String(value);
-            if (strValue.includes('.')) {
-              dbValue = strValue; // Already has decimal
-            } else {
-              // No decimal, auto-format: "111" → "11.1"
-              const num = parseFloat(strValue);
-              if (!isNaN(num)) {
-                const withoutLastDigit = Math.floor(num / 10);
-                const lastDigit = num % 10;
-                dbValue = `${withoutLastDigit}.${lastDigit}`;
-              }
-            }
+            const num = parseFloat(String(value));
+            dbValue = isNaN(num) ? 0 : num;
           }
           
           dbSettings[dbKey] = dbValue;

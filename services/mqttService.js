@@ -2566,6 +2566,8 @@ class MQTTService {
                          settingsPayload['Logging Interval'] !== undefined ||
                          settingsPayload['logging_interval'] !== undefined ||
                          settingsPayload['Depolarization_interval'] !== undefined ||
+                         settingsPayload['Interrupt ON Time'] !== undefined ||
+                         settingsPayload['Interrupt OFF Time'] !== undefined ||
                          settingsPayload.DI1 !== undefined ||
                          settingsPayload.DI2 !== undefined ||
                          settingsPayload.DI3 !== undefined ||
@@ -2600,8 +2602,10 @@ class MQTTService {
         di2: settingsPayload.DI2 !== undefined ? settingsPayload.DI2 : currentSettings.di2 || 0,
         di3: settingsPayload.DI3 !== undefined ? settingsPayload.DI3 : currentSettings.di3 || 0,
         di4: settingsPayload.DI4 !== undefined ? settingsPayload.DI4 : currentSettings.di4 || 0,
-        interruptOnTime: settingsPayload['Interrupt ON Time'] !== undefined ? settingsPayload['Interrupt ON Time'] : currentSettings.interruptOnTime || 0,
-        interruptOffTime: settingsPayload['Interrupt OFF Time'] !== undefined ? settingsPayload['Interrupt OFF Time'] : currentSettings.interruptOffTime || 0,
+        // Device sends timer values in device-format (tenths of seconds: 100 = 10s).
+        // DB and frontend use display-seconds (10 = 10s), so divide by 10 on ingest.
+        interruptOnTime: settingsPayload['Interrupt ON Time'] !== undefined ? settingsPayload['Interrupt ON Time'] / 10 : currentSettings.interruptOnTime || 0,
+        interruptOffTime: settingsPayload['Interrupt OFF Time'] !== undefined ? settingsPayload['Interrupt OFF Time'] / 10 : currentSettings.interruptOffTime || 0,
         interruptStartTimestamp: settingsPayload['Interrupt Start TimeStamp'] !== undefined ? settingsPayload['Interrupt Start TimeStamp'] : currentSettings.interruptStartTimestamp || '',
         interruptStopTimestamp: settingsPayload['Interrupt Stop TimeStamp'] !== undefined ? settingsPayload['Interrupt Stop TimeStamp'] : currentSettings.interruptStopTimestamp || '',
         depolarizationStartTimestamp: settingsPayload['Depolarization Start TimeStamp'] !== undefined ? settingsPayload['Depolarization Start TimeStamp'] : currentSettings.depolarizationStartTimestamp || '',
@@ -2635,8 +2639,9 @@ class MQTTService {
         "Reference Fail": settingsPayload['Reference Fail'] !== undefined ? settingsPayload['Reference Fail'] : currentSettings.referenceFail || 0.30,
         "Reference UP": settingsPayload['Reference UP'] !== undefined ? settingsPayload['Reference UP'] : currentSettings.referenceUP || 0.30,
         "Reference OP": settingsPayload['Reference OP'] !== undefined ? settingsPayload['Reference OP'] : (settingsPayload['Reference OV'] !== undefined ? settingsPayload['Reference OV'] : currentSettings.referenceOP || 0.70),
-        "Interrupt ON Time": settingsPayload['Interrupt ON Time'] !== undefined ? settingsPayload['Interrupt ON Time'] : currentSettings.interruptOnTime || 86400,
-        "Interrupt OFF Time": settingsPayload['Interrupt OFF Time'] !== undefined ? settingsPayload['Interrupt OFF Time'] : currentSettings.interruptOffTime || 86400,
+        // Divide by 10: device sends in tenths-of-seconds, memory cache uses display seconds
+        "Interrupt ON Time": settingsPayload['Interrupt ON Time'] !== undefined ? settingsPayload['Interrupt ON Time'] / 10 : currentSettings.interruptOnTime || 86400,
+        "Interrupt OFF Time": settingsPayload['Interrupt OFF Time'] !== undefined ? settingsPayload['Interrupt OFF Time'] / 10 : currentSettings.interruptOffTime || 86400,
         "Interrupt Start TimeStamp": settingsPayload['Interrupt Start TimeStamp'] !== undefined ? settingsPayload['Interrupt Start TimeStamp'] : currentSettings.interruptStartTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
         "Interrupt Stop TimeStamp": settingsPayload['Interrupt Stop TimeStamp'] !== undefined ? settingsPayload['Interrupt Stop TimeStamp'] : currentSettings.interruptStopTimestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
         "Depolarization_interval": settingsPayload['Depolarization_interval'] !== undefined ? settingsPayload['Depolarization_interval'] : currentSettings.dpolInterval || "00:00:00",
@@ -2918,6 +2923,16 @@ class MQTTService {
                 value = (numVal / 100).toFixed(2);
                 console.log(`🔄 Converted ${param} from device string format ${payload[param]} to ${value}`);
               }
+            }
+          }
+
+          // Convert Interrupt ON/OFF Time from device integer format to display decimal format
+          // Device sends: 1900 → display: 190.0, 500 → display: 50.0, 123 → display: 12.3
+          else if (param === 'Interrupt ON Time' || param === 'Interrupt OFF Time') {
+            const num = parseFloat(value);
+            if (!isNaN(num)) {
+              value = parseFloat((num / 10).toFixed(1));
+              console.log(`🔄 [INTERRUPT] Converted ${param} from device format ${payload[param]} to ${value}`);
             }
           }
           

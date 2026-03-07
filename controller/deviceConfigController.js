@@ -70,14 +70,14 @@ function formatShuntCurrentForDevice(value) {
   if (value === undefined || value === null) return undefined;
   let numVal;
   if (typeof value === 'string') {
-    numVal = parseInt(value);
+    numVal = parseFloat(value);
   } else if (typeof value === 'number') {
     numVal = value;
   } else {
     return value;
   }
   if (!isNaN(numVal)) {
-    // Return as-is (0-999 Amperes, no scaling needed)
+    // Shunt current is stored and sent as plain integer (no scaling)
     return Math.round(numVal);
   }
   return value;

@@ -1,3 +1,15 @@
+// Map digital I/O numeric values to CLOSE/OPEN or ON/OFF
+// Device protocol: 1 = CLOSE/ON, 0 = OPEN/OFF, anything else = OPEN/OFF
+function mapDIValue(value) {
+  if (value === 'CLOSE' || value === 'OPEN') return value;
+  return parseInt(value) === 1 ? 'CLOSE' : 'OPEN';
+}
+
+function mapDOValue(value) {
+  if (value === 'ON' || value === 'OFF') return value;
+  return parseInt(value) === 1 ? 'ON' : 'OFF';
+}
+
 // Basic data transform helper
 function transformDeviceData(payload, topic) {
   // Extract device ID from MQTT topic (e.g., 'devices/123/data' -> '123')
@@ -82,7 +94,7 @@ function transformDeviceData(payload, topic) {
   if (di1Value !== undefined) {
     metrics.push({
       type: 'DI1',
-      value: di1Value,
+      value: mapDIValue(di1Value),
       icon: 'bi-toggle-on',
       category: 'Digital Input'
     });
@@ -92,7 +104,7 @@ function transformDeviceData(payload, topic) {
   if (di2Value !== undefined) {
     metrics.push({
       type: 'DI2',
-      value: di2Value,
+      value: mapDIValue(di2Value),
       icon: 'bi-toggle-on',
       category: 'Digital Input'
     });
@@ -102,7 +114,7 @@ function transformDeviceData(payload, topic) {
   if (di3Value !== undefined) {
     metrics.push({
       type: 'DI3',
-      value: di3Value,
+      value: mapDIValue(di3Value),
       icon: 'bi-toggle-on',
       category: 'Digital Input'
     });
@@ -112,7 +124,7 @@ function transformDeviceData(payload, topic) {
   if (di4Value !== undefined) {
     metrics.push({
       type: 'DI4',
-      value: di4Value,
+      value: mapDIValue(di4Value),
       icon: 'bi-toggle-on',
       category: 'Digital Input'
     });
@@ -124,7 +136,7 @@ function transformDeviceData(payload, topic) {
   if (do1Value !== undefined) {
     metrics.push({
       type: 'DO1',
-      value: do1Value,
+      value: mapDOValue(do1Value),
       icon: 'bi-arrow-right-square',
       category: 'Digital Output'
     });

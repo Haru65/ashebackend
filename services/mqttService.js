@@ -2863,18 +2863,36 @@ class MQTTService {
 
       // Shunt parameters that need conversion
       const SHUNT_PARAMS = {
-        'Shunt Voltage': 2,  // Divide by 100 (2 decimal places)
-        'Shunt Current': 1   // Divide by 10 (1 decimal place)
+        'Shunt Voltage': 2  // Divide by 100 (2 decimal places)
+        // Shunt Current is handled separately below (multiply by 10 to remove decimal)
       };
       
       for (const param of DEVICE_PARAMETERS) {
         if (payload[param] !== undefined) {
           let value = payload[param];
           
-          // Convert Shunt Voltage and Shunt Current from integer format to decimal
+          // Convert Shunt Current from decimal format to integer format
+          // Device sends: 55.5 → store as: 555 (multiply by 10)
+          // Device sends: 99.9 → store as: 999 (multiply by 10)
+          // Device sends: 555 (already integer) → store as: 555 (no change)
+          if (param === 'Shunt Current') {
+            const numVal = parseFloat(value);
+            if (!isNaN(numVal)) {
+              const strVal = numVal.toString();
+              if (strVal.includes('.')) {
+                // Has decimal point - multiply by 10 to convert to integer
+                value = Math.round(numVal * 10);
+              } else {
+                // Already integer format - keep as-is
+                value = Math.round(numVal);
+              }
+              console.log(`🔄 [SHUNT CURRENT] Converted ${param} from device format ${payload[param]} to ${value}`);
+            }
+          }
+
+          // Convert Shunt Voltage from integer format to decimal
           // Shunt Voltage: 050 → "0.50", 2550 → "25.50" (divide by 100, 2 decimal places)
-          // Shunt Current: 919 → "91.9", 999 → "99.9" (divide by 10, 1 decimal place)
-          if (SHUNT_PARAMS[param]) {
+          else if (SHUNT_PARAMS[param]) {
             const decimalPlaces = SHUNT_PARAMS[param];
             if (typeof value === 'string' || typeof value === 'number') {
               let strValue = value.toString().trim();

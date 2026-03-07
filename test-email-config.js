@@ -27,6 +27,7 @@ async function diagnoseEmailConfig() {
     'SMTP_PORT': process.env.SMTP_PORT,
     'SMTP_USER': process.env.SMTP_USER,
     'SMTP_PASSWORD': process.env.SMTP_PASSWORD ? '***SET***' : '❌ NOT SET',
+    'RESEND_API_KEY': process.env.RESEND_API_KEY || process.env.resend_api ? '***SET***' : '❌ NOT SET',
     'EMAIL_FROM': process.env.EMAIL_FROM
   };
 
@@ -53,50 +54,54 @@ async function diagnoseEmailConfig() {
     console.log('\n🔗 Step 3: Testing Email Providers');
     console.log('─'.repeat(50));
 
-    const providers = ['gmail', 'outlook', 'smtp'];
-    for (const provider of providers) {
+    // Resend-only mode: skip verification on other providers
+    if (status.resend && status.resend.configured) {
+      console.log('\n📨 Testing Resend email send (this may take up to 10 seconds)...');
       try {
-        const result = await emailService.testEmailConfig(provider);
-        if (result.success) {
-          console.log(`✅ ${provider.toUpperCase()}: ${result.message}`);
+        const testEmail = await emailService.sendEmail({
+          to: process.env.EMAIL_FROM || 'test@example.com',
+          subject: '✅ ZEPTAC Email Service Test (Resend)',
+          template: 'custom',
+          data: { message: 'If you received this email, the Resend email service is working correctly!' }
+        });
+
+        if (testEmail && testEmail.success) {
+          console.log(`✅ TEST EMAIL SENT SUCCESSFULLY VIA RESEND!`);
+          console.log(`   Message ID: ${testEmail.messageId}`);
+          console.log(`   Check your inbox for confirmation`);
         } else {
-          console.log(`❌ ${provider.toUpperCase()}: ${result.message}`);
+          console.log(`⚠️  TEST EMAIL SEND ATTEMPT FAILED`);
         }
       } catch (error) {
-        console.log(`❌ ${provider.toUpperCase()}: ${error.message}`);
+        console.log(`⚠️  Email send test: ${error.message}`);
       }
+    } else {
+      console.log('❌ Resend is NOT configured - cannot test');
     }
 
     // Check 4: Recommendations
     console.log('\n💡 Step 4: Recommendations');
     console.log('─'.repeat(50));
 
-    const configuredProviders = Object.entries(status)
-      .filter(([_, config]) => config.configured)
-      .map(([provider, _]) => provider);
-
-    if (configuredProviders.length === 0) {
-      console.log('❌ NO EMAIL PROVIDERS CONFIGURED!');
-      console.log('\n📌 To fix this on Render:');
+    if (!status.resend || !status.resend.configured) {
+      console.log('❌ RESEND EMAIL API NOT CONFIGURED!');
+      console.log('\n📌 To set up Resend:');
       console.log('');
-      console.log('Option 1: Using Gmail (Recommended)');
-      console.log('   1. Go to https://myaccount.google.com/apppasswords');
-      console.log('   2. Generate an app password');
-      console.log('   3. Add to Render environment variables:');
-      console.log('      GMAIL_USER=your.email@gmail.com');
-      console.log('      GMAIL_APP_PASSWORD=generated_app_password');
-      console.log('');
-      console.log('Option 2: Using Custom SMTP');
-      console.log('   1. Add to Render environment variables:');
-      console.log('      SMTP_HOST=smtp.example.com');
-      console.log('      SMTP_PORT=587');
-      console.log('      SMTP_USER=your.email@example.com');
-      console.log('      SMTP_PASSWORD=your_password');
-      console.log('      SMTP_SECURE=false');
+      console.log('1. Go to https://resend.com');
+      console.log('2. Create an account and get your API key');
+      console.log('3. Add to your .env file:');
+      console.log('   RESEND_API_KEY=your_api_key_here');
+      console.log('   or');
+      console.log('   resend_api=your_api_key_here');
       console.log('');
     } else {
-      console.log(`✅ Email service configured with: ${configuredProviders.join(', ').toUpperCase()}`);
-      console.log('   Emails should send successfully!');
+      console.log(`✅ Email service configured with Resend API (PRIMARY)`);;
+      console.log('');
+      console.log('🚀 RESEND IS THE ACTIVE EMAIL PROVIDER');
+      console.log('   All alarm notifications will be sent via Resend');
+      console.log('   No Gmail SMTP configuration needed');
+      console.log('');
+      console.log('✅ System is ready to send emails!');
     }
 
     console.log('\n✅ === DIAGNOSTIC COMPLETE ===\n');

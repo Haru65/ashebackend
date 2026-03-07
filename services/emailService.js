@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const fs = require('fs');
 const path = require('path');
 
@@ -11,7 +12,11 @@ class EmailService {
       smtp: null
     };
     
+    // Initialize Resend client
+    this.resend = null;
+    
     this.initializeTransporters();
+    this.initializeResend();
     
     // Email templates storage
     this.templates = {
@@ -64,6 +69,23 @@ class EmailService {
           pass: process.env.SMTP_PASSWORD
         }
       });
+    }
+  }
+
+  /**
+   * Initialize Resend email API
+   */
+  initializeResend() {
+    if (process.env.RESEND_API_KEY || process.env.resend_api) {
+      const apiKey = process.env.RESEND_API_KEY || process.env.resend_api;
+      try {
+        this.resend = new Resend(apiKey);
+        console.log('✅ Resend email API initialized');
+      } catch (error) {
+        console.error('❌ Failed to initialize Resend:', error.message);
+      }
+    } else {
+      console.log('⚠️ Resend API skipped - missing RESEND_API_KEY or resend_api');
     }
   }
 
@@ -537,6 +559,7 @@ class EmailService {
       if (!this.transporters || typeof this.transporters !== 'object') {
         console.warn('Transporters not initialized properly');
         return {
+          resend: { configured: !!this.resend, ready: false },
           gmail: { configured: false, ready: false },
           outlook: { configured: false, ready: false },
           smtp: { configured: false, ready: false }
@@ -549,11 +572,18 @@ class EmailService {
           ready: false
         };
       }
+
+      // Add Resend status
+      status.resend = {
+        configured: !!this.resend,
+        ready: false
+      };
       
       return status;
     } catch (error) {
       console.error('Error getting provider status:', error);
       return {
+        resend: { configured: false, ready: false },
         gmail: { configured: false, ready: false },
         outlook: { configured: false, ready: false },
         smtp: { configured: false, ready: false }
@@ -563,34 +593,25 @@ class EmailService {
 
   /**
    * Generic send email method - handles both custom emails and alarm emails
+   * Uses RESEND as the primary email provider (Resend-only mode)
    * @param {Object} options - Email options
    * @param {String} options.to - Recipient email
    * @param {String} options.subject - Email subject
    * @param {String} options.template - Template name ('alarm', 'custom', etc.)
    * @param {Object} options.data - Template data
-   * @param {String} options.provider - Email provider to use (default: 'gmail')
+   * @param {String} options.provider - Email provider (ignored, always uses Resend)
    */
   async sendEmail(options) {
     try {
-      const { to, subject, template, data, provider = 'gmail' } = options;
+      const { to, subject, template, data } = options;
 
       if (!to) {
         throw new Error('Recipient email address is required');
       }
 
-      const transporter = this.transporters[provider];
-      if (!transporter) {
-        const status = this.getProviderStatus();
-        const configured = Object.entries(status)
-          .filter(([_, s]) => s.configured)
-          .map(([p, _]) => p);
-        
-        const errorMsg = configured.length > 0 
-          ? `Email provider '${provider}' is not configured. Available: ${configured.join(', ')}`
-          : `Email provider '${provider}' is not configured. NO email providers are available!`;
-        
-        console.error(`[Email Service] ${errorMsg}`);
-        throw new Error(errorMsg);
+      // Check if Resend is configured
+      if (!this.resend) {
+        throw new Error('Resend API is not configured. Please set RESEND_API_KEY in .env file');
       }
 
       // Generate email content from template
@@ -601,18 +622,49 @@ class EmailService {
         htmlContent = this.processTemplate(template || 'custom', data);
       }
 
-      // Send email
-      const result = await transporter.sendMail({
-        from: process.env.EMAIL_FROM || process.env.GMAIL_USER,
+      // Send via Resend (only provider in use)
+      return await this.sendViaResend({
+        to,
+        subject,
+        htmlContent
+      });
+    } catch (error) {
+      console.error('[Email Service] ❌ Failed to send email:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Send email via Resend API
+   * @param {Object} options - Email options
+   * @param {String} options.to - Recipient email
+   * @param {String} options.subject - Email subject
+   * @param {String} options.htmlContent - HTML email content
+   */
+  async sendViaResend(options) {
+    try {
+      if (!this.resend) {
+        throw new Error('Resend API is not initialized. Please configure RESEND_API_KEY in .env');
+      }
+
+      const { to, subject, htmlContent } = options;
+      const fromEmail = process.env.EMAIL_FROM || 'noreply@resend.dev';
+
+      const result = await this.resend.emails.send({
+        from: fromEmail,
         to: to,
         subject: subject,
         html: htmlContent
       });
 
-      console.log(`[Email Service] ✅ Email sent successfully to ${to}`);
-      return { success: true, messageId: result.messageId };
+      if (result.error) {
+        throw new Error(`Resend API error: ${result.error.message}`);
+      }
+
+      console.log(`[Email Service] ✅ Email sent successfully to ${to} via Resend (ID: ${result.data.id})`);
+      return { success: true, messageId: result.data.id, provider: 'resend' };
     } catch (error) {
-      console.error('[Email Service] ❌ Failed to send email:', error.message);
+      console.error('[Email Service] ❌ Failed to send email via Resend:', error.message);
       throw error;
     }
   }

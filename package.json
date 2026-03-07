@@ -13,6 +13,7 @@
     "mqtt": "^5.14.0",
     "nodemailer": "^7.0.12",
     "nodemon": "^3.1.11",
+    "resend": "^6.9.3",
     "socket.io": "^4.8.1",
     "twilio": "^5.10.4",
     "winston": "^3.17.0"

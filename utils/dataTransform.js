@@ -179,7 +179,16 @@ function transformDeviceData(payload, topic) {
     lastSeen: params.TimeStamp ?? new Date().toISOString(),
     timestamp: Date.now(),
     source: `device-${deviceId}`,
-    metrics: metrics
+    metrics: metrics,
+    // Include raw payload fields for frontend display (with normalized field names)
+    'POWER STATUS': params['POWER STATUS'] || params.POWER_STATUS || params.POWER,
+    POWER_STATUS: params['POWER STATUS'] || params.POWER_STATUS || params.POWER,
+    'Battery STATUS': params['Battery STATUS'] || params.BATTERY_STATUS,
+    BATTERY_STATUS: params['Battery STATUS'] || params.BATTERY_STATUS,
+    // Include runtime/OnTime for display (from device - DO NOT calculate independently)
+    OnTime: params.OnTime || params['OnTime'] || params['RUN TIME'] || params.RUN_TIME,
+    'RUN TIME': params['RUN TIME'] || params.RUN_TIME || params.OnTime || params['OnTime'],
+    RUN_TIME: params['RUN TIME'] || params.RUN_TIME || params.OnTime || params['OnTime']
   };
 }
 

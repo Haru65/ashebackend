@@ -8,7 +8,7 @@
 
 const EmailService = require('./emailService');
 const NotificationService = require('./notificationService');
-const User = require('../models/User');
+const User = require('../models/user');
 
 class PowerStatusMonitoringService {
   constructor() {
@@ -40,8 +40,9 @@ class PowerStatusMonitoringService {
    */
   async checkPowerStatus(deviceId, deviceData, device) {
     try {
-      const powerStatus = deviceData.POWER_STATUS || deviceData.POWER;
-      const batteryStatus = deviceData.BATTERY_STATUS;
+      // Handle both underscore and space-separated field names from device
+      const powerStatus = deviceData.POWER_STATUS || deviceData.POWER || deviceData['POWER STATUS'];
+      const batteryStatus = deviceData.BATTERY_STATUS || deviceData['Battery STATUS'];
       const timestamp = new Date();
 
       // Get previous status
@@ -71,7 +72,7 @@ class PowerStatusMonitoringService {
         }
       }
 
-      // Update stored status
+      // Update stored status with normalized field names
       this.devicePowerStatus.set(deviceId, {
         POWER_STATUS: powerStatus,
         BATTERY_STATUS: batteryStatus,
@@ -123,8 +124,8 @@ class PowerStatusMonitoringService {
           device_name: device.deviceName || deviceId,
           notification_type: 'power_status_change',
           reason: reason,
-          power_status: deviceData.POWER_STATUS || deviceData.POWER,
-          battery_status: deviceData.BATTERY_STATUS,
+          power_status: deviceData.POWER_STATUS || deviceData.POWER || deviceData['POWER STATUS'],
+          battery_status: deviceData.BATTERY_STATUS || deviceData['Battery STATUS'],
           timestamp: new Date().toISOString()
         };
 
@@ -156,8 +157,8 @@ class PowerStatusMonitoringService {
 
       // Send emails
       if (emailAddresses.length > 0 && shouldSendEmail) {
-        const powerStatus = deviceData.POWER_STATUS || deviceData.POWER;
-        const batteryStatus = deviceData.BATTERY_STATUS;
+        const powerStatus = deviceData.POWER_STATUS || deviceData.POWER || deviceData['POWER STATUS'];
+        const batteryStatus = deviceData.BATTERY_STATUS || deviceData['Battery STATUS'];
         
         const emailData = {
           deviceName: device.deviceName || deviceId,
@@ -187,8 +188,8 @@ class PowerStatusMonitoringService {
         // Update throttle timer
         if (emailsSent > 0) {
           this.devicePowerStatus.set(deviceId, {
-            POWER_STATUS: deviceData.POWER_STATUS || deviceData.POWER,
-            BATTERY_STATUS: deviceData.BATTERY_STATUS,
+            POWER_STATUS: deviceData.POWER_STATUS || deviceData.POWER || deviceData['POWER STATUS'],
+            BATTERY_STATUS: deviceData.BATTERY_STATUS || deviceData['Battery STATUS'],
             lastEmailTime: currentTime
           });
           console.log(`[Power Monitor] ⏱️ Email throttle timer set for device ${deviceId} (30 minutes)`);

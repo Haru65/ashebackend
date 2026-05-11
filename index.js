@@ -12,6 +12,7 @@ const mqttService = require('./services/mqttService');
 const socketService = require('./services/socketService');
 const deviceStatusMonitor = require('./services/deviceStatusMonitor');
 const alarmMonitoringService = require('./services/alarmMonitoringService');
+const powerStatusMonitoringService = require('./services/powerStatusMonitoringService');
 const { initializeServices, shutdownServices } = require('./initIoTServices');
 const UserLifecycleMonitor = require('./middleware/userLifecycleMonitor');
 const EmailService = require('./services/emailService');
@@ -67,6 +68,7 @@ app.use(express.urlencoded({
 mqttService.initialize(io);
 socketService.initialize(io);
 alarmMonitoringService.initialize(io);
+powerStatusMonitoringService.initializeIO(io);
 
 // Routes - ORDER MATTERS! Mount more specific routes before generic ones
 app.use('/api', deviceConfigRoutes); // Mount device config routes FIRST (more specific: /api/devices/:id/configure/...)

@@ -118,17 +118,17 @@ class AlarmMonitoringService {
       // Check if any REF status has a valid value (OP, UP, or FAIL)
       if (validRefStatuses.includes(ref1Status.toUpperCase?.() || ref1Status)) {
         shouldTrigger = true;
-        triggerReason = `REF1 STS is '${ref1Status}' (valid status detected)`;
+        triggerReason = `REF1 STS is '${ref1Status}' (invalid status detected)`;  
       }
       
       if (!shouldTrigger && validRefStatuses.includes(ref2Status.toUpperCase?.() || ref2Status)) {
         shouldTrigger = true;
-        triggerReason = `REF2 STS is '${ref2Status}' (valid status detected)`;
+        triggerReason = `REF2 STS is '${ref2Status}' (invalid status detected)`;
       }
       
       if (!shouldTrigger && validRefStatuses.includes(ref3Status.toUpperCase?.() || ref3Status)) {
         shouldTrigger = true;
-        triggerReason = `REF3 STS is '${ref3Status}' (valid status detected)`;
+        triggerReason = `REF3 STS is '${ref3Status}' (invalid status detected)`;
       }
 
       // Check 1: Event status is abnormal

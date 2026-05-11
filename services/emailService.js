@@ -648,7 +648,7 @@ class EmailService {
       }
 
       const { to, subject, htmlContent } = options;
-      const fromEmail = process.env.EMAIL_FROM || 'noreply@resend.dev';
+      const fromEmail = process.env.EMAIL_FROM || 'noreply@zeptac.com';
 
       const result = await this.resend.emails.send({
         from: fromEmail,

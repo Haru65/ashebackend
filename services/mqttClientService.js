@@ -7,6 +7,7 @@ const mqtt = require('mqtt');
 const Device = require('../models/Device');
 const DeviceHistory = require('../models/DeviceHistory');
 const alarmMonitoringService = require('./alarmMonitoringService');
+const powerStatusMonitoringService = require('./powerStatusMonitoringService');
 
 class MqttClientService {
   constructor(brokerUrl = 'mqtt://test.mosquitto.org', username = null, password = null) {
@@ -236,6 +237,16 @@ class MqttClientService {
       });
       
       await alarmMonitoringService.checkAlarmsForDevice(sensorData, deviceId, event);
+
+      // Check power status changes (POWER_STATUS and BATTERY_STATUS)
+      try {
+        const device = await Device.findOne({ deviceId });
+        if (device) {
+          await powerStatusMonitoringService.checkPowerStatus(deviceId, payload, device);
+        }
+      } catch (powerStatusError) {
+        console.error(`[MQTT Client] Error checking power status for device ${deviceId}:`, powerStatusError);
+      }
 
       console.log(`[MQTT Client] ✅ Successfully processed message from device ${deviceId}`);
 

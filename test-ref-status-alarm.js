@@ -22,7 +22,7 @@ const testCases = [
       }
     },
     shouldTrigger: true,
-    reason: "REF1 STS is 'OP' (valid status detected)"
+    reason: "REF1 STS is 'OP' (invalid status detected)"
   },
   {
     name: 'REF2 STS with UP status',
@@ -37,7 +37,7 @@ const testCases = [
       }
     },
     shouldTrigger: true,
-    reason: "REF2 STS is 'UP' (valid status detected)"
+    reason: "REF2 STS is 'UP' (invalid status detected)"
   },
   {
     name: 'REF3 STS with FAIL status',
@@ -52,7 +52,7 @@ const testCases = [
       }
     },
     shouldTrigger: true,
-    reason: "REF3 STS is 'FAIL' (valid status detected)"
+    reason: "REF3 STS is 'FAIL' (invalid status detected)"
   },
   {
     name: 'REF status with invalid value (should NOT trigger)',
@@ -109,17 +109,17 @@ testCases.forEach((testCase, index) => {
   
   if (validRefStatuses.includes(ref1Status.toUpperCase?.() || ref1Status)) {
     wouldTrigger = true;
-    reason = `REF1 STS is '${ref1Status}' (valid status detected)`;
+    reason = `REF1 STS is '${ref1Status}' (invalid status detected)`;
   }
   
   if (!wouldTrigger && validRefStatuses.includes(ref2Status.toUpperCase?.() || ref2Status)) {
     wouldTrigger = true;
-    reason = `REF2 STS is '${ref2Status}' (valid status detected)`;
+    reason = `REF2 STS is '${ref2Status}' (invalid status detected)`;
   }
   
   if (!wouldTrigger && validRefStatuses.includes(ref3Status.toUpperCase?.() || ref3Status)) {
     wouldTrigger = true;
-    reason = `REF3 STS is '${ref3Status}' (valid status detected)`;
+    reason = `REF3 STS is '${ref3Status}' (invalid status detected)`;
   }
   
   const result = wouldTrigger === testCase.shouldTrigger ? '✅ PASS' : '❌ FAIL';

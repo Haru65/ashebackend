@@ -94,9 +94,9 @@ class MQTTService {
     this.commandHistory = []; // Array of completed commands (limited size)
     this.maxHistorySize = 100; // Keep last 100 commands
     
-    // Retry configuration
-    this.retryIntervalMs = 9000; // 9 seconds between retries (8-10 second range)
-    this.maxRetries = 5; // Maximum number of retry attempts before final timeout
+    // Retry configuration - INFINITE RETRIES until ACK received
+    this.retryIntervalMs = 5000; // 5 seconds between retries - resend until ACK received
+    // No max retry limit - will keep resending every 5 seconds until device ACKs
     
     // Store current device settings per deviceId
     this.deviceSettings = new Map(); // deviceId -> settings object
@@ -241,19 +241,19 @@ class MQTTService {
           
           console.log('💾 Updated device data and notified frontend');
         } else if (topicType === 'commands') {
-          console.log(`📋 Commands message received from device ${deviceId} - checking for acknowledgments`);
+          console.log(`📋 Commands message received from device ${deviceId} - checking for acknowledgments or commands`);
           
           // Track device activity for command acknowledgments too
           this.deviceLastActivity.set(deviceId, Date.now());
           
-          this.handleCommandMessage(payload);
+          this.handleCommandMessage(deviceId, payload);
         } else if (topicType === 'ack') {
           console.log(`✅ ACK frame received from device ${deviceId}`);
           
           // Track device activity for ACK messages
           this.deviceLastActivity.set(deviceId, Date.now());
           
-          this.handleAcknowledgmentFrame(payload);
+          this.handleAcknowledgmentFrame(deviceId, payload);
         }
         
         console.log(''); // Add spacing
@@ -339,7 +339,7 @@ class MQTTService {
       deviceResponse: null,
       responseTime: null,
       retryCount: 0, // Track number of retries
-      maxRetries: this.maxRetries,
+      maxRetries: Infinity, // Unlimited retries - will keep sending until ACK received
       lastRetryTime: Date.now()
     };
     
@@ -369,7 +369,7 @@ class MQTTService {
             command: configType, 
             commandId,
             status: 'PENDING',
-            message: 'Command sent with ACK retry mechanism enabled (8-10 sec intervals)'
+            message: 'Command sent with ACK retry mechanism enabled (5 sec intervals)'
           });
         })
         .catch(error => {
@@ -402,7 +402,7 @@ class MQTTService {
     const pendingCommand = this.pendingCommands.get(commandId);
     if (!pendingCommand) return;
 
-    // Set up retry interval (resend every 8-10 seconds if no ACK received)
+    // Set up retry interval (resend every 5 seconds if no ACK received)
     const retryInterval = setInterval(() => {
       const currentCommand = this.pendingCommands.get(commandId);
       
@@ -420,34 +420,11 @@ class MQTTService {
         return;
       }
 
-      // Check if we've exceeded max retries
-      if (currentCommand.retryCount >= currentCommand.maxRetries) {
-        console.log(`⏰ Command ${commandId} exceeded max retries (${currentCommand.maxRetries}), marking as TIMEOUT`);
-        currentCommand.status = 'TIMEOUT';
-        currentCommand.acknowledgedAt = new Date();
-        
-        // Move to history and clean up
-        this.addToHistory(currentCommand);
-        this.pendingCommands.delete(commandId);
-        this.clearCommandRetry(commandId);
-        
-        // Notify frontend of timeout
-        this.socketIO?.emit('deviceCommandTimeout', {
-          commandId,
-          deviceId: currentCommand.deviceId,
-          command: currentCommand.originalCommand,
-          retryAttempts: currentCommand.retryCount,
-          message: `No ACK received after ${currentCommand.retryCount} retry attempts`
-        });
-        
-        return;
-      }
-
-      // Increment retry counter and resend
+      // Increment retry counter and resend (no max limit - continues until ACK)
       currentCommand.retryCount++;
       currentCommand.lastRetryTime = Date.now();
       
-      console.log(`🔄 Resending command ${commandId} (retry ${currentCommand.retryCount}/${currentCommand.maxRetries})...`);
+      console.log(`🔄 Resending command ${commandId} (attempt #${currentCommand.retryCount} - continuously retrying every 5s until ACK)...`);
       
       // Resend the command
       this.publishCommandWithRetry(commandId, currentCommand.payload)
@@ -460,18 +437,17 @@ class MQTTService {
             deviceId: currentCommand.deviceId,
             command: currentCommand.originalCommand,
             retryCount: currentCommand.retryCount,
-            maxRetries: currentCommand.maxRetries,
-            message: `Command resent (attempt ${currentCommand.retryCount})`
+            message: `Continuously resending every 5s until ACK received (attempt #${currentCommand.retryCount})`
           });
         })
         .catch(err => {
           console.error(`❌ Failed to resend command ${commandId}:`, err);
         });
 
-    }, this.retryIntervalMs); // 9 seconds (within 8-10 second range)
+    }, this.retryIntervalMs); // 5 seconds
 
     this.retryIntervals.set(commandId, retryInterval);
-    console.log(`⏱️ Retry mechanism activated for command ${commandId} (${this.retryIntervalMs / 1000}s intervals, max ${pendingCommand.maxRetries} retries)`);
+    console.log(`⏱️ Retry mechanism activated for command ${commandId} (resending every ${this.retryIntervalMs / 1000}s until ACK received)`);
   }
 
   // Clear retry interval for a command
@@ -484,16 +460,45 @@ class MQTTService {
   }
 
   // Handle acknowledgment frame from device (on devices/+/ack topic)
-  handleAcknowledgmentFrame(payload) {
+  // Supports both explicit CommandId format and Device ID/Status format
+  handleAcknowledgmentFrame(deviceId, payload) {
     try {
-      const { CommandId, status, message, error, response } = payload;
+      const { CommandId, "Device ID": ackDeviceId, Status, status, message, error, response } = payload;
 
       console.log(`📬 Processing ACK frame:`, JSON.stringify(payload, null, 2));
 
-      if (CommandId) {
+      // Handle new format: { "Device ID": 123, "Status": "ACCEPTED" }
+      if (Status && !CommandId) {
+        console.log(`📬 New ACK format detected - Device ID: ${ackDeviceId}, Status: ${Status}`);
+        
+        // Find the oldest pending command for this device
+        const pendingCommandsForDevice = Array.from(this.pendingCommands.values())
+          .filter(cmd => cmd.deviceId === (ackDeviceId || deviceId).toString())
+          .sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime());
+        
+        if (pendingCommandsForDevice.length === 0) {
+          console.warn(`⚠️ ACK received but no pending commands for device ${ackDeviceId || deviceId}`);
+          return;
+        }
+        
+        const targetCommand = pendingCommandsForDevice[0]; // Get oldest pending command
+        console.log(`🎯 Matched ACK to pending command: ${targetCommand.commandId}`);
+        
+        // Create ACK object in expected format
+        const ackPayload = {
+          commandId: targetCommand.commandId,
+          status: Status === 'ACCEPTED' ? 'SUCCESS' : 'FAILED',
+          message: `Device acknowledged: ${Status}`,
+          response
+        };
+        
+        this.handleAcknowledgment(targetCommand.commandId, ackPayload);
+      } else if (CommandId) {
+        // Handle original format with explicit CommandId
+        console.log(`📬 Original ACK format with CommandId: ${CommandId}`);
         this.handleAcknowledgment(CommandId, payload);
       } else {
-        console.log('⚠️ ACK frame received but no CommandId found');
+        console.log('⚠️ ACK frame received but no CommandId or Status found');
       }
     } catch (error) {
       console.error('Error handling ACK frame:', error);
@@ -501,14 +506,41 @@ class MQTTService {
   }
 
   // Handle command messages from devices (including acknowledgments)
-  handleCommandMessage(payload) {
+  // Device can send ACK in commands topic with format: { "Device ID": 123, "Status": "ACCEPTED" }
+  handleCommandMessage(deviceId, payload) {
     try {
-      const { CommandId, status, message, error, response } = payload;
+      const { CommandId, "Device ID": ackDeviceId, Status, status, message, error, response } = payload;
 
-      console.log(`🔔 Processing command message:`, JSON.stringify(payload, null, 2));
+      console.log(`🔔 Processing message from device ${deviceId}:`, JSON.stringify(payload, null, 2));
 
-      // Check if this is an acknowledgment (has CommandId)
-      if (CommandId) {
+      // Check if this is an ACK with new format: { "Device ID": 123, "Status": "ACCEPTED" }
+      if (Status && !CommandId) {
+        console.log(`📬 New ACK format detected in commands topic - Device ID: ${ackDeviceId}, Status: ${Status}`);
+        
+        // Find the oldest pending command for this device
+        const pendingCommandsForDevice = Array.from(this.pendingCommands.values())
+          .filter(cmd => cmd.deviceId === (ackDeviceId || deviceId).toString())
+          .sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime());
+        
+        if (pendingCommandsForDevice.length === 0) {
+          console.warn(`⚠️ ACK received but no pending commands for device ${ackDeviceId || deviceId}`);
+          return;
+        }
+        
+        const targetCommand = pendingCommandsForDevice[0]; // Get oldest pending command
+        console.log(`🎯 Matched ACK to pending command: ${targetCommand.commandId}`);
+        
+        // Create ACK object in expected format
+        const ackPayload = {
+          status: Status === 'ACCEPTED' ? 'SUCCESS' : 'FAILED',
+          message: `Device acknowledged: ${Status}`,
+          response
+        };
+        
+        this.handleAcknowledgment(targetCommand.commandId, ackPayload);
+      } else if (CommandId) {
+        // Handle original ACK format with explicit CommandId
+        console.log(`📬 ACK with explicit CommandId: ${CommandId}`);
         this.handleAcknowledgment(CommandId, payload);
       } else {
         console.log('📋 Regular command message (not an acknowledgment)');

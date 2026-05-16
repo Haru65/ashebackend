@@ -2029,6 +2029,9 @@ class MQTTService {
 
       this.pendingCommands.set(commandId, commandRecord);
 
+      // 🔄 CRITICAL: Enable 5-second retry mechanism - resend until ACK received
+      this.setupCommandRetry(commandId);
+
       // Set up timeout handler
       const timeoutHandler = setTimeout(() => {
         const pendingCommand = this.pendingCommands.get(commandId);
@@ -2040,6 +2043,9 @@ class MQTTService {
           // Move to history
           this.addToHistory(pendingCommand);
           this.pendingCommands.delete(commandId);
+          
+          // 🔄 Clean up retry interval
+          this.clearCommandRetry(commandId);
 
           console.log(`⏰ Command ${commandId} timed out after ${timeout}ms`);
 

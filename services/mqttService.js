@@ -329,6 +329,7 @@ class MQTTService {
     const commandRecord = {
       commandId,
       deviceId,
+      actualDeviceId: deviceId, // Ensure actualDeviceId is set for retries
       originalCommand: configType,
       commandPayload: configData,
       payload: payload, // Store the full MQTT payload for resending
@@ -350,7 +351,7 @@ class MQTTService {
 
     // Publish the command
     return new Promise((resolve, reject) => {
-      this.publishCommandWithRetry(commandId, payload)
+      this.publishCommandWithRetry(commandId, payload, deviceId)
         .then(() => {
           console.log(`✅ Command sent successfully: ${configType}, waiting for ACK...`);
           
@@ -383,14 +384,22 @@ class MQTTService {
   }
 
   // Publish command and track for retry mechanism
-  async publishCommandWithRetry(commandId, payload) {
+  async publishCommandWithRetry(commandId, payload, deviceId = null) {
     return new Promise((resolve, reject) => {
-      this.client.publish('devices/123/commands', JSON.stringify(payload), { qos: 1 }, (error) => {
+      // Use provided deviceId, or get from pending command
+      let actualDeviceId = deviceId;
+      if (!actualDeviceId) {
+        const command = this.pendingCommands.get(commandId);
+        actualDeviceId = command?.actualDeviceId || command?.deviceId || '123';
+      }
+      
+      const topic = `devices/${actualDeviceId}/commands`;
+      this.client.publish(topic, JSON.stringify(payload), { qos: 1 }, (error) => {
         if (error) {
           console.error('❌ Failed to publish command to MQTT broker:', error);
           reject(error);
         } else {
-          console.log(`✅ Published to MQTT: Command ${commandId}`);
+          console.log(`✅ Published to MQTT topic ${topic}: Command ${commandId}`);
           resolve();
         }
       });
@@ -426,10 +435,11 @@ class MQTTService {
       
       console.log(`🔄 Resending command ${commandId} (attempt #${currentCommand.retryCount} - continuously retrying every 5s until ACK)...`);
       
-      // Resend the command
-      this.publishCommandWithRetry(commandId, currentCommand.payload)
+      // Resend the command to the CORRECT device (not hardcoded 123)
+      const actualDeviceId = currentCommand.actualDeviceId || currentCommand.deviceId;
+      this.publishCommandWithRetry(commandId, currentCommand.payload, actualDeviceId)
         .then(() => {
-          console.log(`✅ Retry #${currentCommand.retryCount} sent for command ${commandId}`);
+          console.log(`✅ Retry #${currentCommand.retryCount} sent for command ${commandId} to device ${actualDeviceId}`);
           
           // Notify frontend of retry attempt
           this.socketIO?.emit('deviceCommandRetry', {

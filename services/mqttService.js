@@ -386,6 +386,12 @@ class MQTTService {
   // Publish command and track for retry mechanism
   async publishCommandWithRetry(commandId, payload, deviceId = null) {
     return new Promise((resolve, reject) => {
+      // Check if MQTT client is connected
+      if (!this.client || !this.client.connected) {
+        console.warn('⚠️ MQTT client not connected, will retry on next interval');
+        return reject(new Error('MQTT client not connected'));
+      }
+      
       // Use provided deviceId, or get from pending command
       let actualDeviceId = deviceId;
       if (!actualDeviceId) {
@@ -409,7 +415,15 @@ class MQTTService {
   // Setup automatic retry mechanism for a command
   setupCommandRetry(commandId) {
     const pendingCommand = this.pendingCommands.get(commandId);
-    if (!pendingCommand) return;
+    if (!pendingCommand) {
+      console.warn(`⚠️ setupCommandRetry called for ${commandId} but command not in pendingCommands!`);
+      return;
+    }
+
+    console.log(`⏱️ Setting up retry interval for command ${commandId}`);
+    console.log(`   📌 Device: ${pendingCommand.actualDeviceId || pendingCommand.deviceId}`);
+    console.log(`   📝 Original Command: ${pendingCommand.originalCommand}`);
+    console.log(`   ✉️ Payload present: ${!!pendingCommand.payload}`);
 
     // Set up retry interval (resend every 5 seconds if no ACK received)
     const retryInterval = setInterval(() => {
@@ -417,6 +431,7 @@ class MQTTService {
       
       if (!currentCommand) {
         // Command no longer pending, clear interval
+        console.log(`🛑 Command ${commandId} no longer in pendingCommands, clearing retry interval`);
         clearInterval(retryInterval);
         this.retryIntervals.delete(commandId);
         return;
@@ -424,6 +439,7 @@ class MQTTService {
 
       if (currentCommand.status !== 'PENDING') {
         // Command already acknowledged or failed, clear interval
+        console.log(`🛑 Command ${commandId} status is ${currentCommand.status}, clearing retry interval`);
         clearInterval(retryInterval);
         this.retryIntervals.delete(commandId);
         return;
@@ -437,6 +453,8 @@ class MQTTService {
       
       // Resend the command to the CORRECT device (not hardcoded 123)
       const actualDeviceId = currentCommand.actualDeviceId || currentCommand.deviceId;
+      console.log(`   📤 Publishing to: devices/${actualDeviceId}/commands`);
+      
       this.publishCommandWithRetry(commandId, currentCommand.payload, actualDeviceId)
         .then(() => {
           console.log(`✅ Retry #${currentCommand.retryCount} sent for command ${commandId} to device ${actualDeviceId}`);
@@ -451,7 +469,7 @@ class MQTTService {
           });
         })
         .catch(err => {
-          console.error(`❌ Failed to resend command ${commandId}:`, err);
+          console.error(`❌ Failed to resend command ${commandId}:`, err.message);
         });
 
     }, this.retryIntervalMs); // 5 seconds
@@ -2028,7 +2046,8 @@ class MQTTService {
         deviceId,
         actualDeviceId, // Store both for tracking
         originalCommand: 'settings',
-        commandPayload: payload,
+        payload, // Store the full MQTT payload for resending (used by retry mechanism)
+        commandPayload: payload, // Keep for backwards compatibility
         status: 'PENDING',
         sentAt: new Date(),
         timeout,

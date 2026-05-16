@@ -1207,15 +1207,15 @@ class DeviceConfigController {
 
       console.log(`📡 MQTT Message (topic: devices/${deviceId}/commands):`, JSON.stringify(settingsMessage, null, 2));
 
-      // Send via MQTT using commands topic (not settings topic)
-      // Note: MQTT broker will queue messages if device is offline
-      const result = await mqttService.publishCompleteSettingsCommand(deviceId, settingsMessage);
+      // Send via MQTT with ACK retry mechanism - resend every 5 seconds until ACK received
+      const result = await mqttService.sendCompleteSettingsPayload(deviceId, null, 30000);
 
       if (!result.success) {
-        console.warn(`⚠️ MQTT publish failed for device ${deviceId}:`, result.error);
+        console.warn(`⚠️ Failed to send settings with ACK tracking for device ${deviceId}:`, result.error || result.message);
         console.log(`ℹ️ Will save settings to database for delivery on next connection`);
       } else {
-        console.log(`✅ Settings published via MQTT to device ${deviceId}`);
+        console.log(`✅ Settings sent with ACK retry mechanism to device ${deviceId} (commandId: ${result.commandId})`);
+        console.log(`   Retries will happen every 5 seconds until ACK is received`);
       }
 
       // Save settings to database (store original cache format + transformed format)

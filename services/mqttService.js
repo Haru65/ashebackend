@@ -386,10 +386,10 @@ class MQTTService {
   // Publish command and track for retry mechanism
   async publishCommandWithRetry(commandId, payload, deviceId = null) {
     return new Promise((resolve, reject) => {
-      // Check if MQTT client is connected
-      if (!this.client || !this.client.connected) {
-        console.warn('⚠️ MQTT client not connected, will retry on next interval');
-        return reject(new Error('MQTT client not connected'));
+      // Verify MQTT client exists
+      if (!this.client) {
+        console.error('❌ MQTT client is null/undefined - cannot publish');
+        return reject(new Error('MQTT client not initialized'));
       }
       
       // Use provided deviceId, or get from pending command
@@ -400,9 +400,11 @@ class MQTTService {
       }
       
       const topic = `devices/${actualDeviceId}/commands`;
+      console.log(`   🔌 MQTT attempting publish to ${topic}`);
+      
       this.client.publish(topic, JSON.stringify(payload), { qos: 1 }, (error) => {
         if (error) {
-          console.error('❌ Failed to publish command to MQTT broker:', error);
+          console.error(`❌ Failed to publish to ${topic}:`, error.message);
           reject(error);
         } else {
           console.log(`✅ Published to MQTT topic ${topic}: Command ${commandId}`);
@@ -427,6 +429,8 @@ class MQTTService {
 
     // Set up retry interval (resend every 5 seconds if no ACK received)
     const retryInterval = setInterval(() => {
+      console.log(`⏰ RETRY INTERVAL FIRED for command ${commandId} - checking status...`);
+      
       const currentCommand = this.pendingCommands.get(commandId);
       
       if (!currentCommand) {

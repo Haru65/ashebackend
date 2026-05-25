@@ -1174,30 +1174,98 @@ class DeviceConfigController {
         });
       }
 
-      console.log(`📤 [SETTINGS] Sending complete settings payload to device ${deviceId}`);
+      console.log(`� [SETTINGS] Saving and sending settings for device ${deviceId}`);
       console.log(`   Fields: ${Object.keys(completePayload).join(', ')}`);
-      console.log(`   Payload:`, completePayload);
 
-      // Check device connection status (log warning if not connected, but continue anyway)
-      const isConnected = mqttService.isDeviceConnected(deviceId);
-      if (!isConnected) {
-        console.warn(`⚠️ Device ${deviceId} appears to be offline. Settings will be published and device will receive them when it reconnects.`);
+      // ============ STEP 1: SAVE TO DATABASE FIRST ============
+      try {
+        const Device = require('../models/Device');
+        const device = await Device.findOne({ deviceId });
+
+        if (!device) {
+          return res.status(404).json({
+            success: false,
+            message: 'Device not found'
+          });
+        }
+
+        // Merge settings into device configuration
+        if (!device.configuration) {
+          device.configuration = {};
+        }
+        if (!device.configuration.deviceSettings) {
+          device.configuration.deviceSettings = {};
+        }
+
+        // Key mapping from UI format to database format
+        const keyMapping = {
+          'Electrode': 'electrode',
+          'Event': 'event',
+          'Manual Mode Action': 'manualModeAction',
+          'Shunt Voltage': 'shuntVoltage',
+          'Shunt Current': 'shuntCurrent',
+          'Reference Fail': 'referenceFail',
+          'Reference UP': 'referenceUP',
+          'Reference OP': 'referenceOP',
+          'Interrupt ON Time': 'interruptOnTime',
+          'Interrupt OFF Time': 'interruptOffTime',
+          'Interrupt Start TimeStamp': 'interruptStartTimeStamp',
+          'Interrupt Stop TimeStamp': 'interruptStopTimeStamp',
+          'Depolarization Start TimeStamp': 'depolarizationStartTimeStamp',
+          'Depolarization Stop TimeStamp': 'depolarizationStopTimeStamp',
+          'Depolarization_interval': 'dpolInterval',
+          'Depolarization Interval': 'dpolInterval',
+          'Instant Mode': 'instantMode',
+          'Instant Start TimeStamp': 'instantStartTimeStamp',
+          'Instant End TimeStamp': 'instantEndTimeStamp',
+          'logging_interval': 'loggingInterval',
+          'logging_interval_format': 'loggingInterval'
+        };
+
+        // Map payload to database format
+        const dbSettings = {};
+        Object.entries(completePayload).forEach(([key, value]) => {
+          const dbKey = keyMapping[key];
+          if (dbKey) {
+            let dbValue = value;
+            
+            // Format reference values for database
+            if (['referenceFail', 'referenceUP', 'referenceOP'].includes(dbKey)) {
+              const numValue = typeof value === 'string' ? parseFloat(value) : value;
+              if (!isNaN(numValue)) {
+                dbValue = numValue.toFixed(2);
+              }
+            }
+            // Format timer values
+            else if (['interruptOnTime', 'interruptOffTime'].includes(dbKey)) {
+              const num = parseFloat(String(value));
+              dbValue = isNaN(num) ? 0 : num;
+            }
+            
+            dbSettings[dbKey] = dbValue;
+          }
+        });
+
+        // Save to database
+        Object.assign(device.configuration.deviceSettings, dbSettings);
+        device.lastSettingsSent = new Date();
+        device.settingsSentCount = (device.settingsSentCount || 0) + 1;
+
+        await device.save();
+        console.log(`✅ Settings saved to database for device ${deviceId}`);
+
+      } catch (dbError) {
+        console.error(`❌ Failed to save settings to database:`, dbError);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to save settings to database',
+          error: dbError.message
+        });
       }
 
-      // Transform parameters from cache format to device dataframe format
+      // ============ STEP 2: TRANSFORM AND BUILD MQTT MESSAGE ============
       const transformedParameters = transformParametersToDeviceFormat(completePayload);
 
-      console.log(`✨ Transformed parameters:`);
-      console.log(`   Before:`, completePayload);
-      console.log(`   After:`, transformedParameters);
-
-      // Generate command ID
-      const { v4: uuidv4 } = require('uuid');
-      const commandId = uuidv4();
-
-      // Build complete MQTT message with correct format
-      // Topic: devices/{deviceId}/commands (use commands topic for settings updates)
-      // Format: { "Device ID": "...", "Message Type": "settings", "sender": "Server", "Parameters": {...} }
       const settingsMessage = {
         'Device ID': deviceId,
         'Message Type': 'settings',
@@ -1205,182 +1273,49 @@ class DeviceConfigController {
         'Parameters': transformedParameters
       };
 
-      console.log(`📡 MQTT Message (topic: devices/${deviceId}/commands):`, JSON.stringify(settingsMessage, null, 2));
+      console.log(`📤 MQTT Message built:`, JSON.stringify(settingsMessage, null, 2));
 
-      // Send via MQTT with ACK retry mechanism - resend every 5 seconds until ACK received
-      const result = await mqttService.sendCompleteSettingsPayload(deviceId, null, 30000);
+      // ============ STEP 3: SEND WITH SIMPLE RETRY ============
+      const { v4: uuidv4 } = require('uuid');
+      const commandId = uuidv4();
 
-      if (!result.success) {
-        console.warn(`⚠️ Failed to send settings with ACK tracking for device ${deviceId}:`, result.error || result.message);
-        console.log(`ℹ️ Will save settings to database for delivery on next connection`);
-      } else {
-        console.log(`✅ Settings sent with ACK retry mechanism to device ${deviceId} (commandId: ${result.commandId})`);
-        console.log(`   Retries will happen every 5 seconds until ACK is received`);
-      }
-
-      // Save settings to database (store original cache format + transformed format)
-      // This ensures settings are persisted regardless of MQTT publish success
       try {
-        const Device = require('../models/Device');
-        const device = await Device.findOne({ deviceId });
+        const result = await mqttService.sendMessageWithRetry(deviceId, settingsMessage, 30000);
+        
+        console.log(`✅ Message sent and retry mechanism activated (commandId: ${result.commandId})`);
 
-        if (device) {
-          // Merge settings into device configuration
-          if (!device.configuration) {
-            device.configuration = {};
+        // Return success response
+        res.json({
+          success: true,
+          message: `Sent ${Object.keys(transformedParameters).length} settings to device`,
+          commandId: result.commandId,
+          data: {
+            deviceId,
+            settingsCount: Object.keys(transformedParameters).length,
+            sentAt: new Date().toISOString()
           }
-          if (!device.configuration.deviceSettings) {
-            device.configuration.deviceSettings = {};
-          }
-
-          // CRITICAL FIX: Store ORIGINAL values from completePayload, not transformed values
-          // Transformed values are only for MQTT transmission
-          // Database must store original UI format values so they can be read back correctly
-          const dbSettings = {};
-          
-          // COMPREHENSIVE KEY MAPPING
-          // Maps frontend UI parameter names to database camelCase field names
-          // This must match EXACTLY what getDeviceSettings expects to read
-          const keyMapping = {
-            // Basic control parameters
-            'Electrode': 'electrode',
-            'Event': 'event',
-            'Manual Mode Action': 'manualModeAction',
-            
-            // Voltage/Current measurements
-            'Shunt Voltage': 'shuntVoltage',
-            'Shunt Current': 'shuntCurrent',
-            
-            // Reference thresholds (CRITICAL - these are often corrupted)
-            'Reference Fail': 'referenceFail',
-            'Reference UP': 'referenceUP',
-            'Reference OP': 'referenceOP',
-            
-            // Interrupt timings - CRITICAL: Store display format (0000.0 with decimal)
-            // Backend receives display format from frontend cache
-            // Example: "11.1" gets stored as "11.1" in database
-            // Device multiplication happens during transformation only
-            'Interrupt ON Time': 'interruptOnTime',
-            'Interrupt OFF Time': 'interruptOffTime',
-            'Interrupt Start TimeStamp': 'interruptStartTimeStamp',
-            'Interrupt Stop TimeStamp': 'interruptStopTimeStamp',
-            
-            // Depolarization settings
-            'Depolarization Start TimeStamp': 'depolarizationStartTimeStamp',
-            'Depolarization Stop TimeStamp': 'depolarizationStopTimeStamp',
-            'Depolarization_interval': 'dpolInterval',  // Note: underscore in UI format
-            'Depolarization Interval': 'dpolInterval',  // Also accept without underscore
-            
-            // Instant mode
-            'Instant Mode': 'instantMode',
-            'Instant Start TimeStamp': 'instantStartTimeStamp',
-            'Instant End TimeStamp': 'instantEndTimeStamp',
-            
-            // Logging settings - these come with underscores from API
-            'logging_interval': 'loggingInterval',      // String time format from API
-            'logging_interval_format': 'loggingInterval'  // Same field - both are time format strings
-          };
-
-          // Map ORIGINAL parameters (completePayload) to camelCase database field names
-          // Do NOT use transformedParameters - those are MQTT format only!
-          console.log(`📝 Starting field mapping for device ${deviceId}:`);
-          console.log(`   Input keys from completePayload:`, Object.keys(completePayload));
-          
-          Object.entries(completePayload).forEach(([key, value]) => {
-            const dbKey = keyMapping[key];
-            if (dbKey) {
-              // CRITICAL: Convert reference values to proper decimal format for database storage
-              // Database expects: "0.30", "0.60", "1.23" (strings with 2 decimal places)
-              // Frontend sends: 0.30, 0.60, 1.23 (numbers or strings)
-              let dbValue = value;
-              
-              // Handle reference voltage values (Reference Fail, UP, OP)
-              if (['referenceFail', 'referenceUP', 'referenceOP'].includes(dbKey)) {
-                // Convert to number, then format as string with 2 decimal places
-                const numValue = typeof value === 'string' ? parseFloat(value) : value;
-                if (!isNaN(numValue)) {
-                  dbValue = numValue.toFixed(2);
-                  console.log(`   ✓ Mapping '${key}' → '${dbKey}' = ${value} → ${dbValue} (formatted to 2 decimals)`);
-                } else {
-                  console.log(`   ⚠️ Invalid numeric value for '${key}': ${value}, using as-is`);
-                }
-              }
-              // Handle timer values (Interrupt ON/OFF Time)
-              // Frontend sends values in display-seconds format (e.g. 10 = 10s).
-              // DB schema is type:Number. Store the numeric value directly.
-              // MQTT transformation (*10) happens separately in transformParametersToDeviceFormat.
-              // Device-to-backend ACK handling divides by 10 in mqttService.saveDeviceSettings.
-              else if (['interruptOnTime', 'interruptOffTime'].includes(dbKey)) {
-                const num = parseFloat(String(value));
-                dbValue = isNaN(num) ? 0 : num;
-                console.log(`   ✓ Mapping '${key}' → '${dbKey}' = ${value} → ${dbValue} (display seconds, no division)`);
-              }
-              else {
-                // Only log critical fields to reduce noise
-                if (['interruptOnTime', 'interruptOffTime', 'electrode', 'shuntVoltage'].includes(dbKey)) {
-                  console.log(`   ✓ Mapping '${key}' → '${dbKey}' = ${value}`);
-                }
-              }
-              
-              dbSettings[dbKey] = dbValue;
-            } else {
-              console.log(`   ⚠️ No mapping found for key '${key}', skipping`);
-            }
-          });
-
-          console.log(`🔄 Mapping original params to DB format:`, dbSettings);
-          console.log(`   (Using original completePayload, NOT transformedParameters)`);
-
-          // Update device settings with properly mapped keys
-          Object.assign(device.configuration.deviceSettings, dbSettings);
-
-          // Also track the original cache format for reference
-          if (!device.configuration.deviceSettingsCacheFormat) {
-            device.configuration.deviceSettingsCacheFormat = {};
-          }
-          Object.assign(device.configuration.deviceSettingsCacheFormat, completePayload);
-
-          // Track that settings were sent
-          device.lastSettingsSent = new Date();
-          device.settingsSentCount = (device.settingsSentCount || 0) + 1;
-
-          await device.save();
-          console.log(`✅ Settings saved to database for device ${deviceId}`);
-          console.log(`   DB field names: ${Object.keys(device.configuration.deviceSettings).join(', ')}`);
-          console.log(`   Sample values:`);
-          console.log(`     - shuntVoltage: ${device.configuration.deviceSettings.shuntVoltage}`);
-          console.log(`     - referenceFail: ${device.configuration.deviceSettings.referenceFail}`);
-          console.log(`     - interruptOnTime: ${device.configuration.deviceSettings.interruptOnTime}`);
-        }
-      } catch (dbError) {
-        console.warn(`⚠️ Failed to save settings to database (non-critical):`, dbError);
-        // Continue - settings were still sent to device
-      }
-
-      // Return success response
-      res.json({
-        success: true,
-        message: `Sent ${Object.keys(transformedParameters).length} settings to device`,
-        commandId,
-        data: {
-          deviceId,
-          settingsCount: Object.keys(transformedParameters).length,
-          fields: Object.keys(transformedParameters),
-          sentAt: new Date().toISOString()
-        }
-      });
-
-      // Notify connected clients via Socket.IO
-      try {
-        const socketService = require('../services/socketService');
-        socketService.emitToAll('deviceSettingsSent', {
-          deviceId,
-          commandId,
-          settingsCount: Object.keys(completePayload).length,
-          timestamp: new Date().toISOString()
         });
-      } catch (socketError) {
-        console.warn('Socket notification failed (non-critical):', socketError);
+
+        // Notify clients via Socket.IO
+        try {
+          const socketService = require('../services/socketService');
+          socketService.emitToAll('deviceSettingsSent', {
+            deviceId,
+            commandId: result.commandId,
+            settingsCount: Object.keys(completePayload).length,
+            timestamp: new Date().toISOString()
+          });
+        } catch (socketError) {
+          console.warn('Socket notification failed:', socketError.message);
+        }
+
+      } catch (sendError) {
+        console.error(`❌ Failed to send settings:`, sendError);
+        res.status(500).json({
+          success: false,
+          message: 'Settings saved but failed to send to device',
+          error: sendError.message
+        });
       }
 
     } catch (error) {

@@ -383,6 +383,81 @@ class MQTTService {
     });
   }
 
+  // SIMPLE APPROACH: Send a pre-built payload and retry it every 5 seconds until ACK
+  // No rebuilding, no DB fetches during retries - just resend the same message
+  async sendMessageWithRetry(deviceId, payload, timeout = 30000) {
+    const commandId = uuidv4();
+    
+    // Resolve actual device ID from MongoDB
+    let actualDeviceId = deviceId;
+    try {
+      const Device = require('../models/Device');
+      const device = await Device.findById(deviceId);
+      if (device && device.deviceId) {
+        actualDeviceId = device.deviceId.toString();
+        console.log(`✓ Resolved MongoDB _id "${deviceId}" → actual deviceId "${actualDeviceId}"`);
+      }
+    } catch (err) {
+      console.warn(`⚠️ Could not resolve device ID: ${err.message}, using as-is`);
+    }
+
+    // Update payload with actual device ID (for MQTT topic and ACK matching)
+    const updatedPayload = {
+      ...payload,
+      'Device ID': actualDeviceId
+    };
+    
+    // Store command - KEEP THE EXACT PAYLOAD for all retries
+    const commandRecord = {
+      commandId,
+      deviceId,  // MongoDB _id for device lookup
+      actualDeviceId: actualDeviceId,  // ⭐ CRITICAL: Actual device.deviceId for ACK matching
+      originalCommand: 'settings',
+      payload: updatedPayload,  // This ONE payload will be resent every 5 seconds
+      status: 'PENDING',
+      sentAt: new Date(),
+      timeout,
+      acknowledgedAt: null,
+      responseTime: null,
+      retryCount: 0,
+      lastRetryTime: Date.now()
+    };
+    
+    this.pendingCommands.set(commandId, commandRecord);
+
+    // Set up retry mechanism (will send same payload every 5 seconds)
+    this.setupCommandRetry(commandId);
+
+    // Send first time
+    return new Promise((resolve, reject) => {
+      this.publishCommandWithRetry(commandId, updatedPayload, actualDeviceId)
+        .then(() => {
+          console.log(`✅ Settings sent to device ${actualDeviceId}, waiting for ACK. Will retry every 5s.`);
+          
+          this.socketIO?.emit('deviceCommandSent', {
+            commandId,
+            deviceId,
+            actualDeviceId,
+            command: 'settings',
+            sentAt: new Date(),
+            status: 'PENDING'
+          });
+          
+          resolve({ 
+            success: true, 
+            commandId,
+            message: 'Sent. Will retry every 5s until ACK received.'
+          });
+        })
+        .catch(error => {
+          console.error('❌ Failed to send:', error);
+          this.clearCommandRetry(commandId);
+          this.pendingCommands.delete(commandId);
+          reject(error);
+        });
+    });
+  }
+
   // Publish command and track for retry mechanism
   async publishCommandWithRetry(commandId, payload, deviceId = null) {
     return new Promise((resolve, reject) => {
@@ -414,6 +489,138 @@ class MQTTService {
     });
   }
 
+  // Build fresh payload for retries (pulls current parameters from database)
+  async buildFreshPayloadForRetry(commandRecord) {
+    try {
+      // Only rebuild payload for "settings" type commands - others keep static payload
+      if (commandRecord.originalCommand !== 'settings') {
+        return commandRecord.payload; // Use stored payload for non-settings commands
+      }
+
+      const deviceId = commandRecord.deviceId;
+      let actualDeviceId = commandRecord.actualDeviceId || deviceId;
+
+      // Get CURRENT settings from database (not from stored command)
+      const currentSettings = await this.ensureDeviceSettings(deviceId);
+      
+      // Ensure logging_interval_format is set based on logging_interval
+      if (currentSettings["logging_interval"]) {
+        if (typeof currentSettings["logging_interval"] === 'number') {
+          currentSettings["logging_interval_format"] = secondsToHHMMSS(currentSettings["logging_interval"]);
+        }
+      }
+
+      // Apply same formatting as original send
+      const formatShuntVoltageForDevice = (value) => {
+        if (value === undefined || value === null) return undefined;
+        let numVal;
+        if (typeof value === 'string') {
+          numVal = parseFloat(value);
+        } else if (typeof value === 'number') {
+          numVal = value;
+        } else {
+          return value;
+        }
+        if (!isNaN(numVal)) {
+          const intVal = Math.round(numVal);
+          return intVal.toString().padStart(3, '0');
+        }
+        return value;
+      };
+
+      const formatShuntCurrentForDevice = (value) => {
+        if (value === undefined || value === null) return undefined;
+        let numVal;
+        if (typeof value === 'string') {
+          numVal = parseFloat(value);
+        } else if (typeof value === 'number') {
+          numVal = value;
+        } else {
+          return value;
+        }
+        if (!isNaN(numVal)) {
+          if (numVal > 100) {
+            return Math.round(numVal);
+          } else {
+            return Math.round(numVal * 10);
+          }
+        }
+        return value;
+      };
+
+      const formatRefValueForDevice = (value) => {
+        if (value === undefined || value === null) return undefined;
+        let numVal;
+        if (typeof value === 'string') {
+          numVal = parseFloat(value);
+        } else if (typeof value === 'number') {
+          numVal = value;
+        } else {
+          return value;
+        }
+        if (!isNaN(numVal)) {
+          let intVal;
+          if (Math.abs(numVal) > 100) {
+            intVal = Math.round(numVal);
+          } else {
+            intVal = Math.round(numVal * 100);
+          }
+          
+          if (intVal < 0) {
+            return '-' + Math.abs(intVal).toString().padStart(3, '0');
+          } else {
+            return intVal.toString().padStart(3, '0');
+          }
+        }
+        return value;
+      };
+
+      let loggingIntervalValue = currentSettings["logging_interval"] || "00:10:00";
+      if (typeof loggingIntervalValue === 'number') {
+        loggingIntervalValue = secondsToHHMMSS(loggingIntervalValue);
+      }
+
+      // Build parameters with FRESH data from database
+      const parameters = {
+        "Electrode": currentSettings["Electrode"] || 0,
+        "Event": currentSettings["Event"] || 0,
+        "Manual Mode Action": currentSettings["Manual Mode Action"] !== undefined ? currentSettings["Manual Mode Action"] : 0,
+        "Shunt Voltage": formatShuntVoltageForDevice(currentSettings["Shunt Voltage"]) || "025",
+        "Shunt Current": formatShuntCurrentForDevice(currentSettings["Shunt Current"]) || 99,
+        "Reference Fail": formatRefValueForDevice(currentSettings["Reference Fail"]) || "030",
+        "Reference UP": formatRefValueForDevice(currentSettings["Reference UP"]) || "030",
+        "Reference OP": formatRefValueForDevice(currentSettings["Reference OP"]) || "070",
+        "Interrupt ON Time": (currentSettings["Interrupt ON Time"] || 86400) * 10,
+        "Interrupt OFF Time": (currentSettings["Interrupt OFF Time"] || 86400) * 10,
+        "Interrupt Start TimeStamp": currentSettings["Interrupt Start TimeStamp"] || "2025-02-20 19:04:00",
+        "Interrupt Stop TimeStamp": currentSettings["Interrupt Stop TimeStamp"] || "2025-02-20 19:05:00",
+        "Depolarization Start TimeStamp": currentSettings["Depolarization Start TimeStamp"] || "2025-02-20 19:04:00",
+        "Depolarization Stop TimeStamp": currentSettings["Depolarization Stop TimeStamp"] || "2025-02-20 19:05:00",
+        "Depolarization_interval": currentSettings["Depolarization_interval"] || "00:10:00",
+        "Instant Mode": currentSettings["Instant Mode"] !== undefined ? currentSettings["Instant Mode"] : 0,
+        "Instant Start TimeStamp": currentSettings["Instant Start TimeStamp"] || "19:04:00",
+        "Instant End TimeStamp": currentSettings["Instant End TimeStamp"] || "00:00:00",
+        "logging_interval": loggingIntervalValue
+      };
+
+      console.log(`🔄 Rebuilding FRESH payload for retry - Reference Fail raw=${currentSettings["Reference Fail"]}, formatted=${parameters["Reference Fail"]}`);
+
+      const mappedParameters = this.applyValueMappings(parameters);
+
+      const freshPayload = {
+        "Device ID": actualDeviceId,
+        "Message Type": "settings",
+        "sender": "Server",
+        "Parameters": mappedParameters
+      };
+
+      return freshPayload;
+    } catch (error) {
+      console.error(`⚠️ Error rebuilding fresh payload, using stored payload:`, error.message);
+      return commandRecord.payload; // Fallback to stored payload if rebuild fails
+    }
+  }
+
   // Setup automatic retry mechanism for a command
   setupCommandRetry(commandId) {
     const pendingCommand = this.pendingCommands.get(commandId);
@@ -422,64 +629,49 @@ class MQTTService {
       return;
     }
 
-    console.log(`⏱️ Setting up retry interval for command ${commandId}`);
-    console.log(`   📌 Device: ${pendingCommand.actualDeviceId || pendingCommand.deviceId}`);
-    console.log(`   📝 Original Command: ${pendingCommand.originalCommand}`);
-    console.log(`   ✉️ Payload present: ${!!pendingCommand.payload}`);
+    console.log(`⏱️ Retry mechanism activated for command ${commandId} (every 5s until ACK)`);
 
     // Set up retry interval (resend every 5 seconds if no ACK received)
-    const retryInterval = setInterval(() => {
-      console.log(`⏰ RETRY INTERVAL FIRED for command ${commandId} - checking status...`);
-      
+    const retryInterval = setInterval(async () => {
       const currentCommand = this.pendingCommands.get(commandId);
       
       if (!currentCommand) {
-        // Command no longer pending, clear interval
-        console.log(`🛑 Command ${commandId} no longer in pendingCommands, clearing retry interval`);
         clearInterval(retryInterval);
         this.retryIntervals.delete(commandId);
         return;
       }
 
       if (currentCommand.status !== 'PENDING') {
-        // Command already acknowledged or failed, clear interval
-        console.log(`🛑 Command ${commandId} status is ${currentCommand.status}, clearing retry interval`);
         clearInterval(retryInterval);
         this.retryIntervals.delete(commandId);
         return;
       }
 
-      // Increment retry counter and resend (no max limit - continues until ACK)
+      // Increment retry counter
       currentCommand.retryCount++;
       currentCommand.lastRetryTime = Date.now();
       
-      console.log(`🔄 Resending command ${commandId} (attempt #${currentCommand.retryCount} - continuously retrying every 5s until ACK)...`);
-      
-      // Resend the command to the CORRECT device (not hardcoded 123)
       const actualDeviceId = currentCommand.actualDeviceId || currentCommand.deviceId;
-      console.log(`   📤 Publishing to: devices/${actualDeviceId}/commands`);
       
+      // ⭐ SIMPLE: Just resend the SAME stored payload - no rebuilding
       this.publishCommandWithRetry(commandId, currentCommand.payload, actualDeviceId)
         .then(() => {
-          console.log(`✅ Retry #${currentCommand.retryCount} sent for command ${commandId} to device ${actualDeviceId}`);
+          console.log(`🔄 Retry #${currentCommand.retryCount} sent to device ${actualDeviceId}`);
           
-          // Notify frontend of retry attempt
           this.socketIO?.emit('deviceCommandRetry', {
             commandId,
             deviceId: currentCommand.deviceId,
-            command: currentCommand.originalCommand,
             retryCount: currentCommand.retryCount,
-            message: `Continuously resending every 5s until ACK received (attempt #${currentCommand.retryCount})`
+            message: `Resending... (attempt #${currentCommand.retryCount})`
           });
         })
         .catch(err => {
-          console.error(`❌ Failed to resend command ${commandId}:`, err.message);
+          console.error(`❌ Retry #${currentCommand.retryCount} failed:`, err.message);
         });
 
     }, this.retryIntervalMs); // 5 seconds
 
     this.retryIntervals.set(commandId, retryInterval);
-    console.log(`⏱️ Retry mechanism activated for command ${commandId} (resending every ${this.retryIntervalMs / 1000}s until ACK received)`);
   }
 
   // Clear retry interval for a command
@@ -547,20 +739,31 @@ class MQTTService {
 
       // Check if this is an ACK with new format: { "Device ID": 123, "Status": "ACCEPTED" }
       if (Status && !CommandId) {
-        console.log(`📬 New ACK format detected in commands topic - Device ID: ${ackDeviceId}, Status: ${Status}`);
+        console.log(`📬 New ACK format detected - Device ID: ${ackDeviceId}, Status: ${Status}`);
         
-        // Find the oldest pending command for this device
+        // ⭐ FIX: Match by actualDeviceId (the real device.deviceId that came in the ACK)
+        // Commands store both MongoDB _id (deviceId) and actual device ID (actualDeviceId)
+        const actualDeviceIdStr = String(ackDeviceId || deviceId);
+        
+        console.log(`   Looking for pending commands matching actualDeviceId: "${actualDeviceIdStr}"`);
+        
         const pendingCommandsForDevice = Array.from(this.pendingCommands.values())
-          .filter(cmd => cmd.deviceId === (ackDeviceId || deviceId).toString())
+          .filter(cmd => String(cmd.actualDeviceId) === actualDeviceIdStr)
           .sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime());
         
         if (pendingCommandsForDevice.length === 0) {
-          console.warn(`⚠️ ACK received but no pending commands for device ${ackDeviceId || deviceId}`);
+          console.warn(`⚠️ ACK received for Device ID ${ackDeviceId} but no pending commands found`);
+          console.log(`   Pending commands:`, Array.from(this.pendingCommands.entries()).map(([id, cmd]) => ({
+            commandId: id,
+            deviceId: cmd.deviceId,
+            actualDeviceId: cmd.actualDeviceId
+          })));
           return;
         }
         
         const targetCommand = pendingCommandsForDevice[0]; // Get oldest pending command
-        console.log(`🎯 Matched ACK to pending command: ${targetCommand.commandId}`);
+        console.log(`✅ Matched ACK to pending command: ${targetCommand.commandId}`);
+        console.log(`   Device ID: ${ackDeviceId} matched actualDeviceId: ${targetCommand.actualDeviceId}`);
         
         // Create ACK object in expected format
         const ackPayload = {

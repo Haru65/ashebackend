@@ -95,6 +95,120 @@ class ExcelExportService {
     return null;
   }
 
+  static buildTelemetryQuery({ deviceId, startDate, endDate, modes = [] } = {}) {
+    const query = {
+      timestamp: {
+        $gte: startDate,
+        $lte: endDate
+      }
+    };
+
+    if (deviceId) {
+      query.deviceId = deviceId;
+    }
+
+    if (modes && modes.length > 0) {
+      const modeQueries = ExcelExportService.buildEventFilter(modes);
+      if (modeQueries.length > 0) {
+        query.$or = modeQueries;
+      }
+    }
+
+    return query;
+  }
+
+  static getBaseColumns() {
+    return [
+      { header: 'Device ID', key: 'deviceId', width: 15 },
+      { header: 'Location', key: 'location', width: 30 },
+      { header: 'Status', key: 'status', width: 12 },
+      { header: 'Log No', key: 'logNo', width: 12 },
+      { header: 'Timestamp', key: 'timestamp', width: 25 },
+      { header: 'Mode', key: 'event', width: 15 },
+      { header: 'ACV', key: 'acv', width: 12 },
+      { header: 'ACI', key: 'aci', width: 12 },
+      { header: 'DCV', key: 'dcv', width: 12 },
+      { header: 'DCI', key: 'dci', width: 12 },
+      { header: 'Ref 1', key: 'ref1', width: 12 },
+      { header: 'Ref 2', key: 'ref2', width: 12 },
+      { header: 'Ref 3', key: 'ref3', width: 12 },
+      { header: 'DI 1', key: 'di1', width: 12 },
+      { header: 'DI 2', key: 'di2', width: 12 },
+      { header: 'DI 3', key: 'di3', width: 12 },
+      { header: 'DI 4', key: 'di4', width: 12 },
+      { header: 'DO', key: 'do', width: 12 },
+      { header: 'Ref Status 1', key: 'ref1Status', width: 15 },
+      { header: 'Ref Status 2', key: 'ref2Status', width: 15 },
+      { header: 'Ref Status 3', key: 'ref3Status', width: 15 }
+    ];
+  }
+
+  static getFieldValue(record, ...possibleKeys) {
+    for (const key of possibleKeys) {
+      if (record[key] !== undefined && record[key] !== null) {
+        return record[key];
+      }
+    }
+
+    if (record.data) {
+      for (const key of possibleKeys) {
+        const upperValue = ExcelExportService.getDataField(record.data, key.toUpperCase());
+        if (upperValue !== undefined && upperValue !== null) {
+          return upperValue;
+        }
+
+        const exactValue = ExcelExportService.getDataField(record.data, key);
+        if (exactValue !== undefined && exactValue !== null) {
+          return exactValue;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  static buildTelemetryRow(record) {
+    let locationDisplay = 'N/A';
+    const locationField = ExcelExportService.getFieldValue(record, 'location');
+
+    if (locationField) {
+      if (typeof locationField === 'string' && locationField.startsWith('{')) {
+        try {
+          const locObj = JSON.parse(locationField);
+          locationDisplay = locObj.city_name || locObj.display_name || locationField;
+        } catch (e) {
+          locationDisplay = locationField;
+        }
+      } else {
+        locationDisplay = locationField;
+      }
+    }
+
+    return {
+      deviceId: record.deviceId,
+      location: locationDisplay,
+      status: ExcelExportService.getFieldValue(record, 'status') || 'online',
+      logNo: ExcelExportService.getFieldValue(record, 'logNo', 'log', 'LOG') || '',
+      timestamp: ExcelExportService.formatDate(record.timestamp),
+      event: record.event || 'NORMAL',
+      acv: ExcelExportService.getFieldValue(record, 'ACV', 'acv') || '',
+      aci: ExcelExportService.getFieldValue(record, 'ACI', 'aci') || '',
+      dcv: ExcelExportService.getFieldValue(record, 'DCV', 'dcv') || '',
+      dci: ExcelExportService.getFieldValue(record, 'DCI', 'dci') || '',
+      ref1: ExcelExportService.getFieldValue(record, 'REF1', 'ref1') || '',
+      ref2: ExcelExportService.getFieldValue(record, 'REF2', 'ref2') || '',
+      ref3: ExcelExportService.getFieldValue(record, 'REF3', 'ref3') || '',
+      di1: ExcelExportService.getFieldValue(record, 'DI1', 'di1', 'DIGITAL INPUT 1', 'Digital Input 1') || '',
+      di2: ExcelExportService.getFieldValue(record, 'DI2', 'di2', 'DIGITAL INPUT 2', 'Digital Input 2') || '',
+      di3: ExcelExportService.getFieldValue(record, 'DI3', 'di3', 'DIGITAL INPUT 3', 'Digital Input 3') || '',
+      di4: ExcelExportService.getFieldValue(record, 'DI4', 'di4', 'DIGITAL INPUT 4', 'Digital Input 4') || '',
+      do: ExcelExportService.getFieldValue(record, 'DO', 'do', 'DIGITAL OUTPUT', 'Digital Output') || '',
+      ref1Status: ExcelExportService.getFieldValue(record, 'REF1Status', 'ref1Status', 'REF1 STS', 'REF1STATUS') || '',
+      ref2Status: ExcelExportService.getFieldValue(record, 'REF2Status', 'ref2Status', 'REF2 STS', 'REF2STATUS') || '',
+      ref3Status: ExcelExportService.getFieldValue(record, 'REF3Status', 'ref3Status', 'REF3 STS', 'REF3STATUS') || ''
+    };
+  }
+
   /**
    * Format date as YYYY/MM/DD  HH:MM:SS (standardized timestamp)
    * Handles both Date objects and ISO strings
@@ -578,6 +692,129 @@ class ExcelExportService {
       console.error('❌ Excel export error:', error);
       throw error;
     }
+  }
+
+  static async streamTelemetryToExcel(options = {}, outputStream) {
+    const {
+      deviceId,
+      startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+      endDate = new Date(),
+      filename = `telemetry_export_${new Date().toISOString().split('T')[0]}.xlsx`,
+      modes = [],
+      maxRecords = 10000
+    } = options;
+
+    const query = ExcelExportService.buildTelemetryQuery({ deviceId, startDate, endDate, modes });
+
+    console.log('📊 Streaming telemetry Excel export with query:', {
+      start: startDate instanceof Date ? startDate.toISOString() : startDate,
+      end: endDate instanceof Date ? endDate.toISOString() : endDate,
+      deviceId: deviceId || 'all devices',
+      modes: modes.length > 0 ? modes : 'all modes'
+    });
+
+    const totalCount = await Telemetry.countDocuments(query);
+    console.log(`📈 Found ${totalCount} total telemetry records`);
+
+    if (totalCount === 0) {
+      throw new Error('No telemetry data found for the specified criteria');
+    }
+
+    if (totalCount > maxRecords) {
+      console.warn(`⚠️ WARNING: ${totalCount} records found, streaming latest ${maxRecords} records to protect server memory`);
+    }
+
+    const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+      stream: outputStream,
+      useStyles: false,
+      useSharedStrings: false
+    });
+
+    workbook.creator = 'ZEPTAC IoT Platform';
+    workbook.created = new Date();
+    workbook.modified = new Date();
+
+    const worksheet = workbook.addWorksheet('Telemetry Data', {
+      pageSetup: { paperSize: 9, orientation: 'landscape' }
+    });
+    worksheet.columns = ExcelExportService.getBaseColumns();
+    worksheet.getRow(1).commit();
+
+    const eventCounts = {
+      normal: 0,
+      dpol: 0,
+      int: 0,
+      inst: 0
+    };
+    const deviceCounts = {};
+
+    let recordCount = 0;
+    const cursor = Telemetry.find(query)
+      .sort({ timestamp: -1 })
+      .limit(maxRecords)
+      .lean()
+      .cursor({ batchSize: 250 });
+
+    try {
+      for await (const record of cursor) {
+        const row = worksheet.addRow(ExcelExportService.buildTelemetryRow(record));
+        row.getCell(5).numFmt = '@';
+        row.commit();
+
+        recordCount++;
+        deviceCounts[record.deviceId] = (deviceCounts[record.deviceId] || 0) + 1;
+
+        const eventType = ExcelExportService.getEventType(record.event);
+        if (eventType && eventCounts[eventType] !== undefined) {
+          eventCounts[eventType]++;
+        }
+
+        if (recordCount % 1000 === 0) {
+          console.log(`   Streamed ${recordCount} Excel rows...`);
+        }
+      }
+    } finally {
+      await cursor.close().catch(() => {});
+    }
+
+    worksheet.commit();
+
+    const summarySheet = workbook.addWorksheet('Summary');
+    summarySheet.columns = [
+      { header: 'Metric', key: 'metric', width: 25 },
+      { header: 'Value', key: 'value', width: 20 }
+    ];
+    summarySheet.getRow(1).commit();
+
+    [
+      { metric: 'Export Date', value: new Date().toISOString() },
+      { metric: 'Date Range', value: `${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}` },
+      { metric: 'Matching Records', value: totalCount },
+      { metric: 'Exported Records', value: recordCount },
+      { metric: 'Unique Devices', value: Object.keys(deviceCounts).length },
+      { metric: 'NORMAL Events', value: eventCounts.normal },
+      { metric: 'DPOL Events', value: eventCounts.dpol },
+      { metric: 'INT Events', value: eventCounts.int },
+      { metric: 'INST Events', value: eventCounts.inst }
+    ].forEach(item => summarySheet.addRow(item).commit());
+
+    summarySheet.addRow({ metric: '', value: '' }).commit();
+    summarySheet.addRow({ metric: 'Records per Device:', value: '' }).commit();
+    Object.entries(deviceCounts).forEach(([summaryDeviceId, count]) => {
+      summarySheet.addRow({ metric: `  ${summaryDeviceId}`, value: count }).commit();
+    });
+    summarySheet.commit();
+
+    await workbook.commit();
+    console.log(`✅ Streaming Excel export completed: ${recordCount} records`);
+
+    return {
+      filename,
+      recordCount,
+      totalCount,
+      devices: Object.keys(deviceCounts).length,
+      eventCounts
+    };
   }
 
   /**

@@ -84,15 +84,15 @@ class ExportController {
       
       console.log('⏱️ Export initiated within Render 30s window');
 
-      // Generate Excel file
-      const exportResult = await ExcelExportService.exportTelemetryToExcel({
-        deviceId,
-        startDate: start,
-        endDate: end,
-        modes: modeFilter
-      });
-
       if (format === 'save') {
+        // Generate Excel file
+        const exportResult = await ExcelExportService.exportTelemetryToExcel({
+          deviceId,
+          startDate: start,
+          endDate: end,
+          modes: modeFilter
+        });
+
         // Save to server file system
         const filePath = await ExcelExportService.saveExcelFile(
           exportResult.workbook,
@@ -110,6 +110,23 @@ class ExportController {
           }
         });
       } else {
+        const filename = `telemetry_export_${new Date().toISOString().split('T')[0]}.xlsx`;
+        const exportResult = {
+          recordCount: 'streaming',
+          filename,
+          workbook: {
+            worksheets: [],
+            xlsx: {
+              write: (stream) => ExcelExportService.streamTelemetryToExcel({
+                deviceId,
+                startDate: start,
+                endDate: end,
+                filename,
+                modes: modeFilter
+              }, stream)
+            }
+          }
+        };
         // Send as download using ExcelJS native streaming
         try {
           console.log(`📊 Preparing to stream ${exportResult.recordCount} records...`);

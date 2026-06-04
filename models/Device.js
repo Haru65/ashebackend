@@ -103,7 +103,6 @@ const DeviceSchema = new Schema({
 });
 
 // Compound indexes for common queries
-DeviceSchema.index({ deviceId: 1 });
 DeviceSchema.index({ 'mqtt.topicPrefix': 1 });
 DeviceSchema.index({ 'status.state': 1, 'status.lastSeen': -1 });
 

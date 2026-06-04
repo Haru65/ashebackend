@@ -61,9 +61,8 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Remove any TTL index on this collection to prevent auto-deletion
+// Remove any TTL index on this collection to prevent auto-deletion.
 userSchema.index({ createdAt: 1 }, { sparse: true }); // Regular index, not TTL
-userSchema.index({ email: 1 }, { unique: true });
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {
@@ -123,8 +122,5 @@ userSchema.pre('save', function(next) {
   }
   next();
 });
-
-userSchema.index({ username: 1 });
-userSchema.index({ email: 1 });
 
 module.exports = mongoose.models.User || mongoose.model('User', userSchema);

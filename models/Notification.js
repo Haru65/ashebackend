@@ -84,8 +84,7 @@ const NotificationSchema = new Schema({
   created_at: { 
     type: Date, 
     required: true, 
-    default: Date.now,
-    index: true
+    default: Date.now
   },
   read_at: {
     type: Date,

@@ -15,14 +15,12 @@ const DeviceHistorySchema = new Schema({
   deviceId: { 
     type: String, 
     required: true, 
-    index: true,
     ref: 'Device'
   },
   timestamp: { 
     type: Date, 
     required: true, 
-    default: Date.now,
-    index: true
+    default: Date.now
   },
   data: {
     type: Schema.Types.Mixed,
@@ -32,8 +30,7 @@ const DeviceHistorySchema = new Schema({
   },
   topic: {
     type: String,
-    required: false,
-    index: true
+    required: false
     // Example: 'devices/123/data' or 'sensor/DEVICE_123/telemetry'
   }
 }, {

@@ -3,6 +3,98 @@ const Telemetry = require('../models/telemetry');
 const Device = require('../models/Device');
 
 class ExcelExportService {
+  static buildEventFilter(modes = []) {
+    const normalizedModes = modes.map(m => String(m).toUpperCase().trim()).filter(Boolean);
+    const modeQueries = [];
+
+    if (normalizedModes.includes('NORMAL')) {
+      modeQueries.push({ event: { $in: [0, '0', 'NORMAL', 'NORMAL_MODE', 'normal'] } });
+    }
+
+    if (normalizedModes.includes('DPOL')) {
+      modeQueries.push({
+        event: {
+          $in: [
+            3,
+            '3',
+            'DPOL',
+            'DEPOL',
+            'DPOL_MODE',
+            'DPOL ON',
+            'DPOL OFF',
+            'DEPOL ON',
+            'DEPOL OFF'
+          ]
+        }
+      });
+    }
+
+    if (normalizedModes.includes('INT')) {
+      modeQueries.push({
+        event: {
+          $in: [
+            1,
+            '1',
+            'INT',
+            'INT ON',
+            'INT OFF',
+            'INTERRUPT',
+            'INTERRUPT ON',
+            'INTERRUPT OFF',
+            'INT_MODE'
+          ]
+        }
+      });
+    }
+
+    if (normalizedModes.includes('INST')) {
+      modeQueries.push({
+        event: {
+          $in: [
+            4,
+            '4',
+            'INST',
+            'INST ON',
+            'INST OFF',
+            'INSTANT',
+            'INSTANT ON',
+            'INSTANT OFF',
+            'INST_MODE'
+          ]
+        }
+      });
+    }
+
+    return modeQueries;
+  }
+
+  static getDataField(data, key) {
+    if (!data) return undefined;
+
+    if (data instanceof Map) {
+      return data.get(key);
+    }
+
+    if (typeof data === 'object') {
+      return data[key];
+    }
+
+    return undefined;
+  }
+
+  static getEventType(event) {
+    const evt = String(event ?? '').toUpperCase().trim();
+    const normalizedEvent = evt.includes('/') ? evt.split('/').pop().trim() : evt;
+    const eventNum = Number(normalizedEvent);
+
+    if (eventNum === 0 || normalizedEvent === 'NORMAL' || normalizedEvent.startsWith('NORMAL')) return 'normal';
+    if (eventNum === 3 || normalizedEvent === 'DPOL' || normalizedEvent === 'DEPOL' || normalizedEvent.startsWith('DPOL') || normalizedEvent.startsWith('DEPOL')) return 'dpol';
+    if (eventNum === 1 || normalizedEvent === 'INT' || normalizedEvent === 'INTERRUPT' || normalizedEvent.startsWith('INT') || normalizedEvent.startsWith('INTERRUPT')) return 'int';
+    if (eventNum === 4 || normalizedEvent === 'INST' || normalizedEvent === 'INSTANT' || normalizedEvent.startsWith('INST') || normalizedEvent.startsWith('INSTANT')) return 'inst';
+
+    return null;
+  }
+
   /**
    * Format date as YYYY/MM/DD  HH:MM:SS (standardized timestamp)
    * Handles both Date objects and ISO strings
@@ -73,34 +165,7 @@ class ExcelExportService {
 
       // Add event mode filter if provided
       if (modes && modes.length > 0) {
-        const normalizedModes = modes.map(m => String(m).toUpperCase().trim());
-        const modeQueries = [];
-        
-        // Map mode names to event values - includes all variations and substatus
-        if (normalizedModes.includes('NORMAL')) {
-          modeQueries.push({ event: { $in: [0, 'NORMAL', 'NORMAL_MODE', 'normal'] } });
-        }
-        if (normalizedModes.includes('DPOL')) {
-          // Include DEPOL as alternate spelling and also check with regex for variations
-          modeQueries.push({ $or: [
-            { event: { $in: [3, 'DPOL', 'DEPOL', 'DPOL_MODE'] } },
-            { event: { $regex: '^DPOL', $options: 'i' } }
-          ]});
-        }
-        if (normalizedModes.includes('INT')) {
-          // Include INT ON, INT OFF variations
-          modeQueries.push({ $or: [
-            { event: { $in: [1, 'INT', 'INTERRUPT', 'INT_MODE'] } },
-            { event: { $regex: '^INT', $options: 'i' } }  // Catches INT ON, INT OFF, etc.
-          ]});
-        }
-        if (normalizedModes.includes('INST')) {
-          // Include INST ON, INST OFF variations  
-          modeQueries.push({ $or: [
-            { event: { $in: [4, 'INST', 'INSTANT', 'INST_MODE'] } },
-            { event: { $regex: '^INST', $options: 'i' } }  // Catches INST ON, INST OFF, etc.
-          ]});
-        }
+        const modeQueries = ExcelExportService.buildEventFilter(modes);
 
         // Use $or to match any of the selected modes
         if (modeQueries.length > 0) {
@@ -344,12 +409,14 @@ class ExcelExportService {
           for (const key of possibleKeys) {
             // Try uppercase
             const upperKey = key.toUpperCase();
-            if (dataMap.has(upperKey)) {
-              return dataMap.get(upperKey);
+            const upperValue = ExcelExportService.getDataField(dataMap, upperKey);
+            if (upperValue !== undefined && upperValue !== null) {
+              return upperValue;
             }
             // Try the key as-is
-            if (dataMap.has(key)) {
-              return dataMap.get(key);
+            const exactValue = ExcelExportService.getDataField(dataMap, key);
+            if (exactValue !== undefined && exactValue !== null) {
+              return exactValue;
             }
           }
         }
@@ -459,13 +526,10 @@ class ExcelExportService {
 
       // Count events in main data during single pass
       telemetryData.forEach(record => {
-        const evt = String(record.event || '').toUpperCase().trim();
-        const eventNum = Number(record.event);
-        
-        if (eventNum === 0 || evt === 'NORMAL' || evt.startsWith('NORMAL')) eventCounts.normal++;
-        else if (eventNum === 3 || evt === 'DPOL' || evt === 'DEPOL') eventCounts.dpol++;
-        else if (eventNum === 1 || evt === 'INT' || evt === 'INTERRUPT') eventCounts.int++;
-        else if (eventNum === 4 || evt === 'INST' || evt === 'INSTANT') eventCounts.inst++;
+        const eventType = ExcelExportService.getEventType(record.event);
+        if (eventType && eventCounts[eventType] !== undefined) {
+          eventCounts[eventType]++;
+        }
       });
 
       // Add summary worksheet

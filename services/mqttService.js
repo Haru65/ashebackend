@@ -5,6 +5,7 @@ const { secondsToHHMMSS, hhmmssToSeconds, ensureLoggingIntervalFormat } = requir
 const { v4: uuidv4 } = require('uuid');
 const Device = require('../models/Device');
 const alarmMonitoringService = require('./alarmMonitoringService');
+const powerStatusMonitoringService = require('./powerStatusMonitoringService');
 
 // Helper function to convert degree format coordinates to decimal
 // Format: "19°03'N" or "072°52'E" -> 19.05 or -72.87
@@ -235,6 +236,18 @@ class MQTTService {
           
           // Update device status in MongoDB
           await this.updateDeviceStatus(deviceId, payload); // ✅ RE-ENABLED - Keep MongoDB in sync with current status
+
+          // POWER STATUS MONITORING: Send predefined emails for mains/battery transitions.
+          try {
+            const device = await Device.findOne({ deviceId });
+            if (device) {
+              await powerStatusMonitoringService.checkPowerStatus(deviceId, payload, device);
+            } else {
+              console.warn(`[Power Monitor] Device ${deviceId} not found, skipping power status notification`);
+            }
+          } catch (powerStatusError) {
+            console.error(`[Power Monitor] Error checking power status for device ${deviceId}:`, powerStatusError.message);
+          }
           
           // Note: saveTelemetryData is called earlier (above) to get reverse-geocoded location
           // before emitting device data to frontend

@@ -1,8 +1,10 @@
 /**
  * Power Status Monitoring Service
- * Monitors POWER_STATUS and BATTERY_STATUS changes for devices
- * Sends email notifications when:
- * - Power changes from Mains to Battery or vice versa
+ * Monitors POWER_STATUS and BATTERY_STATUS changes for devices.
+ *
+ * Sends notifications when:
+ * - Power changes from Mains/OK to OnBattery
+ * - Power changes from OnBattery to Mains/OK
  * - Battery status changes to LOW
  */
 
@@ -14,97 +16,127 @@ class PowerStatusMonitoringService {
   constructor() {
     this.emailService = new EmailService();
     this.notificationService = new NotificationService();
-    
-    // Track previous power status for each device
-    this.devicePowerStatus = new Map(); // { deviceId: { POWER_STATUS, BATTERY_STATUS, lastEmailTime } }
-    
-    // Email throttle: 30 minutes per device
-    this.emailThrottleTime = 30 * 60 * 1000; // 30 minutes
-    
+
+    // { deviceId: { POWER_STATUS, RAW_POWER_STATUS, BATTERY_STATUS, lastEmailByType } }
+    this.devicePowerStatus = new Map();
+
+    // Email throttle: 30 minutes per device per alert type.
+    this.emailThrottleTime = 30 * 60 * 1000;
+
     this.io = null;
   }
 
-  /**
-   * Initialize with Socket.IO instance for real-time notifications
-   */
   initializeIO(io) {
     this.io = io;
-    console.log('✅ [Power Status Monitor] WebSocket initialized for real-time power status notifications');
+    console.log('[Power Status Monitor] WebSocket initialized for real-time power status notifications');
   }
 
-  /**
-   * Check power status changes for a device
-   * @param {string} deviceId - Device ID
-   * @param {object} deviceData - Current device data from MQTT
-   * @param {object} device - Device object from database
-   */
+  normalizePowerStatus(value) {
+    if (value === undefined || value === null) return null;
+
+    const normalized = String(value).trim().toLowerCase().replace(/[\s_-]+/g, '');
+
+    if (['ok', 'main', 'mains', 'mainspower', 'ac', 'acpower'].includes(normalized)) {
+      return 'MAINS';
+    }
+
+    if (['onbattery', 'battery', 'batterypower', 'bat'].includes(normalized)) {
+      return 'BATTERY';
+    }
+
+    return normalized.toUpperCase();
+  }
+
+  getPowerStatusValue(deviceData = {}) {
+    const params = deviceData.Parameters || deviceData.parameters || {};
+
+    return deviceData.POWER_STATUS ||
+      deviceData.POWER ||
+      deviceData['POWER STATUS'] ||
+      params.POWER_STATUS ||
+      params.POWER ||
+      params['POWER STATUS'];
+  }
+
+  getBatteryStatusValue(deviceData = {}) {
+    const params = deviceData.Parameters || deviceData.parameters || {};
+
+    return deviceData.BATTERY_STATUS ||
+      deviceData['Battery STATUS'] ||
+      params.BATTERY_STATUS ||
+      params['Battery STATUS'];
+  }
+
   async checkPowerStatus(deviceId, deviceData, device) {
     try {
-      // Handle both underscore and space-separated field names from device
-      const powerStatus = deviceData.POWER_STATUS || deviceData.POWER || deviceData['POWER STATUS'];
-      const batteryStatus = deviceData.BATTERY_STATUS || deviceData['Battery STATUS'];
-      const timestamp = new Date();
-
-      // Get previous status
+      const powerStatus = this.getPowerStatusValue(deviceData);
+      const batteryStatus = this.getBatteryStatusValue(deviceData);
+      const normalizedPowerStatus = this.normalizePowerStatus(powerStatus);
       const previousStatus = this.devicePowerStatus.get(deviceId) || {};
-      
-      let emailTrigger = false;
-      let emailReason = '';
+      const previousPowerStatus = previousStatus.POWER_STATUS;
 
-      // Check for POWER_STATUS change
-      if (powerStatus && previousStatus.POWER_STATUS && previousStatus.POWER_STATUS !== powerStatus) {
-        const statusText = powerStatus.toLowerCase() === 'ok' ? 'Mains' : 'Battery';
-        const previousStatusText = previousStatus.POWER_STATUS.toLowerCase() === 'ok' ? 'Mains' : 'Battery';
-        
-        emailTrigger = true;
-        emailReason = `Device power changed from ${previousStatusText} to ${statusText}`;
-        
-        console.log(`[Power Monitor] ⚡ Power status changed for device ${deviceId}: ${previousStatusText} → ${statusText}`);
-      }
+      let alert = null;
 
-      // Check for BATTERY_STATUS = LOW
-      if (batteryStatus && batteryStatus.toUpperCase() === 'LOW') {
-        if (previousStatus.BATTERY_STATUS !== 'LOW') {
-          emailTrigger = true;
-          emailReason = `Device battery status is LOW (30%)`;
-          
-          console.log(`[Power Monitor] 🔋 Battery LOW for device ${deviceId}`);
+      if (normalizedPowerStatus && previousPowerStatus && previousPowerStatus !== normalizedPowerStatus) {
+        if (previousPowerStatus === 'MAINS' && normalizedPowerStatus === 'BATTERY') {
+          alert = {
+            type: 'power_failure',
+            subject: `Power Failure: ${device.deviceName || deviceId}`,
+            reason: 'Power Failure. Device is on battery',
+            severity: 'warning'
+          };
+        } else if (previousPowerStatus === 'BATTERY' && normalizedPowerStatus === 'MAINS') {
+          alert = {
+            type: 'power_restored',
+            subject: `Power Restored: ${device.deviceName || deviceId}`,
+            reason: 'Power Restored. Device is on Mains power',
+            severity: 'ok'
+          };
+        } else {
+          alert = {
+            type: 'power_status_change',
+            subject: `Power Status Alert: ${device.deviceName || deviceId}`,
+            reason: `Device power status changed from ${previousPowerStatus} to ${normalizedPowerStatus}`,
+            severity: 'warning'
+          };
         }
+
+        console.log(`[Power Monitor] Power status changed for device ${deviceId}: ${previousPowerStatus} -> ${normalizedPowerStatus}`);
+      } else if (batteryStatus && String(batteryStatus).toUpperCase() === 'LOW' && previousStatus.BATTERY_STATUS !== 'LOW') {
+        alert = {
+          type: 'battery_low',
+          subject: `Battery Low: ${device.deviceName || deviceId}`,
+          reason: 'Device battery status is LOW (30%)',
+          severity: 'battery'
+        };
+
+        console.log(`[Power Monitor] Battery LOW for device ${deviceId}`);
       }
 
-      // Update stored status with normalized field names
       this.devicePowerStatus.set(deviceId, {
-        POWER_STATUS: powerStatus,
+        POWER_STATUS: normalizedPowerStatus,
+        RAW_POWER_STATUS: powerStatus,
         BATTERY_STATUS: batteryStatus,
-        lastEmailTime: previousStatus.lastEmailTime || 0
+        lastEmailByType: previousStatus.lastEmailByType || {}
       });
 
-      // Send notification if triggered
-      if (emailTrigger) {
-        await this.sendPowerStatusNotification(deviceId, device, deviceData, emailReason, previousStatus);
+      if (alert) {
+        await this.sendPowerStatusNotification(deviceId, device, deviceData, alert, previousStatus);
       }
-
     } catch (error) {
       console.error('[Power Monitor] Error checking power status:', error);
     }
   }
 
-  /**
-   * Send notification for power status change
-   * @param {string} deviceId - Device ID
-   * @param {object} device - Device object
-   * @param {object} deviceData - Current device data
-   * @param {string} reason - Reason for notification
-   * @param {object} previousStatus - Previous status object
-   */
-  async sendPowerStatusNotification(deviceId, device, deviceData, reason, previousStatus) {
+  async sendPowerStatusNotification(deviceId, device, deviceData, alert, previousStatus) {
     try {
-      console.log(`[Power Monitor] 📢 Sending power status notification for device ${deviceId}: ${reason}`);
+      console.log(`[Power Monitor] Sending power status notification for device ${deviceId}: ${alert.reason}`);
 
-      // Check email throttle (30 minutes per device)
-      const throttleKey = `${deviceId}_power_email`;
+      const powerStatus = this.getPowerStatusValue(deviceData);
+      const batteryStatus = this.getBatteryStatusValue(deviceData);
       const currentTime = Date.now();
-      const lastEmailTime = previousStatus.lastEmailTime || 0;
+      const lastEmailByType = previousStatus.lastEmailByType || {};
+      const lastEmailTime = lastEmailByType[alert.type] || 0;
       const timeSinceLastEmail = currentTime - lastEmailTime;
 
       let shouldSendEmail = true;
@@ -112,60 +144,35 @@ class PowerStatusMonitoringService {
         const timeRemaining = Math.ceil((this.emailThrottleTime - timeSinceLastEmail) / 1000);
         const minutes = Math.floor(timeRemaining / 60);
         const seconds = timeRemaining % 60;
-        
-        console.log(`[Power Monitor] ℹ️ Power status email already sent recently, skipping (retry in ${minutes}m ${seconds}s)`);
+
+        console.log(`[Power Monitor] ${alert.type} email already sent recently, skipping (retry in ${minutes}m ${seconds}s)`);
         shouldSendEmail = false;
       }
 
-      // Emit WebSocket notification (no throttle for UI updates)
       if (this.io) {
-        const notificationData = {
+        this.io.emit('power:statusChanged', {
           device_id: deviceId,
           device_name: device.deviceName || deviceId,
-          notification_type: 'power_status_change',
-          reason: reason,
-          power_status: deviceData.POWER_STATUS || deviceData.POWER || deviceData['POWER STATUS'],
-          battery_status: deviceData.BATTERY_STATUS || deviceData['Battery STATUS'],
+          notification_type: alert.type,
+          reason: alert.reason,
+          power_status: powerStatus,
+          battery_status: batteryStatus,
           timestamp: new Date().toISOString()
-        };
-
-        this.io.emit('power:statusChanged', notificationData);
-        console.log(`[Power Monitor] ✅ Power status change event emitted via WebSocket`);
-      }
-
-      // Get all admin/owner users for email notification
-      let emailAddresses = [];
-      try {
-        // Get device owner if available
-        if (device.createdBy) {
-          const owner = await User.findById(device.createdBy).select('email');
-          if (owner && owner.email) {
-            emailAddresses.push(owner.email);
-          }
-        }
-
-        // Get all admin users
-        const admins = await User.find({ role: 'admin' }).select('email');
-        admins.forEach(admin => {
-          if (admin.email && !emailAddresses.includes(admin.email)) {
-            emailAddresses.push(admin.email);
-          }
         });
-      } catch (userError) {
-        console.error('[Power Monitor] Error fetching user emails:', userError);
+        console.log('[Power Monitor] Power status change event emitted via WebSocket');
       }
 
-      // Send emails
+      const emailAddresses = await this.getNotificationRecipients(device);
+
       if (emailAddresses.length > 0 && shouldSendEmail) {
-        const powerStatus = deviceData.POWER_STATUS || deviceData.POWER || deviceData['POWER STATUS'];
-        const batteryStatus = deviceData.BATTERY_STATUS || deviceData['Battery STATUS'];
-        
         const emailData = {
+          alarmName: alert.subject,
+          severity: alert.severity,
           deviceName: device.deviceName || deviceId,
-          deviceId: deviceId,
-          reason: reason,
-          powerStatus: powerStatus,
-          batteryStatus: batteryStatus,
+          deviceId,
+          reason: alert.reason,
+          powerStatus,
+          batteryStatus,
           timestamp: new Date().toLocaleString()
         };
 
@@ -174,45 +181,65 @@ class PowerStatusMonitoringService {
           try {
             await this.emailService.sendEmail({
               to: email,
-              subject: `⚡ Power Status Alert: ${device.deviceName || deviceId}`,
-              template: 'alarm', // Reuse alarm template for consistency
+              subject: alert.subject,
+              template: 'alarm',
               data: emailData
             });
-            console.log(`[Power Monitor] ✉️ Power status email sent to ${email} for device ${deviceId}`);
+            console.log(`[Power Monitor] Power status email sent to ${email} for device ${deviceId}`);
             emailsSent++;
           } catch (emailError) {
-            console.error(`[Power Monitor] ❌ Failed to send email to ${email}:`, emailError.message);
+            console.error(`[Power Monitor] Failed to send email to ${email}:`, emailError.message);
           }
         }
 
-        // Update throttle timer
         if (emailsSent > 0) {
           this.devicePowerStatus.set(deviceId, {
-            POWER_STATUS: deviceData.POWER_STATUS || deviceData.POWER || deviceData['POWER STATUS'],
-            BATTERY_STATUS: deviceData.BATTERY_STATUS || deviceData['Battery STATUS'],
-            lastEmailTime: currentTime
+            POWER_STATUS: this.normalizePowerStatus(powerStatus),
+            RAW_POWER_STATUS: powerStatus,
+            BATTERY_STATUS: batteryStatus,
+            lastEmailByType: {
+              ...lastEmailByType,
+              [alert.type]: currentTime
+            }
           });
-          console.log(`[Power Monitor] ⏱️ Email throttle timer set for device ${deviceId} (30 minutes)`);
+          console.log(`[Power Monitor] Email throttle timer set for ${alert.type} on device ${deviceId}`);
         }
       } else if (emailAddresses.length === 0) {
-        console.log(`[Power Monitor] ⚠️ No email addresses found for device ${deviceId}`);
+        console.log(`[Power Monitor] No email addresses found for device ${deviceId}`);
       }
-
     } catch (error) {
       console.error('[Power Monitor] Error sending power status notification:', error);
     }
   }
 
-  /**
-   * Get current power status for a device
-   */
+  async getNotificationRecipients(device) {
+    const emailAddresses = [];
+
+    try {
+      if (device.createdBy) {
+        const owner = await User.findById(device.createdBy).select('email');
+        if (owner?.email) {
+          emailAddresses.push(owner.email);
+        }
+      }
+
+      const admins = await User.find({ role: 'admin' }).select('email');
+      admins.forEach(admin => {
+        if (admin.email && !emailAddresses.includes(admin.email)) {
+          emailAddresses.push(admin.email);
+        }
+      });
+    } catch (userError) {
+      console.error('[Power Monitor] Error fetching user emails:', userError);
+    }
+
+    return emailAddresses;
+  }
+
   getPowerStatus(deviceId) {
     return this.devicePowerStatus.get(deviceId) || null;
   }
 
-  /**
-   * Clear power status tracking for a device
-   */
   clearPowerStatus(deviceId) {
     this.devicePowerStatus.delete(deviceId);
   }

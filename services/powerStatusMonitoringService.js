@@ -10,7 +10,7 @@
 
 const EmailService = require('./emailService');
 const NotificationService = require('./notificationService');
-const User = require('../models/user');
+const Alarm = require('../models/Alarm');
 
 class PowerStatusMonitoringService {
   constructor() {
@@ -213,27 +213,37 @@ class PowerStatusMonitoringService {
   }
 
   async getNotificationRecipients(device) {
-    const emailAddresses = [];
-
     try {
-      if (device.createdBy) {
-        const owner = await User.findById(device.createdBy).select('email');
-        if (owner?.email) {
-          emailAddresses.push(owner.email);
-        }
-      }
+      const deviceName = device.deviceName || device.deviceId;
+      const alarms = await Alarm.find({
+        status: 'Active',
+        $or: [
+          { deviceId: device.deviceId },
+          { device_name: deviceName }
+        ]
+      })
+        .select('name notification_config.email_ids')
+        .lean();
 
-      const admins = await User.find({ role: 'admin' }).select('email');
-      admins.forEach(admin => {
-        if (admin.email && !emailAddresses.includes(admin.email)) {
-          emailAddresses.push(admin.email);
-        }
+      const emailAddresses = new Set();
+
+      alarms.forEach(alarm => {
+        const configuredEmails = alarm.notification_config?.email_ids || [];
+        configuredEmails.forEach(email => {
+          const normalizedEmail = String(email || '').trim();
+          if (normalizedEmail) {
+            emailAddresses.add(normalizedEmail);
+          }
+        });
       });
-    } catch (userError) {
-      console.error('[Power Monitor] Error fetching user emails:', userError);
-    }
 
-    return emailAddresses;
+      const recipients = Array.from(emailAddresses);
+      console.log(`[Power Monitor] Found ${recipients.length} alarm-configured email recipient(s) for device ${deviceName}`);
+      return recipients;
+    } catch (error) {
+      console.error('[Power Monitor] Error fetching alarm-configured email recipients:', error);
+      return [];
+    }
   }
 
   getPowerStatus(deviceId) {

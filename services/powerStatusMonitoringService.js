@@ -173,7 +173,7 @@ class PowerStatusMonitoringService {
           reason: alert.reason,
           powerStatus,
           batteryStatus,
-          timestamp: new Date().toLocaleString()
+          timestamp: this.emailService.formatISTTimestamp()
         };
 
         let emailsSent = 0;

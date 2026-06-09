@@ -310,10 +310,27 @@ class EmailService {
   }
 
   /**
+   * Format timestamps for alarm emails in IST regardless of server timezone.
+   */
+  formatISTTimestamp(date = new Date()) {
+    return new Date(date).toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+      timeZoneName: 'short'
+    });
+  }
+
+  /**
    * Format alarm email
    */
   formatAlarmEmail(alarm) {
-    const timestamp = new Date().toLocaleString();
+    const timestamp = this.formatISTTimestamp();
     const severityColor = this.getSeverityColor(alarm.severity);
     
     const subject = `🚨 ${alarm.severity.toUpperCase()} ALARM: ${alarm.name} - ${alarm.unit_no || alarm.device_name}`;
@@ -751,7 +768,7 @@ class EmailService {
             <p><strong>Alarm Name:</strong> ${alarmData.alarmName || 'Unknown'}</p>
             <p><strong>Device:</strong> ${alarmData.deviceName || 'Unknown'}</p>
             
-            <p><strong>Timestamp:</strong> ${alarmData.timestamp || new Date().toLocaleString()}</p>
+            <p><strong>Timestamp:</strong> ${alarmData.timestamp || this.formatISTTimestamp()}</p>
             
             <h3>Reason:</h3>
             <p>${alarmData.reason || 'No reason provided'}</p>

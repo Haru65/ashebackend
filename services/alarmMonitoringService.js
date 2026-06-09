@@ -355,7 +355,7 @@ class AlarmMonitoringService {
         parameter: alarm.parameter || 'N/A',
         severity: alarm.severity,
         reason: reason,
-        timestamp: new Date().toLocaleString(),
+        timestamp: this.emailService.formatISTTimestamp(),
         device_params: {
           ref_1: parseFloat(params.REF1 || params.ref1 || 0),
           ref_2: parseFloat(params.REF2 || params.ref2 || 0),

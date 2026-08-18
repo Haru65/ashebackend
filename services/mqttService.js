@@ -3097,6 +3097,7 @@ class MQTTService {
       'Shunt Current': 'shuntCurrent',
       'Reference Fail': 'referenceFail',
       'Reference UP': 'referenceUP',
+      'Ref U/P': 'referenceUP',
       'Reference OP': 'referenceOP',
       'Reference OV': 'referenceOP', // Handle both OP and OV variants
       'DI1': 'di1',

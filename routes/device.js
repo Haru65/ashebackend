@@ -9,6 +9,8 @@ router.get('/devices', DeviceController.getAllDevices); // Public endpoint - no 
 router.post('/devices', DeviceController.createDevice); // Public endpoint for adding new devices
 router.get('/devices/mqtt', authenticateToken, requirePermission('read_devices'), DeviceController.getDevices);
 router.get('/devices/params/:deviceName', DeviceController.getDeviceParametersByName); // Get device params by name
+router.put('/devices/:deviceId', DeviceController.updateDevice); // Update editable device details
+router.put('/devices/:deviceId/di-names', DeviceController.updateDeviceDiNames); // Update custom Digital Input display names
 router.get('/devices/:deviceId', DeviceController.getDeviceById); // Public endpoint - no auth required
 router.get('/devices/:deviceId/settings', DeviceController.getDeviceSettings); // Get device configuration/settings
 router.post('/devices/:deviceId/settings/complete', DeviceController.sendCompleteSettingsPayload); // Send complete settings payload

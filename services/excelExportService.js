@@ -117,7 +117,44 @@ class ExcelExportService {
     return query;
   }
 
-  static getBaseColumns() {
+  static async getDeviceDiLabels(deviceId) {
+    const defaults = {
+      DI1: 'DI 1',
+      DI2: 'DI 2',
+      DI3: 'DI 3',
+      DI4: 'DI 4'
+    };
+
+    if (!deviceId) {
+      return defaults;
+    }
+
+    try {
+      const device = await Device.findOne({ deviceId })
+        .select('metadata.diNames')
+        .lean();
+      const names = device?.metadata?.diNames || {};
+
+      return {
+        DI1: typeof names.DI1 === 'string' && names.DI1.trim() ? names.DI1.trim() : defaults.DI1,
+        DI2: typeof names.DI2 === 'string' && names.DI2.trim() ? names.DI2.trim() : defaults.DI2,
+        DI3: typeof names.DI3 === 'string' && names.DI3.trim() ? names.DI3.trim() : defaults.DI3,
+        DI4: typeof names.DI4 === 'string' && names.DI4.trim() ? names.DI4.trim() : defaults.DI4
+      };
+    } catch (error) {
+      console.warn(`⚠️ Could not load DI labels for ${deviceId}:`, error.message);
+      return defaults;
+    }
+  }
+
+  static getBaseColumns(diLabels = {}) {
+    const labels = {
+      DI1: diLabels.DI1 || 'DI 1',
+      DI2: diLabels.DI2 || 'DI 2',
+      DI3: diLabels.DI3 || 'DI 3',
+      DI4: diLabels.DI4 || 'DI 4'
+    };
+
     return [
       { header: 'Device ID', key: 'deviceId', width: 15 },
       { header: 'Location', key: 'location', width: 30 },
@@ -132,10 +169,10 @@ class ExcelExportService {
       { header: 'Ref 1', key: 'ref1', width: 12 },
       { header: 'Ref 2', key: 'ref2', width: 12 },
       { header: 'Ref 3', key: 'ref3', width: 12 },
-      { header: 'DI 1', key: 'di1', width: 12 },
-      { header: 'DI 2', key: 'di2', width: 12 },
-      { header: 'DI 3', key: 'di3', width: 12 },
-      { header: 'DI 4', key: 'di4', width: 12 },
+      { header: labels.DI1, key: 'di1', width: 12 },
+      { header: labels.DI2, key: 'di2', width: 12 },
+      { header: labels.DI3, key: 'di3', width: 12 },
+      { header: labels.DI4, key: 'di4', width: 12 },
       { header: 'DO', key: 'do', width: 12 },
       { header: 'Ref Status 1', key: 'ref1Status', width: 15 },
       { header: 'Ref Status 2', key: 'ref2Status', width: 15 },
@@ -264,6 +301,7 @@ class ExcelExportService {
         modes = [], // Event mode filter: NORMAL, DPOL, INT, INST
         maxRecords = 10000 // Increased to 10000 since filtered data is smaller
       } = options;
+      const diLabels = await ExcelExportService.getDeviceDiLabels(deviceId);
 
       // Build query with proper date handling
       const query = {
@@ -432,6 +470,7 @@ class ExcelExportService {
         'REF FCAL',
         'REF OP',
         'REF UP',
+        'REF U/P',
         // Reference fields - ALL TO BE REMOVED
         'REFERENCE FAIL',
         'REFERENCE OP',
@@ -461,29 +500,7 @@ class ExcelExportService {
       ]);
 
       // Define columns matching the report UI exactly
-      const baseColumns = [
-        { header: 'Device ID', key: 'deviceId', width: 15 },
-        { header: 'Location', key: 'location', width: 30 },
-        { header: 'Status', key: 'status', width: 12 },
-        { header: 'Log No', key: 'logNo', width: 12 },
-        { header: 'Timestamp', key: 'timestamp', width: 25 },
-        { header: 'Mode', key: 'event', width: 15 },
-        { header: 'ACV', key: 'acv', width: 12 },
-        { header: 'ACI', key: 'aci', width: 12 },
-        { header: 'DCV', key: 'dcv', width: 12 },
-        { header: 'DCI', key: 'dci', width: 12 },
-        { header: 'Ref 1', key: 'ref1', width: 12 },
-        { header: 'Ref 2', key: 'ref2', width: 12 },
-        { header: 'Ref 3', key: 'ref3', width: 12 },
-        { header: 'DI 1', key: 'di1', width: 12 },
-        { header: 'DI 2', key: 'di2', width: 12 },
-        { header: 'DI 3', key: 'di3', width: 12 },
-        { header: 'DI 4', key: 'di4', width: 12 },
-        { header: 'DO', key: 'do', width: 12 },
-        { header: 'Ref Status 1', key: 'ref1Status', width: 15 },
-        { header: 'Ref Status 2', key: 'ref2Status', width: 15 },
-        { header: 'Ref Status 3', key: 'ref3Status', width: 15 }
-      ];
+      const baseColumns = ExcelExportService.getBaseColumns(diLabels);
 
       worksheet.columns = baseColumns;
 
@@ -705,6 +722,7 @@ class ExcelExportService {
     } = options;
 
     const query = ExcelExportService.buildTelemetryQuery({ deviceId, startDate, endDate, modes });
+    const diLabels = await ExcelExportService.getDeviceDiLabels(deviceId);
 
     console.log('📊 Streaming telemetry Excel export with query:', {
       start: startDate instanceof Date ? startDate.toISOString() : startDate,
@@ -737,7 +755,7 @@ class ExcelExportService {
     const worksheet = workbook.addWorksheet('Telemetry Data', {
       pageSetup: { paperSize: 9, orientation: 'landscape' }
     });
-    worksheet.columns = ExcelExportService.getBaseColumns();
+    worksheet.columns = ExcelExportService.getBaseColumns(diLabels);
     worksheet.getRow(1).commit();
 
     const eventCounts = {

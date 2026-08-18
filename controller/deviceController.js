@@ -68,7 +68,8 @@ class DeviceController {
         metadata: {
           icon: device.metadata?.icon || null,
           color: device.metadata?.color || null,
-          description: device.metadata?.description || null
+          description: device.metadata?.description || null,
+          diNames: device.metadata?.diNames || null
         },
         configuration: device.configuration || null,
         historicalCollection: device.historicalCollection || null,
@@ -240,7 +241,7 @@ class DeviceController {
       };
 
       const devices = await Device.find({})
-        .select('deviceId deviceName location status sensors metadata mqtt configuration')
+        .select('deviceId deviceName deviceType location status sensors metadata mqtt configuration')
         .lean();
 
       // Transform the data to match the expected frontend format
@@ -295,6 +296,9 @@ class DeviceController {
           id: device._id ? device._id.toString() : device.deviceId,
           deviceId: device.deviceId,
           name: device.deviceName || device.deviceId,
+          deviceName: device.deviceName || device.deviceId,
+          deviceType: device.deviceType || 'IoT Sensor',
+          type: device.deviceType || 'IoT Sensor',
           location: location,
           status: device.status?.state || 'offline',
           lastSeen: device.status?.lastSeen || null,
@@ -303,6 +307,13 @@ class DeviceController {
           icon: device.metadata?.icon || null,
           color: device.metadata?.color || null,
           description: device.metadata?.description || null,
+          diNames: device.metadata?.diNames || null,
+          metadata: {
+            icon: device.metadata?.icon || null,
+            color: device.metadata?.color || null,
+            description: device.metadata?.description || null,
+            diNames: device.metadata?.diNames || null
+          },
           configuration: device.configuration || null
         };
       }));
@@ -314,6 +325,186 @@ class DeviceController {
       });
     } catch (error) {
       console.error('Error fetching devices from MongoDB:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: error.message
+      });
+    }
+  }
+
+  // Update editable device details
+  static async updateDevice(req, res) {
+    try {
+      const { deviceId } = req.params;
+      const {
+        deviceId: nextDeviceId,
+        deviceName,
+        location,
+        deviceType,
+        icon,
+        color,
+        description,
+        mqttBroker,
+        mqttUsername,
+        mqttPassword,
+        topicPrefix,
+        dataTopic,
+        statusTopic,
+        commandTopic
+      } = req.body;
+
+      const trimmedDeviceId = String(nextDeviceId || '').trim();
+      const trimmedDeviceName = String(deviceName || '').trim();
+
+      if (!trimmedDeviceId || !trimmedDeviceName) {
+        return res.status(400).json({
+          success: false,
+          error: 'deviceId and deviceName are required'
+        });
+      }
+
+      let device = await Device.findOne({ deviceId });
+
+      if (!device && /^[0-9a-fA-F]{24}$/.test(deviceId)) {
+        device = await Device.findById(deviceId);
+      }
+
+      if (!device) {
+        return res.status(404).json({
+          success: false,
+          error: 'Device not found',
+          message: `Device with ID ${deviceId} does not exist`
+        });
+      }
+
+      if (trimmedDeviceId !== device.deviceId) {
+        const duplicateDevice = await Device.findOne({ deviceId: trimmedDeviceId });
+        if (duplicateDevice && String(duplicateDevice._id) !== String(device._id)) {
+          return res.status(409).json({
+            success: false,
+            error: `Device with ID ${trimmedDeviceId} already exists`
+          });
+        }
+      }
+
+      const previousDeviceId = device.deviceId;
+
+      device.deviceId = trimmedDeviceId;
+      device.deviceName = trimmedDeviceName;
+      device.location = location || 'Unknown Location';
+      device.deviceType = deviceType || 'IoT Sensor';
+      device.mqtt = {
+        brokerUrl: mqttBroker || device.mqtt?.brokerUrl || process.env.MQTT_BROKER_URL,
+        topicPrefix: topicPrefix || `devices/${trimmedDeviceId}`,
+        topics: {
+          data: dataTopic || `devices/${trimmedDeviceId}/data`,
+          status: statusTopic || `devices/${trimmedDeviceId}/status`,
+          control: commandTopic || `devices/${trimmedDeviceId}/commands`
+        },
+        credentials: {
+          username: mqttUsername || device.mqtt?.credentials?.username || process.env.MQTT_USERNAME,
+          password: mqttPassword || device.mqtt?.credentials?.password || process.env.MQTT_PASSWORD
+        }
+      };
+      device.metadata = {
+        ...(device.metadata?.toObject ? device.metadata.toObject() : device.metadata || {}),
+        icon: icon || device.metadata?.icon || 'bi-device',
+        color: color || device.metadata?.color || '#6c757d',
+        description: description !== undefined ? description : (device.metadata?.description || '')
+      };
+
+      await device.save();
+
+      if (previousDeviceId !== trimmedDeviceId) {
+        const Telemetry = require('../models/telemetry');
+        await Promise.all([
+          DeviceHistory.updateMany({ deviceId: previousDeviceId }, { $set: { deviceId: trimmedDeviceId } }),
+          Telemetry.updateMany({ deviceId: previousDeviceId }, { $set: { deviceId: trimmedDeviceId } })
+        ]);
+      }
+
+      res.json({
+        success: true,
+        message: 'Device updated successfully',
+        device: {
+          id: device._id.toString(),
+          originalDeviceId: deviceId,
+          deviceId: device.deviceId,
+          name: device.deviceName,
+          deviceName: device.deviceName,
+          deviceType: device.deviceType,
+          type: device.deviceType,
+          location: device.location,
+          status: device.status?.state || 'offline',
+          lastSeen: device.status?.lastSeen || null,
+          icon: device.metadata?.icon || 'bi-device',
+          color: device.metadata?.color || '#6c757d',
+          description: device.metadata?.description || ''
+        }
+      });
+    } catch (error) {
+      console.error('Error updating device:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to update device',
+        message: error.message
+      });
+    }
+  }
+
+  // Update custom Digital Input display names for a device
+  static async updateDeviceDiNames(req, res) {
+    try {
+      const { deviceId } = req.params;
+      const inputNames = req.body?.diNames || {};
+      const allowedKeys = ['DI1', 'DI2', 'DI3', 'DI4'];
+      const updates = {};
+
+      for (const key of allowedKeys) {
+        const rawValue = inputNames[key];
+        if (typeof rawValue !== 'string') {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid Digital Input name',
+            message: `${key} must be a non-empty string`
+          });
+        }
+
+        const trimmedValue = rawValue.trim();
+        if (!trimmedValue) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid Digital Input name',
+            message: `${key} cannot be empty`
+          });
+        }
+
+        updates[`metadata.diNames.${key}`] = trimmedValue.slice(0, 60);
+      }
+
+      const device = await Device.findOneAndUpdate(
+        { deviceId },
+        { $set: updates },
+        { new: true, runValidators: true }
+      ).select('deviceId deviceName metadata').lean();
+
+      if (!device) {
+        return res.status(404).json({
+          success: false,
+          error: 'Device not found',
+          message: `Device with ID ${deviceId} does not exist`
+        });
+      }
+
+      res.json({
+        success: true,
+        message: 'Digital Input names updated successfully',
+        deviceId: device.deviceId,
+        diNames: device.metadata?.diNames || null
+      });
+    } catch (error) {
+      console.error('Error updating Digital Input names:', error);
       res.status(500).json({
         success: false,
         error: 'Internal server error',
@@ -736,6 +927,7 @@ class DeviceController {
         deviceId,
         deviceName,
         location: location || 'Unknown Location',
+        deviceType: deviceType || 'IoT Sensor',
         mqtt: {
           brokerUrl: mqttBroker || process.env.MQTT_BROKER_URL,
           topicPrefix: topicPrefix || `devices/${deviceId}`,
@@ -779,6 +971,9 @@ class DeviceController {
         device: {
           deviceId: newDevice.deviceId,
           name: newDevice.deviceName,
+          deviceName: newDevice.deviceName,
+          deviceType: newDevice.deviceType,
+          type: newDevice.deviceType,
           location: newDevice.location,
           status: newDevice.status.state,
           route: `/devices/${newDevice.deviceId}`,
@@ -1131,6 +1326,14 @@ class DeviceController {
           error: 'Bad request',
           message: 'Complete settings payload is required in request body'
         });
+      }
+
+      if (completePayload['Ref U/P'] !== undefined && completePayload['Reference UP'] === undefined) {
+        completePayload['Reference UP'] = completePayload['Ref U/P'];
+      }
+
+      if (completePayload['Ref U/P'] !== undefined) {
+        delete completePayload['Ref U/P'];
       }
 
       // Check if device exists

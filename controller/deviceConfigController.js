@@ -203,6 +203,10 @@ function transformParametersToDeviceFormat(cacheParams) {
       key: 'Reference UP',
       transform: (v) => formatRefValueForDevice(v) || "030"
     },
+    'Ref U/P': {
+      key: 'Reference UP',
+      transform: (v) => formatRefValueForDevice(v) || "030"
+    },
     'Reference OP': {
       key: 'Reference OP',
       transform: (v) => formatRefValueForDevice(v) || "070"
@@ -1206,6 +1210,7 @@ class DeviceConfigController {
           'Shunt Current': 'shuntCurrent',
           'Reference Fail': 'referenceFail',
           'Reference UP': 'referenceUP',
+          'Ref U/P': 'referenceUP',
           'Reference OP': 'referenceOP',
           'Interrupt ON Time': 'interruptOnTime',
           'Interrupt OFF Time': 'interruptOffTime',
@@ -1425,6 +1430,7 @@ class DeviceConfigController {
         'Shunt Current': 'shuntCurrent',
         'Reference Fail': 'referenceFail',
         'Reference UP': 'referenceUP',
+        'Ref U/P': 'referenceUP',
         'Reference OP': 'referenceOP',
         'Interrupt ON Time': 'interruptOnTime',
         'Interrupt OFF Time': 'interruptOffTime',

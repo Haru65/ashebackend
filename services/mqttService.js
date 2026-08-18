@@ -3722,6 +3722,32 @@ class MQTTService {
     console.log(`💾 Cached location: ${key} → ${name}`);
   }
 
+  extractMapCurrentData(payload = {}) {
+    const parameters = payload.Parameters && typeof payload.Parameters === 'object'
+      ? payload.Parameters
+      : {};
+    const getValue = (...keys) => {
+      for (const key of keys) {
+        if (parameters[key] !== undefined && parameters[key] !== null && parameters[key] !== '') {
+          return parameters[key];
+        }
+        if (payload[key] !== undefined && payload[key] !== null && payload[key] !== '') {
+          return payload[key];
+        }
+      }
+      return 'N/A';
+    };
+    const digitalOutput = getValue('DO1', 'do1', 'DO', 'do', 'Digital Output', 'DIGITAL OUTPUT');
+
+    return {
+      DCV: getValue('DCV', 'dcv'),
+      DCI: getValue('DCI', 'dci'),
+      REF1: getValue('REF1', 'ref1'),
+      DO1: digitalOutput,
+      DO: digitalOutput
+    };
+  }
+
   // Function to emit active device locations for map display
   async emitActiveDeviceLocations(deviceId, payload) {
     try {
@@ -3768,6 +3794,7 @@ class MQTTService {
       
       // Only emit if we have valid coordinates
       if (latitude !== null && longitude !== null) {
+        const currentData = this.extractMapCurrentData(payload);
         const deviceLocationData = {
           deviceId: deviceId,
           name: deviceName,
@@ -3776,7 +3803,9 @@ class MQTTService {
           location: locationName,
           timestamp: payload.TimeStamp || new Date().toISOString(),
           isActive: true,
-          lastSeen: Date.now()
+          lastSeen: Date.now(),
+          currentData,
+          ...currentData
         };
         
         // Store device location for summary emission
@@ -3784,7 +3813,8 @@ class MQTTService {
           name: deviceLocationData.name,
           latitude: deviceLocationData.latitude,
           longitude: deviceLocationData.longitude,
-          location: locationName
+          location: locationName,
+          currentData
         });
         
         console.log(`📍 Device ${deviceId} location data:`, deviceLocationData);
@@ -3836,7 +3866,9 @@ class MQTTService {
               latitude: deviceLocation.latitude,
               longitude: deviceLocation.longitude,
               lastSeen: lastActivity,
-              isActive: true
+              isActive: true,
+              currentData: deviceLocation.currentData || {},
+              ...(deviceLocation.currentData || {})
             });
           }
         }

@@ -56,7 +56,13 @@ const DeviceSchema = new Schema({
   metadata: {
     icon: { type: String, default: null },
     color: { type: String, default: null },
-    description: { type: String, default: null }
+    description: { type: String, default: null },
+    diNames: {
+      DI1: { type: String, default: 'DI 1' },
+      DI2: { type: String, default: 'DI 2' },
+      DI3: { type: String, default: 'DI 3' },
+      DI4: { type: String, default: 'DI 4' }
+    }
   },
   // Device configuration/settings (expanded with missing parameters)
   configuration: {

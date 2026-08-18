@@ -261,7 +261,7 @@ class DeviceController {
               location = latestTelemetry.location;
             }
             
-            // Extract only DCV, DCI, REF1 from telemetry data
+            // Extract DCV, DCI, REF1, and Digital Output from telemetry data
             if (latestTelemetry.data) {
               let allData = {};
               if (latestTelemetry.data instanceof Map) {
@@ -269,12 +269,25 @@ class DeviceController {
               } else if (typeof latestTelemetry.data === 'object' && latestTelemetry.data !== null) {
                 allData = latestTelemetry.data;
               }
+
+              const getTelemetryValue = (...keys) => {
+                for (const key of keys) {
+                  if (allData[key] !== undefined && allData[key] !== null && allData[key] !== '') {
+                    return allData[key];
+                  }
+                }
+                return 'N/A';
+              };
+
+              const digitalOutput = getTelemetryValue('DO1', 'do1', 'DO', 'do', 'Digital Output', 'DIGITAL OUTPUT');
               
               // Extract only the required fields
               currentData = {
-                DCV: allData.DCV || 'N/A',
-                DCI: allData.DCI || 'N/A',
-                REF1: allData.REF1 || 'N/A'
+                DCV: getTelemetryValue('DCV', 'dcv'),
+                DCI: getTelemetryValue('DCI', 'dci'),
+                REF1: getTelemetryValue('REF1', 'ref1'),
+                DO1: digitalOutput,
+                DO: digitalOutput
               };
               
               console.log(`📊 Device ${device.deviceId} extracted sensor values:`, currentData);
@@ -302,7 +315,7 @@ class DeviceController {
           location: location,
           status: device.status?.state || 'offline',
           lastSeen: device.status?.lastSeen || null,
-          currentData: currentData,  // Only DCV, DCI, REF1
+          currentData: currentData,
           mqttTopic: device.mqtt?.topics?.data || `devices/${device.deviceId}/data`,
           icon: device.metadata?.icon || null,
           color: device.metadata?.color || null,

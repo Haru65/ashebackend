@@ -19,9 +19,13 @@ const rl = readline.createInterface({
 function prompt(question) {
   return new Promise((resolve) => {
     rl.question(question, (answer) => {
-      resolve(answer.trim().toLowerCase());
+      resolve(answer.trim());
     });
   });
+}
+
+function normalizeConfirmation(answer) {
+  return answer.replace(/^["']|["']$/g, '').trim().toUpperCase();
 }
 
 async function clearTelemetryData() {
@@ -158,7 +162,7 @@ async function clearTelemetryData() {
 
     const confirm = await prompt('\nType "DELETE" to confirm: ');
 
-    if (confirm !== 'DELETE') {
+    if (normalizeConfirmation(confirm) !== 'DELETE') {
       console.log('\n✅ Operation cancelled - no data deleted');
       rl.close();
       return;

@@ -279,13 +279,14 @@ class DeviceController {
                 return 'N/A';
               };
 
-              const digitalOutput = getTelemetryValue('DO1', 'do1', 'DO', 'do', 'Digital Output', 'DIGITAL OUTPUT');
+              const digitalOutput = getTelemetryValue('Digital Output', 'DIGITAL OUTPUT', 'DO1', 'do1', 'DO', 'do');
               
               // Extract only the required fields
               currentData = {
                 DCV: getTelemetryValue('DCV', 'dcv'),
                 DCI: getTelemetryValue('DCI', 'dci'),
                 REF1: getTelemetryValue('REF1', 'ref1'),
+                'Digital Output': digitalOutput,
                 DO1: digitalOutput,
                 DO: digitalOutput
               };

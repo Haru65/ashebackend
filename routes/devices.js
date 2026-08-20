@@ -6,6 +6,26 @@ const axios = require('axios');
 // Cache for reverse geocoding results to avoid repeated API calls
 const geoCache = new Map();
 
+const normalizeDigitalOutputData = (currentData = {}) => {
+  const digitalOutput = currentData['Digital Output']
+    ?? currentData['DIGITAL OUTPUT']
+    ?? currentData.DO1
+    ?? currentData.do1
+    ?? currentData.DO
+    ?? currentData.do;
+
+  if (digitalOutput === undefined || digitalOutput === null || digitalOutput === '') {
+    return currentData;
+  }
+
+  return {
+    ...currentData,
+    'Digital Output': digitalOutput,
+    DO1: digitalOutput,
+    DO: digitalOutput
+  };
+};
+
 /**
  * Reverse geocode coordinates to location name using Nominatim
  * @param {number} lat - Latitude
@@ -268,6 +288,7 @@ router.get('/devices', async (req, res) => {
               // If it's a plain object, use it directly
               currentData = latestTelemetry.data;
             }
+            currentData = normalizeDigitalOutputData(currentData);
             
             const dataKeys = Object.keys(currentData);
             console.log(`📊 Device ${device.deviceId} has ${dataKeys.length} sensor fields: ${dataKeys.slice(0, 10).join(', ')}${dataKeys.length > 10 ? '...' : ''}`);

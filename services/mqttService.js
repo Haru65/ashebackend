@@ -3737,7 +3737,7 @@ class MQTTService {
       }
       return 'N/A';
     };
-    const digitalOutput = getValue('DO1', 'do1', 'DO', 'do', 'Digital Output', 'DIGITAL OUTPUT');
+    const digitalOutput = getValue('Digital Output', 'DIGITAL OUTPUT', 'DO1', 'do1', 'DO', 'do');
 
     return {
       DCV: getValue('DCV', 'dcv'),

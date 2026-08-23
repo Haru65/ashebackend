@@ -3747,6 +3747,8 @@ class MQTTService {
       REF1: getValue('REF1', 'ref1'),
       'POWER STATUS': powerStatus,
       POWER_STATUS: powerStatus,
+      'Digital Output': digitalOutput,
+      'DIGITAL OUTPUT': digitalOutput,
       DO1: digitalOutput,
       DO: digitalOutput
     };

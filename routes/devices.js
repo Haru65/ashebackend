@@ -253,10 +253,11 @@ router.get('/devices', async (req, res) => {
           lastSeen = fullDevice.status?.lastSeen ? new Date(fullDevice.status.lastSeen).toLocaleString() : 'Never';
         }
         
-        // Get latest telemetry for location and sensor data
+        // Get the latest received telemetry for live location and sensor data.
+        // Device-reported TimeStamp can be older when a packet is replayed.
         const latestTelemetry = await Telemetry.findOne({ deviceId: device.deviceId })
           .select('location status timestamp data event')
-          .sort({ timestamp: -1 });
+          .sort({ _id: -1 });
         
         if (latestTelemetry) {
           // Update location if available from telemetry

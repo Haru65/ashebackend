@@ -218,7 +218,7 @@ class MQTTService {
           
           // Fetch the just-saved telemetry record to get the reverse-geocoded location
           const Telemetry = require('../models/telemetry');
-          const latestTelemetry = await Telemetry.findOne({ deviceId: deviceId }).sort({ timestamp: -1 });
+          const latestTelemetry = await Telemetry.findOne({ deviceId: deviceId }).sort({ _id: -1 });
           if (latestTelemetry && latestTelemetry.location) {
             console.log(`📍 Updated device location from telemetry: ${latestTelemetry.location}`);
             deviceInfo.location = latestTelemetry.location;
@@ -3738,11 +3738,14 @@ class MQTTService {
       return 'N/A';
     };
     const digitalOutput = getValue('Digital Output', 'DIGITAL OUTPUT', 'DO1', 'do1', 'DO', 'do');
+    const powerStatus = getValue('POWER STATUS', 'POWER_STATUS', 'POWER', 'Power', 'power');
 
     return {
       DCV: getValue('DCV', 'dcv'),
       DCI: getValue('DCI', 'dci'),
       REF1: getValue('REF1', 'ref1'),
+      'POWER STATUS': powerStatus,
+      POWER_STATUS: powerStatus,
       DO1: digitalOutput,
       DO: digitalOutput
     };
@@ -3756,13 +3759,24 @@ class MQTTService {
       let deviceName = payload.API || `Device ${deviceId}`;
       let locationName = null;
       
+      const rawLatitude = payload.LATITUDE ?? payload.Parameters?.LATITUDE;
+      const rawLongitude = payload.LONGITUDE ?? payload.Parameters?.LONGITUDE;
+
       // Get latitude/longitude from MQTT payload
-      if (payload.LATITUDE && payload.LONGITUDE && 
-          (payload.LATITUDE !== 0 || payload.LONGITUDE !== 0) &&
-          typeof payload.LATITUDE === 'number' && 
-          typeof payload.LONGITUDE === 'number') {
-        latitude = payload.LATITUDE;
-        longitude = payload.LONGITUDE;
+      if (rawLatitude !== undefined && rawLongitude !== undefined &&
+          rawLatitude !== '' && rawLongitude !== '') {
+        latitude = typeof rawLatitude === 'string' && rawLatitude.includes('°')
+          ? this.convertDMSToDecimal(rawLatitude)
+          : parseFloat(rawLatitude);
+        longitude = typeof rawLongitude === 'string' && rawLongitude.includes('°')
+          ? this.convertDMSToDecimal(rawLongitude)
+          : parseFloat(rawLongitude);
+
+        if (latitude === null || longitude === null || isNaN(latitude) || isNaN(longitude) ||
+            (latitude === 0 && longitude === 0)) {
+          console.log(`⚠️ Device ${deviceId} has invalid LATITUDE/LONGITUDE in payload`);
+          return;
+        }
         
         // ⚡ CRITICAL FIX: Don't block on geocoding - emit immediately with coordinates
         // Reverse geocoding happens in background

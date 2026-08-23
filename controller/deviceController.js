@@ -33,12 +33,13 @@ class DeviceController {
       .limit(1000)
       .lean();
 
-      // Fetch latest telemetry to get reverse-geocoded location (consistent with getAllDevices)
+      // Fetch latest received telemetry to get reverse-geocoded location.
+      // Device-reported TimeStamp can be older when a packet is replayed.
       let location = device.location || 'N/A';
       try {
         const latestTelemetry = await Telemetry.findOne({ deviceId })
           .select('location')
-          .sort({ timestamp: -1 })
+          .sort({ _id: -1 })
           .lean();
         
         if (latestTelemetry && latestTelemetry.location) {
@@ -249,11 +250,11 @@ class DeviceController {
         let location = device.location || 'N/A';
         let currentData = {};
 
-        // Fetch latest telemetry data and extract only DCV, DCI, REF1
+        // Fetch latest received telemetry data and extract only DCV, DCI, REF1
         try {
           const latestTelemetry = await Telemetry.findOne({ deviceId: device.deviceId })
             .select('data location timestamp status')
-            .sort({ timestamp: -1 });
+            .sort({ _id: -1 });
           
           if (latestTelemetry) {
             // Use telemetry location if available

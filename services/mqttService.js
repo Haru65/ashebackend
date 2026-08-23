@@ -2689,7 +2689,8 @@ class MQTTService {
       // Ensure critical REF values are properly captured (but NOT latitude/longitude which are handled as location)
       const criticalFields = ['REF/OP', 'REF/UP', 'REF FAIL', 'REF_OP', 'REF_UP', 'REF_FAIL', 
        'DI1', 'DI2', 'DI3', 'DI4', 'DO1', 'REF1', 'REF2', 'REF3',
-       'Digital Input 1', 'Digital Input 2', 'Digital Input 3', 'Digital Input 4', 'Digital Output'];
+       'Digital Input 1', 'Digital Input 2', 'Digital Input 3', 'Digital Input 4', 'Digital Output',
+       'POWER STATUS', 'POWER_STATUS', 'POWER'];
       
       let criticalAdded = 0;
       criticalFields.forEach(field => {
@@ -3751,6 +3752,24 @@ class MQTTService {
     };
   }
 
+  hasKnownMapValue(value) {
+    if (value === undefined || value === null || value === '') return false;
+    const normalized = String(value).trim().toUpperCase();
+    return normalized !== '' && normalized !== 'N/A' && normalized !== 'UNKNOWN';
+  }
+
+  mergeMapCurrentData(existing = {}, incoming = {}) {
+    const merged = { ...(existing || {}) };
+
+    Object.entries(incoming || {}).forEach(([key, value]) => {
+      if (this.hasKnownMapValue(value)) {
+        merged[key] = value;
+      }
+    });
+
+    return merged;
+  }
+
   // Function to emit active device locations for map display
   async emitActiveDeviceLocations(deviceId, payload) {
     try {
@@ -3758,6 +3777,23 @@ class MQTTService {
       let longitude = null;
       let deviceName = payload.API || `Device ${deviceId}`;
       let locationName = null;
+      const previousLocation = this.deviceLocations?.get(deviceId);
+
+      const usePreviousLocation = () => {
+        if (
+          previousLocation &&
+          this.hasKnownMapValue(previousLocation.latitude) &&
+          this.hasKnownMapValue(previousLocation.longitude) &&
+          (Number(previousLocation.latitude) !== 0 || Number(previousLocation.longitude) !== 0)
+        ) {
+          latitude = Number(previousLocation.latitude);
+          longitude = Number(previousLocation.longitude);
+          locationName = previousLocation.location || `${latitude}, ${longitude}`;
+          return true;
+        }
+
+        return false;
+      };
       
       const rawLatitude = payload.LATITUDE ?? payload.Parameters?.LATITUDE;
       const rawLongitude = payload.LONGITUDE ?? payload.Parameters?.LONGITUDE;
@@ -3774,44 +3810,53 @@ class MQTTService {
 
         if (latitude === null || longitude === null || isNaN(latitude) || isNaN(longitude) ||
             (latitude === 0 && longitude === 0)) {
-          console.log(`⚠️ Device ${deviceId} has invalid LATITUDE/LONGITUDE in payload`);
+          if (!usePreviousLocation()) {
+            console.log(`⚠️ Device ${deviceId} has invalid LATITUDE/LONGITUDE in payload and no previous map location`);
+            return;
+          }
+        }
+
+        if (!locationName) {
+          // ⚡ CRITICAL FIX: Don't block on geocoding - emit immediately with coordinates
+          // Reverse geocoding happens in background
+          locationName = `${latitude}, ${longitude}`;
+          console.log(`📍 Device ${deviceId} coordinates: ${latitude}, ${longitude}`);
+          
+          // Trigger reverse geocoding in background (non-blocking)
+          setImmediate(() => {
+            this.reverseGeocodeLocation(latitude, longitude)
+              .then(resolvedLocation => {
+                if (resolvedLocation && resolvedLocation !== locationName) {
+                  console.log(`✅ Device ${deviceId} location resolved: ${resolvedLocation}`);
+                  // Update device locations map with resolved location
+                  if (this.deviceLocations.has(deviceId)) {
+                    const existing = this.deviceLocations.get(deviceId);
+                    existing.location = resolvedLocation;
+                    this.deviceLocations.set(deviceId, existing);
+                  }
+                }
+              })
+              .catch(error => {
+                console.warn(`⚠️ Background geocoding failed for device ${deviceId}:`, error.message);
+              });
+          });
+        }
+      } else {
+        if (!usePreviousLocation()) {
+          console.log(`⚠️ Device ${deviceId} has invalid or missing LATITUDE/LONGITUDE in payload and no previous map location`);
           return;
         }
-        
-        // ⚡ CRITICAL FIX: Don't block on geocoding - emit immediately with coordinates
-        // Reverse geocoding happens in background
-        locationName = `${latitude}, ${longitude}`;
-        console.log(`📍 Device ${deviceId} coordinates: ${latitude}, ${longitude}`);
-        
-        // Trigger reverse geocoding in background (non-blocking)
-        setImmediate(() => {
-          this.reverseGeocodeLocation(latitude, longitude)
-            .then(resolvedLocation => {
-              if (resolvedLocation && resolvedLocation !== locationName) {
-                console.log(`✅ Device ${deviceId} location resolved: ${resolvedLocation}`);
-                // Update device locations map with resolved location
-                if (this.deviceLocations.has(deviceId)) {
-                  const existing = this.deviceLocations.get(deviceId);
-                  existing.location = resolvedLocation;
-                  this.deviceLocations.set(deviceId, existing);
-                }
-              }
-            })
-            .catch(error => {
-              console.warn(`⚠️ Background geocoding failed for device ${deviceId}:`, error.message);
-            });
-        });
-      } else {
-        console.log(`⚠️ Device ${deviceId} has invalid or missing LATITUDE/LONGITUDE in payload`);
-        return;
       }
       
       // Only emit if we have valid coordinates
       if (latitude !== null && longitude !== null) {
-        const currentData = this.extractMapCurrentData(payload);
+        const currentData = this.mergeMapCurrentData(
+          previousLocation?.currentData,
+          this.extractMapCurrentData(payload)
+        );
         const deviceLocationData = {
           deviceId: deviceId,
-          name: deviceName,
+          name: previousLocation?.name || deviceName,
           latitude: latitude,
           longitude: longitude,
           location: locationName,
@@ -3828,7 +3873,8 @@ class MQTTService {
           latitude: deviceLocationData.latitude,
           longitude: deviceLocationData.longitude,
           location: locationName,
-          currentData
+          currentData,
+          lastSeen: deviceLocationData.lastSeen
         });
         
         console.log(`📍 Device ${deviceId} location data:`, deviceLocationData);
@@ -3879,7 +3925,8 @@ class MQTTService {
               name: deviceLocation.name || `Device ${deviceId}`,
               latitude: deviceLocation.latitude,
               longitude: deviceLocation.longitude,
-              lastSeen: lastActivity,
+              location: deviceLocation.location,
+              lastSeen: deviceLocation.lastSeen || lastActivity,
               isActive: true,
               currentData: deviceLocation.currentData || {},
               ...(deviceLocation.currentData || {})

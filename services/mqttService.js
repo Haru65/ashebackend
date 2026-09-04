@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const Device = require('../models/Device');
 const alarmMonitoringService = require('./alarmMonitoringService');
 const powerStatusMonitoringService = require('./powerStatusMonitoringService');
+const { reverseGeocode } = require('./geolocationService');
 
 // Helper function to convert degree format coordinates to decimal
 // Format: "19°03'N" or "072°52'E" -> 19.05 or -72.87
@@ -3452,10 +3453,9 @@ class MQTTService {
         console.log(`📍 Found location in DMS map: ${dmsLocationName}`);
         return dmsLocationName;
       }
-      
-      // Set a hard timeout for the entire geocoding operation (max 20 seconds)
-      // This prevents any single geocoding attempt from blocking the system
-      const gecodingPromise = this._performReverseGeocoding(lat, lon);
+
+      // Set a hard timeout for the entire geocoding operation.
+      const gecodingPromise = reverseGeocode(lat, lon);
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Geocoding timeout exceeded')), 20000)
       );

@@ -1,10 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Device = require('../models/Device');
-const axios = require('axios');
-
-// Cache for reverse geocoding results to avoid repeated API calls
-const geoCache = new Map();
+const { reverseGeocode } = require('../services/geolocationService');
 
 const normalizeDigitalOutputData = (currentData = {}) => {
   const digitalOutput = currentData['Digital Output']
@@ -24,67 +21,6 @@ const normalizeDigitalOutputData = (currentData = {}) => {
     DO1: digitalOutput,
     DO: digitalOutput
   };
-};
-
-/**
- * Reverse geocode coordinates to location name using Nominatim
- * @param {number} lat - Latitude
- * @param {number} lon - Longitude
- * @returns {Promise<string>} - Location name or coordinates as fallback
- */
-const reverseGeocode = async (lat, lon) => {
-  const cacheKey = `${lat},${lon}`;
-  
-  // Check cache first
-  if (geoCache.has(cacheKey)) {
-    console.log(`✅ Using cached location for ${cacheKey}`);
-    return geoCache.get(cacheKey);
-  }
-
-  try {
-    console.log(`🌐 Reverse geocoding ${cacheKey}...`);
-    const response = await axios.get('https://nominatim.openstreetmap.org/reverse', {
-      params: {
-        format: 'json',
-        lat: lat,
-        lon: lon,
-        zoom: 18,
-        addressdetails: 1
-      },
-      headers: {
-        'User-Agent': 'AsheControl-IoT'
-      },
-      timeout: 5000
-    });
-
-    if (response.data && response.data.address) {
-      // Try to get the most relevant address part - prioritize specific locations
-      const addr = response.data.address;
-      // Priority: village > town > suburb > city_district > hamlet > neighbourhood > city > county
-      const location = 
-        addr.village || 
-        addr.town || 
-        addr.suburb || 
-        addr.city_district || 
-        addr.hamlet ||
-        addr.neighbourhood ||
-        addr.city || 
-        addr.county || 
-        response.data.display_name.split(',')[0]; // Get first part of display_name
-      
-      console.log(`📍 Geocoded ${cacheKey} to: ${location}`);
-      console.log(`   Full address:`, response.data.display_name);
-      geoCache.set(cacheKey, location);
-      return location;
-    }
-  } catch (error) {
-    console.warn(`⚠️ Reverse geocoding failed for ${cacheKey}:`, error.message);
-  }
-
-  // Fallback to coordinates
-  const fallback = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
-  geoCache.set(cacheKey, fallback);
-  return fallback;
 };
 
 /**

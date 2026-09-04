@@ -4,6 +4,7 @@ const alarmMonitoringService = require('../services/alarmMonitoringService');
 const { secondsToHHMMSS, hhmmssToSeconds, ensureLoggingIntervalFormat } = require('../utils/timeConverter');
 const Device = require('../models/Device');
 const DeviceHistory = require('../models/DeviceHistory');
+const { reverseGeocode } = require('../services/geolocationService');
 
 class DeviceController {
   // Get specific device by deviceId with historical data
@@ -47,6 +48,16 @@ class DeviceController {
         }
       } catch (err) {
         console.warn(`⚠️ Could not fetch telemetry location for ${deviceId}:`, err.message);
+      }
+
+      const coordMatch = typeof location === 'string'
+        ? location.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/)
+        : null;
+      if (coordMatch) {
+        const resolvedLocation = await reverseGeocode(parseFloat(coordMatch[1]), parseFloat(coordMatch[2]));
+        if (resolvedLocation) {
+          location = resolvedLocation;
+        }
       }
 
       // Transform device data
@@ -197,49 +208,7 @@ class DeviceController {
   // Get all devices from MongoDB
   static async getAllDevices(req, res) {
     try {
-      const axios = require('axios');
       const Telemetry = require('../models/telemetry');
-      const geoCache = new Map();
-
-      // Reverse geocode function
-      const reverseGeocode = async (lat, lon) => {
-        const cacheKey = `${lat},${lon}`;
-        if (geoCache.has(cacheKey)) {
-          console.log(`✅ Using cached location for ${cacheKey}`);
-          return geoCache.get(cacheKey);
-        }
-
-        try {
-          console.log(`🌐 Reverse geocoding ${cacheKey}...`);
-          const response = await axios.get('https://nominatim.openstreetmap.org/reverse', {
-            params: {
-              format: 'json',
-              lat: lat,
-              lon: lon,
-              zoom: 18,
-              addressdetails: 1
-            },
-            headers: {
-              'User-Agent': 'AsheControl-IoT'
-            },
-            timeout: 5000
-          });
-
-          if (response.data && response.data.address) {
-            const addr = response.data.address;
-            const location = addr.city || addr.town || addr.village || addr.suburb || addr.county || response.data.display_name;
-            console.log(`📍 Geocoded ${cacheKey} to: ${location}`);
-            geoCache.set(cacheKey, location);
-            return location;
-          }
-        } catch (error) {
-          console.warn(`⚠️ Reverse geocoding failed for ${cacheKey}:`, error.message);
-        }
-
-        const fallback = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
-        geoCache.set(cacheKey, fallback);
-        return fallback;
-      };
 
       const devices = await Device.find({})
         .select('deviceId deviceName deviceType location status sensors metadata mqtt configuration')

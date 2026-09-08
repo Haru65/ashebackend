@@ -88,13 +88,22 @@ MQTT_PASSWORD=mqtt_password
 # ============================================
 
 # Device status check interval (in minutes)
-DEVICE_STATUS_CHECK_INTERVAL=2
+DEVICE_STATUS_CHECK_INTERVAL_MINUTES=2
+
+# Device warning threshold (in minutes)
+DEVICE_WARNING_THRESHOLD_MINUTES=3
 
 # Device offline threshold (in minutes)
-DEVICE_OFFLINE_THRESHOLD=5
+DEVICE_OFFLINE_THRESHOLD_MINUTES=5
 
-# Device polling timeout (in seconds)
-DEVICE_POLLING_TIMEOUT=30
+# MQTT active-device timeout (in milliseconds)
+MQTT_DEVICE_TIMEOUT_MS=120000
+
+# Dashboard map active-location timeout (in milliseconds)
+ACTIVE_DEVICE_LOCATION_TIMEOUT_MS=120000
+
+# Dynamic logging timeout multiplier; 6 allows five missed payloads
+DEVICE_LOGGING_TIMEOUT_MULTIPLIER=6
 
 ---
 

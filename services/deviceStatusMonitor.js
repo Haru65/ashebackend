@@ -9,9 +9,9 @@ const Device = require('../models/Device');
 class DeviceStatusMonitor {
   constructor() {
     this.interval = null;
-    this.checkIntervalMs = 2 * 60 * 1000; // 2 minutes
-    this.warningThresholdMs = 3 * 60 * 1000; // 3 minutes
-    this.offlineThresholdMs = 5 * 60 * 1000; // 5 minutes
+    this.checkIntervalMs = Number(process.env.DEVICE_STATUS_CHECK_INTERVAL_MINUTES || 2) * 60 * 1000;
+    this.warningThresholdMs = Number(process.env.DEVICE_WARNING_THRESHOLD_MINUTES || 3) * 60 * 1000;
+    this.offlineThresholdMs = Number(process.env.DEVICE_OFFLINE_THRESHOLD_MINUTES || 5) * 60 * 1000;
   }
 
   /**
@@ -94,13 +94,13 @@ class DeviceStatusMonitor {
 
         // Determine new status based on lastSeen
         if (timeSinceLastSeen > this.offlineThresholdMs) {
-          // Offline: lastSeen > 5 minutes
+          // Offline: lastSeen is older than configured offline threshold.
           newStatus = 'offline';
         } else if (timeSinceLastSeen > this.warningThresholdMs) {
-          // Warning: lastSeen between 3-5 minutes
+          // Warning: lastSeen is between warning and offline thresholds.
           newStatus = 'warning';
         } else {
-          // Online: lastSeen < 3 minutes
+          // Online: lastSeen is within configured warning threshold.
           newStatus = 'online';
         }
 

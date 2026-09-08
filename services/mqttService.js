@@ -84,10 +84,9 @@ class MQTTService {
     this.lastDeviceTimestamp = 0;
     this.connectionStatus = { device: false };
     
-    // Device activity tracking - keep connected for 40 seconds after last message
-    // Device sends every 10 seconds, so 40 seconds = 4x the interval (allows 3 missed messages for network delays)
+    // Device activity tracking - keep connected after missed messages/network delays.
     this.deviceLastActivity = new Map(); // deviceId -> timestamp
-    this.DEVICE_TIMEOUT = 40000; // 40 seconds - handles network jitter
+    this.DEVICE_TIMEOUT = Number(process.env.MQTT_DEVICE_TIMEOUT_MS || 120000);
     
     // Memory-based acknowledgment tracking
     this.pendingCommands = new Map(); // commandId -> command details
@@ -121,6 +120,9 @@ class MQTTService {
     // Location tracking
     this.lastLocationSummaryEmit = 0;
     this.deviceLocations = new Map(); // deviceId -> {name, latitude, longitude}
+    this.activeDeviceLocationTimeout = Number(
+      process.env.ACTIVE_DEVICE_LOCATION_TIMEOUT_MS || this.DEVICE_TIMEOUT
+    );
     this.locationCache = {}; // Coordinate-based location cache
   }
 
@@ -2526,11 +2528,14 @@ class MQTTService {
     
     const timeSinceActivity = Date.now() - lastActivity;
     
-    // Use dynamic timeout based on device's logging interval if available
-    const deviceLoggingData = this.deviceLoggingIntervals.get(deviceId);
-    const timeout = deviceLoggingData ? deviceLoggingData.timeout : this.DEVICE_TIMEOUT;
+    const timeout = this.getDeviceActivityTimeout(deviceId);
     
     return timeSinceActivity < timeout;
+  }
+
+  getDeviceActivityTimeout(deviceId) {
+    const deviceLoggingData = this.deviceLoggingIntervals.get(deviceId);
+    return deviceLoggingData ? deviceLoggingData.timeout : this.DEVICE_TIMEOUT;
   }
   
   // Check if any device is active
@@ -2538,8 +2543,7 @@ class MQTTService {
     const now = Date.now();
     for (const [deviceId, lastActivity] of this.deviceLastActivity.entries()) {
       // Use dynamic timeout based on device's logging interval if available
-      const deviceLoggingData = this.deviceLoggingIntervals.get(deviceId);
-      const timeout = deviceLoggingData ? deviceLoggingData.timeout : this.DEVICE_TIMEOUT;
+      const timeout = this.getDeviceActivityTimeout(deviceId);
       
       if (now - lastActivity < timeout) {
         return true;
@@ -3430,8 +3434,12 @@ class MQTTService {
         }
         
         if (intervalSeconds > 0) {
-          // Store the interval with 4x multiplier for timeout (allows 3 missed messages)
-          const dynamicTimeout = intervalSeconds * 4 * 1000; // Convert to milliseconds
+          const missedMessageMultiplier = Number(process.env.DEVICE_LOGGING_TIMEOUT_MULTIPLIER || 6);
+          const minimumTimeout = this.DEVICE_TIMEOUT;
+          const dynamicTimeout = Math.max(
+            intervalSeconds * missedMessageMultiplier * 1000,
+            minimumTimeout
+          );
           this.deviceLoggingIntervals.set(deviceId, { intervalSeconds, timeout: dynamicTimeout });
           console.log(`⏱️ Device ${deviceId} logging interval: ${intervalSeconds}s → dynamic timeout: ${(dynamicTimeout / 1000).toFixed(1)}s`);
         }
@@ -3906,7 +3914,6 @@ class MQTTService {
       this.lastLocationSummaryEmit = now;
       
       const activeDevices = [];
-      const activeDeviceTimeout = 15000; // 15 seconds timeout for active devices
       
       // Store device locations temporarily for summary
       if (!this.deviceLocations) {
@@ -3915,6 +3922,11 @@ class MQTTService {
       
       // Check which devices are still active based on last activity
       for (const [deviceId, lastActivity] of this.deviceLastActivity.entries()) {
+        const activeDeviceTimeout = Math.max(
+          this.activeDeviceLocationTimeout,
+          this.getDeviceActivityTimeout(deviceId)
+        );
+
         if (now - lastActivity <= activeDeviceTimeout) {
           const deviceLocation = this.deviceLocations.get(deviceId);
           

@@ -6,6 +6,127 @@ const Device = require('../models/Device');
 const DeviceHistory = require('../models/DeviceHistory');
 const { reverseGeocode } = require('../services/geolocationService');
 
+const parseCoordinatePair = (value) => {
+  if (typeof value !== 'string') return null;
+
+  const match = value.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
+  if (!match) return null;
+
+  const latitude = parseFloat(match[1]);
+  const longitude = parseFloat(match[2]);
+
+  if (Number.isNaN(latitude) || Number.isNaN(longitude) || (latitude === 0 && longitude === 0)) {
+    return null;
+  }
+
+  return { latitude, longitude };
+};
+
+const getCoordinateFromData = (currentData = {}) => {
+  const latitude = currentData.LATITUDE ?? currentData.latitude ?? currentData.Latitude;
+  const longitude = currentData.LONGITUDE ?? currentData.longitude ?? currentData.Longitude;
+
+  if (latitude === undefined || longitude === undefined || latitude === '' || longitude === '') {
+    return null;
+  }
+
+  const parsedLatitude = parseFloat(latitude);
+  const parsedLongitude = parseFloat(longitude);
+
+  if (Number.isNaN(parsedLatitude) || Number.isNaN(parsedLongitude) || (parsedLatitude === 0 && parsedLongitude === 0)) {
+    return null;
+  }
+
+  return { latitude: parsedLatitude, longitude: parsedLongitude };
+};
+
+const getTelemetryObject = (telemetryData) => {
+  if (!telemetryData) return {};
+  if (telemetryData instanceof Map) return Object.fromEntries(telemetryData);
+  if (typeof telemetryData === 'object') return telemetryData;
+  return {};
+};
+
+const getKnownTelemetryValue = (source = {}, keys = []) => {
+  for (const key of keys) {
+    if (source[key] !== undefined && source[key] !== null && source[key] !== '') {
+      return source[key];
+    }
+  }
+
+  return 'N/A';
+};
+
+const toMapCurrentData = (source = {}) => {
+  const digitalOutput = getKnownTelemetryValue(source, [
+    'Digital Output',
+    'DIGITAL OUTPUT',
+    'DigitalOutput',
+    'DIGITAL_OUTPUT',
+    'DIGITAL_OUT',
+    'OUTPUT',
+    'output',
+    'DO1',
+    'do1',
+    'DO',
+    'do'
+  ]);
+  const powerStatus = getKnownTelemetryValue(source, [
+    'POWER STATUS',
+    'POWER_STATUS',
+    'POWER',
+    'Power',
+    'power'
+  ]);
+
+  return {
+    DCV: getKnownTelemetryValue(source, ['DCV', 'dcv']),
+    DCI: getKnownTelemetryValue(source, ['DCI', 'dci']),
+    REF1: getKnownTelemetryValue(source, ['REF1', 'ref1']),
+    LATITUDE: getKnownTelemetryValue(source, ['LATITUDE', 'latitude', 'Latitude']),
+    LONGITUDE: getKnownTelemetryValue(source, ['LONGITUDE', 'longitude', 'Longitude']),
+    'POWER STATUS': powerStatus,
+    POWER_STATUS: powerStatus,
+    POWER: powerStatus,
+    'Digital Output': digitalOutput,
+    'DIGITAL OUTPUT': digitalOutput,
+    DO1: digitalOutput,
+    DO: digitalOutput
+  };
+};
+
+const getMapDeviceDto = async (device, latestTelemetry = null) => {
+  const telemetryData = getTelemetryObject(latestTelemetry?.data);
+  const currentData = toMapCurrentData(telemetryData);
+  const rawLocation = latestTelemetry?.location || device.location || 'N/A';
+  const locationCoordinates = parseCoordinatePair(rawLocation);
+  const telemetryCoordinates = getCoordinateFromData(currentData);
+  const coordinates = locationCoordinates || telemetryCoordinates;
+  let locationName = rawLocation;
+
+  if (locationCoordinates) {
+    locationName = await reverseGeocode(locationCoordinates.latitude, locationCoordinates.longitude);
+  }
+
+  const status = latestTelemetry?.status || device.status?.state || 'offline';
+  const lastSeen = latestTelemetry?.timestamp || device.status?.lastSeen || null;
+
+  return {
+    deviceId: device.deviceId,
+    name: device.deviceName || device.deviceId,
+    latitude: coordinates?.latitude ?? null,
+    longitude: coordinates?.longitude ?? null,
+    location: locationName,
+    locationName,
+    rawLocation,
+    status,
+    isActive: status === 'online',
+    lastSeen,
+    currentData,
+    ...currentData
+  };
+};
+
 class DeviceController {
   // Get specific device by deviceId with historical data
   static async getDeviceById(req, res) {
@@ -249,14 +370,29 @@ class DeviceController {
                 return 'N/A';
               };
 
-              const digitalOutput = getTelemetryValue('Digital Output', 'DIGITAL OUTPUT', 'DO1', 'do1', 'DO', 'do');
+              const digitalOutput = getTelemetryValue(
+                'Digital Output',
+                'DIGITAL OUTPUT',
+                'DigitalOutput',
+                'DIGITAL_OUTPUT',
+                'DIGITAL_OUT',
+                'OUTPUT',
+                'output',
+                'DO1',
+                'do1',
+                'DO',
+                'do'
+              );
               
               // Extract only the required fields
               currentData = {
                 DCV: getTelemetryValue('DCV', 'dcv'),
                 DCI: getTelemetryValue('DCI', 'dci'),
                 REF1: getTelemetryValue('REF1', 'ref1'),
+                LATITUDE: getTelemetryValue('LATITUDE', 'latitude', 'Latitude'),
+                LONGITUDE: getTelemetryValue('LONGITUDE', 'longitude', 'Longitude'),
                 'Digital Output': digitalOutput,
+                'DIGITAL OUTPUT': digitalOutput,
                 DO1: digitalOutput,
                 DO: digitalOutput
               };
@@ -268,12 +404,15 @@ class DeviceController {
           console.warn(`⚠️ Could not fetch telemetry for ${device.deviceId}:`, err.message);
         }
 
-        // Reverse geocode if location is coordinates
-        const coordMatch = location.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
-        if (coordMatch) {
-          const lat = parseFloat(coordMatch[1]);
-          const lon = parseFloat(coordMatch[2]);
-          location = await reverseGeocode(lat, lon);
+        const locationCoordinates = parseCoordinatePair(location);
+        const telemetryCoordinates = getCoordinateFromData(currentData);
+        const coordinates = locationCoordinates || telemetryCoordinates;
+        const rawLocation = location;
+        let locationName = location;
+
+        // Reverse geocode only for display; keep raw coordinates for map placement.
+        if (locationCoordinates) {
+          locationName = await reverseGeocode(locationCoordinates.latitude, locationCoordinates.longitude);
         }
 
         return {
@@ -283,7 +422,11 @@ class DeviceController {
           deviceName: device.deviceName || device.deviceId,
           deviceType: device.deviceType || 'IoT Sensor',
           type: device.deviceType || 'IoT Sensor',
-          location: location,
+          location: locationName,
+          locationName: locationName,
+          rawLocation: rawLocation,
+          latitude: coordinates?.latitude ?? null,
+          longitude: coordinates?.longitude ?? null,
           status: device.status?.state || 'offline',
           lastSeen: device.status?.lastSeen || null,
           currentData: currentData,
@@ -309,6 +452,45 @@ class DeviceController {
       });
     } catch (error) {
       console.error('Error fetching devices from MongoDB:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: error.message
+      });
+    }
+  }
+
+  // Get device locations in the exact shape consumed by the dashboard map.
+  static async getDeviceMapLocations(req, res) {
+    try {
+      const Telemetry = require('../models/telemetry');
+
+      const devices = await Device.find({})
+        .select('deviceId deviceName location status')
+        .lean();
+
+      const mapDevices = await Promise.all(devices.map(async (device) => {
+        let latestTelemetry = null;
+
+        try {
+          latestTelemetry = await Telemetry.findOne({ deviceId: device.deviceId })
+            .select('data location timestamp status')
+            .sort({ _id: -1 })
+            .lean();
+        } catch (err) {
+          console.warn(`⚠️ Could not fetch map telemetry for ${device.deviceId}:`, err.message);
+        }
+
+        return getMapDeviceDto(device, latestTelemetry);
+      }));
+
+      res.json({
+        success: true,
+        count: mapDevices.length,
+        devices: mapDevices
+      });
+    } catch (error) {
+      console.error('Error fetching device map locations:', error);
       res.status(500).json({
         success: false,
         error: 'Internal server error',

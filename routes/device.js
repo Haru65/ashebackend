@@ -7,6 +7,7 @@ const router = express.Router();
 // Device routes
 router.get('/devices', DeviceController.getAllDevices); // Public endpoint - no auth required
 router.post('/devices', DeviceController.createDevice); // Public endpoint for adding new devices
+router.get('/devices/map-locations', DeviceController.getDeviceMapLocations); // Public endpoint for dashboard map
 router.get('/devices/mqtt', authenticateToken, requirePermission('read_devices'), DeviceController.getDevices);
 router.get('/devices/params/:deviceName', DeviceController.getDeviceParametersByName); // Get device params by name
 router.put('/devices/:deviceId', DeviceController.updateDevice); // Update editable device details
